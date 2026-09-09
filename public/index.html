@@ -1,0 +1,2382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpeedFace-V5L Attendance Manager</title>
+  <link rel="stylesheet" href="css/style.css?v=2.0.5">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%232563eb'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/></svg>">
+  <script>
+    // Immediate global handlers to ensure zero ReferenceError on early clicks
+    window.openPrintOptionsModal = function() {
+      const modal = document.getElementById('printOptionsModal');
+      if (modal) {
+        modal.classList.add('active');
+        modal.style.display = 'flex';
+      }
+    };
+    window.closePrintOptionsModal = function() {
+      const modal = document.getElementById('printOptionsModal');
+      if (modal) {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+      }
+    };
+    window.toggleReportColumnsMenu = function(e) {
+      if (e) {
+        if (e.stopPropagation) e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      }
+      const menu = document.getElementById('reportColumnsMenu');
+      if (menu) {
+        const triggerBtn = e?.currentTarget || (e?.target ? e.target.closest('button') : null);
+        if (triggerBtn && triggerBtn.parentElement && triggerBtn.parentElement.classList.contains('dropdown')) {
+          if (menu.parentElement !== triggerBtn.parentElement) {
+            triggerBtn.parentElement.appendChild(menu);
+          }
+        }
+        const isOpen = menu.style.display === 'block';
+        if (isOpen) {
+          menu.style.display = 'none';
+        } else {
+          menu.style.display = 'block';
+          if (typeof renderReportColumnSelector === 'function') {
+            renderReportColumnSelector();
+          }
+        }
+      }
+    };
+    window.closeReportColumnsMenu = function() {
+      const menu = document.getElementById('reportColumnsMenu');
+      if (menu) menu.style.display = 'none';
+    };
+    window.selectAllReportColumns = function() {
+      if (typeof window.executeSelectAllReportColumns === 'function') {
+        window.executeSelectAllReportColumns();
+      }
+    };
+    window.resetReportColumns = function() {
+      if (typeof window.executeResetReportColumns === 'function') {
+        window.executeResetReportColumns();
+      }
+    };
+    window.setMatrixLayout = function(layout) {
+      if (typeof window.executeSetMatrixLayout === 'function') {
+        window.executeSetMatrixLayout(layout);
+      }
+    };
+  </script>
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a5 5 0 0 1 5 5v2a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"></path>
+            <path d="M4 22v-2a6 6 0 0 1 12 0v2"></path>
+            <circle cx="19" cy="11" r="2"></circle>
+            <path d="M19 13v4"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h2>SpeedFace</h2>
+          <span class="badge badge-v5l">V5L Series</span>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="tab-dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          Dashboard
+        </button>
+        <button class="nav-item" data-tab="tab-records">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          Attendance Logs
+        </button>
+        <button class="nav-item" data-tab="tab-reports">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          Reports &amp; Timesheets
+        </button>
+        <button class="nav-item" data-tab="tab-employees">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          Employees
+        </button>
+        <button class="nav-item" data-tab="tab-shifts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          Shifts & Holidays
+        </button>
+        <button class="nav-item" data-tab="tab-device">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
+          Device Control
+        </button>
+        <button class="nav-item" data-tab="tab-guide">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          Setup Guide
+        </button>
+        <button class="nav-item" data-tab="tab-api">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+          API Service
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="device-mini-card">
+          <div class="status-indicator online" id="miniDeviceStatusDot"></div>
+          <div class="mini-info">
+            <div class="mini-label">SpeedFace-V5L</div>
+            <div class="mini-ip" id="miniDeviceIp">192.168.10.15</div>
+          </div>
+          <button class="btn-icon" id="quickSyncBtn" title="Sync Records Now">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="quickSyncIcon"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Production Connection Alert Banner -->
+      <div id="connectionAlertBanner" style="display:none; background:#fee2e2; border-bottom:1px solid #fca5a5; color:#991b1b; padding:10px 20px; font-weight:600; font-size:0.88rem; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:9999;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="spin" style="width:14px; height:14px; border:2px solid #991b1b; border-top-color:transparent; border-radius:50%; display:inline-block;"></span>
+          <span id="connectionAlertMessage">Connection to Attendance Server lost. Attempting to reconnect automatically...</span>
+        </div>
+        <button class="btn btn-sm btn-outline" id="btnManualReconnect" style="font-size:0.75rem; padding:2px 8px; border-color:#fca5a5; color:#991b1b; background:#fff;">
+          Retry Now
+        </button>
+      </div>
+
+      <!-- Top Header -->
+      <header class="topbar">
+        <div class="page-title">
+          <h1 id="headerTitle">Attendance Dashboard</h1>
+          <p class="subtitle" id="headerSubtitle">Real-time attendance monitoring for SpeedFace-V5L</p>
+        </div>
+        <div class="topbar-actions">
+          <span class="live-pill">
+            <span class="live-dot"></span> LIVE SYNC
+          </span>
+          <button class="btn btn-primary" id="btnSyncHeader">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            Sync Machine
+          </button>
+        </div>
+      </header>
+
+      <!-- TAB 1: DASHBOARD -->
+      <section class="tab-content active" id="tab-dashboard">
+        <!-- Stat Cards -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon bg-blue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
+            </div>
+            <div class="stat-data">
+              <span class="stat-label">Today's Present Employees</span>
+              <h2 class="stat-value" id="statTodayUsers">0</h2>
+              <span class="stat-sub">Unique IDs punched today</span>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon bg-green">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+            </div>
+            <div class="stat-data">
+              <span class="stat-label">Today's Total Punches</span>
+              <h2 class="stat-value" id="statTodayPunches">0</h2>
+              <span class="stat-sub">Clock in/out transactions</span>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon bg-purple">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            </div>
+            <div class="stat-data">
+              <span class="stat-label">Total Stored Records</span>
+              <h2 class="stat-value" id="statTotalRecords">0</h2>
+              <span class="stat-sub">Persistent in local SQLite</span>
+            </div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-icon bg-amber">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            </div>
+            <div class="stat-data">
+              <span class="stat-label">SpeedFace Machine</span>
+              <h2 class="stat-value text-success" id="statDeviceStatus">Online</h2>
+              <span class="stat-sub" id="statDeviceSub">192.168.10.15:4370</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dashboard Layout: Live Feed + Quick Table -->
+        <div class="dashboard-split">
+          <!-- Live Punch Ticker -->
+          <div class="card feed-card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h3>Live Punch Feed</h3>
+                <span class="pulse-tag"><span class="pulse-ring"></span> Listening</span>
+              </div>
+            </div>
+            <div class="card-body feed-list" id="liveFeedList">
+              <div class="feed-empty">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a5 5 0 0 1 5 5v2a5 5 0 0 1-10 0V7a5 5 0 0 1 5-5z"></path></svg>
+                <p>Waiting for facial scan or punch event from SpeedFace-V5L...</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Today's Recent Logs -->
+          <div class="card recent-card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <h3>Today's Activity</h3>
+                <span class="sub-badge" id="todayActivityBadge">0 records today</span>
+              </div>
+              <button class="btn btn-sm btn-outline" id="btnViewAllLogs">View All Logs &rarr;</button>
+            </div>
+            <div class="card-body table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>User ID</th>
+                    <th>Employee</th>
+                    <th>Verification</th>
+                    <th>State</th>
+                  </tr>
+                </thead>
+                <tbody id="todayLogsTableBody">
+                  <tr><td colspan="5" class="text-center py-4">Loading today's punches...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: ATTENDANCE RECORDS (EXPLORER & EXPORT) -->
+      <section class="tab-content" id="tab-records">
+        <div class="card">
+          <!-- View Mode Toggle Bar -->
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 18px; background: var(--bg-hover, #f8fafc); border-bottom: 1px solid var(--border); border-top-left-radius: 8px; border-top-right-radius: 8px;">
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">View Mode:</span>
+              <button class="btn btn-sm btn-primary" id="btnModeDaily" style="font-weight: 600;">📋 Daily Attendance (First In / Last Out)</button>
+              <button class="btn btn-sm btn-outline" id="btnModePunches" style="font-weight: 600;">⏱️ Detailed Punch Logs</button>
+            </div>
+            <div id="viewModeHint" style="font-size: 0.8rem; color: var(--text-muted);">
+              <strong>Daily Attendance:</strong> First punch calculated as Check-In, last punch as Check-Out per day.
+            </div>
+          </div>
+
+          <!-- Filter Toolbar -->
+          <div class="filter-toolbar">
+            <div class="filter-row">
+              <div class="search-box">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input type="text" id="searchInput" placeholder="Search by User ID, Name, Department...">
+              </div>
+
+              <div class="quick-dates">
+                <button class="btn-chip active" data-date="all">All Records</button>
+                <button class="btn-chip" data-date="today">Today</button>
+                <button class="btn-chip" data-date="yesterday">Yesterday</button>
+                <button class="btn-chip" data-date="week">Last 7 Days</button>
+                <button class="btn-chip" data-date="month">This Month</button>
+              </div>
+            </div>
+
+            <div class="filter-row secondary-filters">
+              <div class="filter-group">
+                <label>From:</label>
+                <input type="date" id="dateStart">
+              </div>
+              <div class="filter-group">
+                <label>To:</label>
+                <input type="date" id="dateEnd">
+              </div>
+
+              <div class="filter-group">
+                <label>Verification:</label>
+                <select id="filterVerifyMode">
+                  <option value="all">All Modes</option>
+                  <option value="15">Face Recognition 👤</option>
+                  <option value="4">Palm ✋</option>
+                  <option value="1">Fingerprint 👆</option>
+                  <option value="2">Card 💳</option>
+                  <option value="0">Password 🔑</option>
+                </select>
+              </div>
+
+              <div class="filter-group">
+                <label>Status:</label>
+                <select id="filterPunchState">
+                  <option value="all">All States</option>
+                  <option value="0">Check-In</option>
+                  <option value="1">Check-Out</option>
+                  <option value="2">Break-Out</option>
+                  <option value="3">Break-In</option>
+                </select>
+              </div>
+
+              <div class="filter-actions">
+                <button class="btn btn-outline" id="btnFilterReset">Reset</button>
+                <button class="btn btn-primary" id="btnFilterApply">Filter</button>
+              </div>
+
+              <div class="export-dropdown">
+                <button class="btn btn-primary" id="btnPrintRecords" title="Print Attendance Records Table or Export PDF">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                  <span>Print</span>
+                </button>
+                <button class="btn btn-success" id="btnExportExcel">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  <span id="exportExcelBtnText">Export Daily (.xlsx)</span>
+                </button>
+                <button class="btn btn-outline" id="btnExportCsv" title="Export as CSV">
+                  CSV
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Daily Attendance Navigation & Summary Stats Bar -->
+          <div id="dailyStatsBanner" style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 14px; padding: 12px 20px; background: #f8fafc; border-bottom: 1px solid var(--border);">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Attendance Date:</span>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <button class="btn btn-sm btn-outline" id="btnDailyPrevDay" title="Previous Day" style="padding: 4px 10px; font-weight: bold;">◀</button>
+                <input type="date" id="dailyDateInput" style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-weight: 600; font-family: monospace; font-size: 0.88rem; background: #fff;">
+                <button class="btn btn-sm btn-outline" id="btnDailyNextDay" title="Next Day" style="padding: 4px 10px; font-weight: bold;">▶</button>
+                <button class="btn btn-sm btn-primary" id="btnDailyToday" style="margin-left: 4px; font-weight: 600;">Today</button>
+              </div>
+            </div>
+
+            <!-- Status Filter Chips with Live Counts -->
+            <div class="quick-status-filters" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+              <button class="btn-chip active" id="chipDailyAll" data-daily-filter="all">All Users (<strong id="countTotal">191</strong>)</button>
+              <button class="btn-chip" id="chipDailyPresent" data-daily-filter="present" style="color: #15803d; font-weight: 600;">🟢 Present (<strong id="countPresent">0</strong>)</button>
+              <button class="btn-chip" id="chipDailyAbsent" data-daily-filter="absent" style="color: #b91c1c; font-weight: 600;">🔴 Absent (<strong id="countAbsent">0</strong>)</button>
+              <button class="btn-chip" id="chipDailyLate" data-daily-filter="late" style="color: #c2410c; font-weight: 600;">🟡 Late / Grace (<strong id="countLate">0</strong>)</button>
+            </div>
+          </div>
+
+          <!-- Printable Records Header (Visible in Print or PDF) -->
+          <div id="printRecordsHeader" class="print-only-header">
+            <div class="print-header-top">
+              <div class="print-org-info">
+                <h1 class="print-org-name" id="printRecordsOrgName">National Institute of Fisheries and Nautical Engineering</h1>
+                <div class="print-org-sub" id="printRecordsOrgSub">Head Office - Human Resources &amp; Attendance Division</div>
+                <div class="print-org-details">
+                  <span id="printRecordsOrgAddress">Crow Island, Mattakkuliya, Colombo 15, Sri Lanka</span>
+                  <span id="printRecordsOrgPhoneWrap"> &bull; Tel: <span id="printRecordsOrgPhone">+94 11 252 0451</span></span>
+                  <span id="printRecordsOrgEmailWrap"> &bull; Email: <span id="printRecordsOrgEmail">info@nifne.ac.lk</span></span>
+                  <span id="printRecordsOrgWebsiteWrap"> &bull; Web: <span id="printRecordsOrgWebsite">www.nifne.ac.lk</span></span>
+                </div>
+              </div>
+              <div class="print-meta-box">
+                <div class="print-meta-badge" id="printRecordsTypeBadge">Attendance Log</div>
+                <div style="font-weight: 700; margin-bottom: 2px;">Date: <span id="printRecordsPeriodRange">-</span></div>
+                <div>Generated: <span id="printRecordsTimestamp">-</span></div>
+                <div>System: SpeedFace-V5L Terminal</div>
+              </div>
+            </div>
+            <div class="print-report-title-bar">
+              <h2 class="print-report-title" id="printRecordsMainTitle">DAILY ATTENDANCE AUDIT REGISTER</h2>
+              <div class="print-report-desc" id="printRecordsSubtitle">Filtered Attendance Log</div>
+            </div>
+          </div>
+
+          <!-- Daily Attendance Summary Table (Default View) -->
+          <div class="card-body table-responsive" id="dailyTableWrap">
+            <table class="data-table" id="dailyTable">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Date</th>
+                  <th>Day</th>
+                  <th>User ID</th>
+                  <th>Employee Name</th>
+                  <th>Department</th>
+                  <th>Shift</th>
+                  <th>Check-In (First Punch)</th>
+                  <th>Check-Out (Last Punch)</th>
+                  <th>Worked Time</th>
+                  <th>OT (Hours)</th>
+                  <th>Daily Status</th>
+                </tr>
+              </thead>
+              <tbody id="dailyTableBody">
+                <tr><td colspan="12" class="text-center py-4">Loading daily attendance records...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Detailed Raw Records Table (Toggle View) -->
+          <div class="card-body table-responsive" id="recordsTableWrap" style="display: none;">
+            <table class="data-table" id="recordsTable">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Date &amp; Time</th>
+                  <th>Day Type</th>
+                  <th>User ID</th>
+                  <th>Employee Name</th>
+                  <th>Department</th>
+                  <th>Shift &amp; Punctuality</th>
+                  <th>Verification Method</th>
+                  <th>Punch Role &amp; State</th>
+                  <th>Device IP</th>
+                </tr>
+              </thead>
+              <tbody id="recordsTableBody">
+                <tr><td colspan="10" class="text-center py-4">Loading attendance records...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Printable Sign-off Footer for Records (Visible in Print or PDF) -->
+          <div id="printRecordsFooter" class="print-only-footer">
+            <div class="print-signatures">
+              <div class="print-sig-block">
+                <div class="print-sig-line"></div>
+                <div class="print-sig-title records-sig1-title">Prepared By</div>
+                <div class="print-sig-sub records-sig1-sub">HR / Attendance Officer</div>
+              </div>
+              <div class="print-sig-block">
+                <div class="print-sig-line"></div>
+                <div class="print-sig-title records-sig2-title">Checked &amp; Verified By</div>
+                <div class="print-sig-sub records-sig2-sub">Head of Department</div>
+              </div>
+              <div class="print-sig-block">
+                <div class="print-sig-line"></div>
+                <div class="print-sig-title records-sig3-title">Authorized Approval</div>
+                <div class="print-sig-sub records-sig3-sub">Director / General Manager</div>
+              </div>
+            </div>
+            <div class="print-footer-note">
+              <span id="printRecordsFooterOrgText">SpeedFace-V5L Automated Biometric Attendance &amp; Payroll System</span>
+              <span>Official Record &bull; Confidential</span>
+            </div>
+          </div>
+
+          <!-- Pagination Bar -->
+          <div class="pagination-bar">
+            <div class="pagination-info" id="paginationInfo">Showing 0 of 0 records</div>
+            <div class="pagination-controls">
+              <button class="btn btn-sm btn-outline" id="btnPrevPage" disabled>&larr; Previous</button>
+              <span class="page-indicator" id="pageIndicator">Page 1 of 1</span>
+              <button class="btn btn-sm btn-outline" id="btnNextPage" disabled>Next &rarr;</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2B: REPORTS & TIMESHEETS -->
+      <section class="tab-content" id="tab-reports">
+        <div class="card">
+          <!-- Report Setup Header -->
+          <div class="card-header" style="flex-wrap: wrap; gap: 14px;">
+            <div class="card-title-group">
+              <h3>Attendance &amp; Timesheet Reports</h3>
+              <p class="subtitle" id="reportHeaderSubtitle">Daily, Weekly, and Monthly reports for all enrolled users or individual employee timesheets</p>
+            </div>
+            
+            <div class="card-header-actions" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <div style="display: inline-flex; align-items: center; gap: 6px; background: #eff6ff; padding: 3px 6px; border-radius: 8px; border: 1px solid #bfdbfe;">
+                <button class="btn btn-primary btn-sm" id="btnPrintReport" title="Print Complete Report or Save as PDF">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                  Print / PDF
+                </button>
+                <select id="selectReportPageSize" title="Paper Size & Print Orientation" style="padding: 4px 8px; border: 1px solid #93c5fd; border-radius: 6px; font-size: 0.8rem; font-weight: 700; background: #fff; color: #1e40af; cursor: pointer;">
+                  <option value="a4-landscape" selected>📄 A4 Landscape (12-14 Cols)</option>
+                  <option value="a4-portrait">📄 A4 Portrait (Timesheet)</option>
+                  <option value="letter-landscape">📄 Letter Landscape</option>
+                  <option value="letter-portrait">📄 Letter Portrait</option>
+                  <option value="legal-landscape">📜 Legal Landscape (Extra-Wide)</option>
+                  <option value="legal-portrait">📜 Legal Portrait</option>
+                  <option value="a3-landscape">🗺️ A3 Landscape (Wide Grid)</option>
+                </select>
+                <button type="button" class="btn btn-outline btn-sm" id="btnOpenPrintOptionsModal" onclick="openPrintOptionsModal()" title="All Print &amp; PDF Options (Margins, Letterhead, Signatures, Font Scale, Ink Saver)" style="padding: 4px 8px; font-weight: 700; background: #fff; border-color: #93c5fd; color: #1e40af; cursor: pointer;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                  <span>Options</span>
+                </button>
+              </div>
+
+              <!-- Column Visibility Selector Dropdown -->
+              <div class="dropdown" style="position: relative; display: inline-block;">
+                <button type="button" class="btn btn-outline btn-sm" id="btnReportColumnsToggle" onclick="toggleReportColumnsMenu(event)" title="Select Visible Columns for Table &amp; Print" style="display: flex; align-items: center; gap: 6px; font-weight: 700; padding: 4px 10px; background: #fff; border-color: #cbd5e1; color: #1e293b; cursor: pointer;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>
+                  <span>Columns</span>
+                  <span id="reportColumnsBadge" style="background: #e2e8f0; color: #1e293b; font-size: 0.72rem; padding: 1px 6px; border-radius: 9999px; font-weight: 700;">All</span>
+                  <span style="font-size: 0.65rem; color: #64748b;">▼</span>
+                </button>
+                <div id="reportColumnsMenu" class="dropdown-menu" style="display: none; position: absolute; right: 0; top: calc(100% + 4px); background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15), 0 8px 10px -6px rgba(0,0,0,0.1); width: 280px; z-index: 1050; padding: 12px; max-height: 440px; overflow-y: auto;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid #e2e8f0; margin-bottom: 8px;">
+                    <div>
+                      <div style="font-weight: 800; font-size: 0.84rem; color: #0f172a;">Column Visibility</div>
+                      <div id="reportColumnsSubtitle" style="font-size: 0.72rem; color: #64748b;">Daily Report (12 columns)</div>
+                    </div>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                      <button type="button" class="btn-link" id="btnReportColumnsAll" onclick="selectAllReportColumns()" style="font-size: 0.75rem; color: #2563eb; background: none; border: none; cursor: pointer; font-weight: 600;">All</button>
+                      <span style="color: #cbd5e1;">|</span>
+                      <button type="button" class="btn-link" id="btnReportColumnsReset" onclick="resetReportColumns()" style="font-size: 0.75rem; color: #64748b; background: none; border: none; cursor: pointer; font-weight: 600;">Reset</button>
+                    </div>
+                  </div>
+                  <div id="reportColumnsList" style="display: flex; flex-direction: column; gap: 6px;">
+                    <!-- Dynamic column checkboxes injected here based on current report mode -->
+                  </div>
+                  <div style="margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e2e8f0; font-size: 0.72rem; color: #94a3b8; display: flex; justify-content: space-between; align-items: center;">
+                    <span>Applies to Screen &amp; Print</span>
+                    <button type="button" class="btn btn-sm btn-outline" id="btnReportColumnsClose" onclick="closeReportColumnsMenu()" style="padding: 2px 8px; font-size: 0.72rem;">Close</button>
+                  </div>
+                </div>
+              </div>
+              <div class="export-dropdown">
+                <button class="btn btn-success btn-sm" id="btnExportReportExcel">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Export Excel (.xlsx)
+                </button>
+                <button class="btn btn-outline btn-sm" id="btnExportReportCsv" title="Export as CSV">CSV</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Interactive Report Controls Bar -->
+          <div style="background: #f8fafc; border-bottom: 1px solid var(--border); padding: 14px 20px; display: flex; flex-direction: column; gap: 14px;">
+            <!-- Row 1: Period Type & Scope Selection -->
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+              <!-- Period Type: Daily / Weekly / Monthly -->
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Period:</span>
+                <div class="btn-group" role="group">
+                  <button class="btn btn-sm btn-primary" id="btnReportTypeDaily">☀️ Daily</button>
+                  <button class="btn btn-sm btn-outline" id="btnReportTypeWeekly">📅 Weekly</button>
+                  <button class="btn btn-sm btn-outline" id="btnReportTypeMonthly">📆 Monthly</button>
+                </div>
+              </div>
+
+              <!-- Scope: All Users vs Matrix vs Single Employee vs Monthly Book -->
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Scope:</span>
+                <div class="btn-group" role="group">
+                  <button class="btn btn-sm btn-primary" id="btnReportScopeAll" title="1-row per employee overview table">🏢 All Users Summary</button>
+                  <button class="btn btn-sm btn-outline" id="btnReportScopeMatrix" title="All days horizontally across the top, employees vertically">📊 All Days Matrix (Days Horizontal)</button>
+                  <button class="btn btn-sm btn-outline" id="btnReportScopeMonthlyBook" title="Complete calendar month day-by-day report: exactly 1 page per person">📑 1 Page Per User (Month Book)</button>
+                  <button class="btn btn-sm btn-outline" id="btnReportScopeSingle" title="Detailed timesheet for single staff">👤 Individual Employee</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Row 2: Date / Period Selector & Employee Selector -->
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 10px; border-top: 1px dashed var(--border);">
+              <!-- Dynamic Period Navigators -->
+              <div id="reportPeriodNavigator" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <!-- Daily Period Controls -->
+                <div id="ctrlPeriodDaily" style="display: flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-main);">Select Date:</span>
+                  <button class="btn btn-sm btn-outline" id="btnReportPrevDay">◀</button>
+                  <input type="date" id="inputReportDate" style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-weight: 600; font-family: monospace; font-size: 0.88rem; background: #fff;">
+                  <button class="btn btn-sm btn-outline" id="btnReportNextDay">▶</button>
+                  <button class="btn btn-sm btn-outline" id="btnReportToday">Today</button>
+                </div>
+
+                <!-- Weekly Period Controls -->
+                <div id="ctrlPeriodWeekly" style="display: none; align-items: center; gap: 6px;">
+                  <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-main);">Week of:</span>
+                  <button class="btn btn-sm btn-outline" id="btnReportPrevWeek">◀ Prev Week</button>
+                  <input type="date" id="inputReportWeekDate" style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-weight: 600; font-family: monospace; font-size: 0.88rem; background: #fff;">
+                  <button class="btn btn-sm btn-outline" id="btnReportNextWeek">Next Week ▶</button>
+                  <button class="btn btn-sm btn-outline" id="btnReportCurrentWeek">Current Week</button>
+                  <span id="reportWeekRangeLabel" style="font-size: 0.85rem; font-weight: 700; color: #2563eb; margin-left: 4px;"></span>
+                </div>
+
+                <!-- Monthly Period Controls -->
+                <div id="ctrlPeriodMonthly" style="display: none; align-items: center; gap: 6px;">
+                  <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-main);">Select Month:</span>
+                  <button class="btn btn-sm btn-outline" id="btnReportPrevMonth">◀</button>
+                  <input type="month" id="inputReportMonth" style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-weight: 600; font-family: monospace; font-size: 0.88rem; background: #fff;">
+                  <button class="btn btn-sm btn-outline" id="btnReportNextMonth">▶</button>
+                  <button class="btn btn-sm btn-outline" id="btnReportCurrentMonth">Current Month</button>
+                </div>
+              </div>
+
+              <!-- Individual Employee Selector (Visible when Scope = Single) -->
+              <div id="ctrlEmployeeSelector" style="display: none; align-items: center; gap: 8px;">
+                <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-main);">Employee:</span>
+                <select id="selectReportEmployee" style="padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.88rem; min-width: 220px; background: #fff; font-weight: 600;">
+                  <option value="">Loading employees...</option>
+                </select>
+              </div>
+
+              <!-- Search filter for All Users -->
+              <div id="ctrlReportSearch" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <input type="checkbox" id="checkReportActiveOnly" checked style="display: none;">
+                <input type="text" id="inputReportSearch" placeholder="Search by ID, name, dept..." style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; width: 190px;">
+                <button class="btn btn-sm btn-primary" id="btnReportSearchApply">Search</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Printable Report Letterhead (Visible in Print or PDF) -->
+          <div id="printReportHeader" class="print-only-header">
+            <div class="print-header-top">
+              <div class="print-org-info">
+                <h1 class="print-org-name" id="printOrgName">National Institute of Fisheries and Nautical Engineering</h1>
+                <div class="print-org-sub" id="printOrgSub">Head Office - Human Resources & Attendance Division</div>
+                <div class="print-org-details">
+                  <span id="printOrgAddress">Crow Island, Mattakkuliya, Colombo 15, Sri Lanka</span>
+                  <span id="printOrgPhoneWrap"> &bull; Tel: <span id="printOrgPhone">+94 11 252 0451</span></span>
+                  <span id="printOrgEmailWrap"> &bull; Email: <span id="printOrgEmail">info@nifne.ac.lk</span></span>
+                  <span id="printOrgWebsiteWrap"> &bull; Web: <span id="printOrgWebsite">www.nifne.ac.lk</span></span>
+                </div>
+              </div>
+              <div class="print-meta-box">
+                <div class="print-meta-badge" id="printReportTypeBadge">Daily Report</div>
+                <div style="font-weight: 700; margin-bottom: 2px;">Period: <span id="printPeriodRange">-</span></div>
+                <div>Generated: <span id="printReportTimestamp">-</span></div>
+                <div>System: SpeedFace-V5L Terminal</div>
+              </div>
+            </div>
+            <div class="print-report-title-bar">
+              <h2 class="print-report-title" id="printReportMainTitle">COMPANY ATTENDANCE REPORT</h2>
+              <div class="print-report-desc" id="printReportSubtitle">All Enrolled Personnel</div>
+            </div>
+          </div>
+
+          <!-- KPI Summary Cards Banner -->
+          <div id="reportSummaryCardsBanner" style="display: flex; flex-wrap: wrap; gap: 12px; padding: 14px 20px; background: #ffffff; border-bottom: 1px solid var(--border);">
+            <!-- Dynamic KPI items will be injected here -->
+          </div>
+
+          <!-- Individual Employee Profile Summary Banner (Visible in Single Scope) -->
+          <div id="reportEmployeeProfileCard" style="display: none; padding: 16px 20px; background: #f1f5f9; border-bottom: 1px solid var(--border);">
+            <!-- Injected by JS -->
+          </div>
+
+          <!-- Report Data Table Viewport -->
+          <div class="card-body table-responsive" id="reportTableWrap" style="padding: 0;">
+            <table class="data-table" id="reportTable">
+              <thead id="reportTableHead">
+                <!-- Dynamically generated header -->
+              </thead>
+              <tbody id="reportTableBody">
+                <tr><td colspan="12" class="text-center py-4">Select report options to generate report...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Monthly All-Staff Book Viewport (1 Complete Page Per User) -->
+          <div id="reportMonthlyBookWrap" style="display: none; padding: 0;">
+            <!-- On-Screen Controls / Status bar for Book view -->
+            <div id="monthlyBookToolbar" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; background: #e0f2fe; border-bottom: 1px solid #bae6fd; flex-wrap: wrap; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span style="font-weight: 800; color: #0369a1; font-size: 0.92rem;">📑 Complete Month Book:</span>
+                <span id="monthlyBookCountBadge" style="background: #0284c7; color: #fff; font-weight: 700; font-size: 0.8rem; padding: 2px 8px; border-radius: 9999px;">0 Staff Pages</span>
+                <span id="monthlyBookPeriodBadge" style="background: #0369a1; color: #fff; font-weight: 700; font-size: 0.8rem; padding: 2px 10px; border-radius: 6px;">Month</span>
+                <button class="btn btn-sm btn-outline" id="btnMonthlyBookPrevMonth" title="Switch to Previous Month" style="background: #fff; font-weight: 600;">◀ Prev Month</button>
+                <button class="btn btn-sm btn-outline" id="btnMonthlyBookNextMonth" title="Switch to Next Month" style="background: #fff; font-weight: 600;">Next Month ▶</button>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <label for="monthlyBookJumpSelect" style="font-size: 0.82rem; font-weight: 600; color: #0369a1;">Jump to Employee:</label>
+                <select id="monthlyBookJumpSelect" style="padding: 4px 10px; border-radius: 6px; border: 1px solid #7dd3fc; font-size: 0.82rem; background: #fff; max-width: 270px;">
+                  <option value="all">View All Employees</option>
+                </select>
+                <button class="btn btn-sm btn-primary" id="btnMonthlyBookPrintAll" title="Print all pages or export PDF">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                  Print Book (1 Page/Person)
+                </button>
+                <button type="button" class="btn btn-sm btn-outline" id="btnMonthlyBookPrintOptions" onclick="openPrintOptionsModal()" title="Print Options for Monthly Book" style="background: #fff; font-weight: 600; cursor: pointer;">
+                  ⚙️ Options
+                </button>
+              </div>
+            </div>
+
+            <!-- Container for all employee monthly pages -->
+            <div id="monthlyBookPagesContainer" style="padding: 16px; display: flex; flex-direction: column; gap: 24px; background: #f1f5f9;">
+              <!-- Dynamic .employee-monthly-page elements injected here -->
+            </div>
+          </div>
+
+          <!-- Monthly All-Days Matrix Viewport (Users Vertical & Days Horizontal) -->
+          <div id="reportMatrixWrap" class="table-responsive matrix-table-wrap" style="display: none; padding: 0;">
+            <!-- On-Screen Controls & Print Button for Matrix -->
+            <div id="reportMatrixToolbar" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 18px; background: #f0fdf4; border-bottom: 1px solid #bbf7d0; flex-wrap: wrap; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span style="font-weight: 800; color: #166534; font-size: 0.92rem;">📅 All Days Attendance Matrix:</span>
+                <span id="matrixStaffCountBadge" style="background: #16a34a; color: #fff; font-weight: 700; font-size: 0.8rem; padding: 2px 8px; border-radius: 9999px;">0 Active Staff</span>
+                <span style="font-size: 0.82rem; color: #15803d;">(All calendar days horizontally • Optimized for A4 / Legal Landscape Print & PDF)</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <!-- Layout Switcher: Standard (1-Row) vs Proposed Max-Time (2-Row) -->
+                <div class="btn-group" id="matrixLayoutSelector" style="display: flex; gap: 2px; background: #e2e8f0; padding: 2px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                  <button type="button" class="btn btn-sm btn-primary" id="btnMatrixLayoutStandard" onclick="setMatrixLayout('standard')" title="Standard single-row per employee grid" style="padding: 3px 9px; font-size: 0.76rem; font-weight: 700; border-radius: 4px; border: none; cursor: pointer; transition: all 0.15s;">
+                    📐 Standard (1-Row)
+                  </button>
+                  <button type="button" class="btn btn-sm btn-outline" id="btnMatrixLayoutProposed" onclick="setMatrixLayout('proposed')" title="Two-row layout: Employee info in row 1, Maximum size attendance times in row 2" style="padding: 3px 9px; font-size: 0.76rem; font-weight: 700; border-radius: 4px; border: none; cursor: pointer; transition: all 0.15s; background: transparent; color: #475569;">
+                    ⚡ Max Time (2-Row)
+                  </button>
+                </div>
+
+                <button class="btn btn-sm btn-primary" id="btnMatrixPrint" title="Print Matrix or Save as PDF">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                  Print Matrix / PDF
+                </button>
+                <button type="button" class="btn btn-sm btn-outline" id="btnMatrixPrintOptions" onclick="openPrintOptionsModal()" title="Print Options for Attendance Matrix" style="background: #fff; font-weight: 600; cursor: pointer;">
+                  ⚙️ Options
+                </button>
+                <div class="dropdown" id="matrixColDropdown" style="position: relative; display: inline-block;">
+                  <button type="button" class="btn btn-sm btn-outline" id="btnMatrixColumnsToggle" onclick="toggleReportColumnsMenu(event)" title="Select Visible Columns for Attendance Matrix &amp; Print" style="background: #fff; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; border-color: #cbd5e1; color: #1e293b; padding: 4px 10px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>
+                    <span>Columns</span>
+                    <span id="matrixColumnsBadge" style="background: #e2e8f0; color: #1e293b; font-size: 0.72rem; padding: 1px 6px; border-radius: 9999px; font-weight: 700;">All</span>
+                    <span style="font-size: 0.65rem; color: #64748b;">▼</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <table class="data-table matrix-table" id="reportMatrixTable">
+              <thead id="reportMatrixHead">
+                <!-- Dynamically generated header with sticky columns and day numbers -->
+              </thead>
+              <tbody id="reportMatrixBody">
+                <tr><td colspan="45" class="text-center py-4 text-muted">Select Monthly &rarr; All Days Matrix to display attendance grid...</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Printable Sign-off Footer (Visible in Print or PDF) -->
+          <div id="printReportFooter" class="print-only-footer">
+            <div class="print-signatures">
+              <div class="print-sig-block">
+                <div class="print-sig-line"></div>
+                <div class="print-sig-title" id="printSig1Title">Prepared By</div>
+                <div class="print-sig-sub" id="printSig1Sub">HR / Attendance Officer</div>
+              </div>
+              <div class="print-sig-block">
+                <div class="print-sig-line"></div>
+                <div class="print-sig-title" id="printSig2Title">Checked &amp; Verified By</div>
+                <div class="print-sig-sub" id="printSig2Sub">Head of Department</div>
+              </div>
+              <div class="print-sig-block">
+                <div class="print-sig-line"></div>
+                <div class="print-sig-title" id="printSig3Title">Authorized Approval</div>
+                <div class="print-sig-sub" id="printSig3Sub">Director / General Manager</div>
+              </div>
+            </div>
+            <div class="print-footer-note">
+              <span id="printFooterOrgText">SpeedFace-V5L Automated Biometric Attendance & Payroll System</span>
+              <span id="printFooterMeta">Official Record &bull; Confidential</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: EMPLOYEES DIRECTORY -->
+      <section class="tab-content" id="tab-employees">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h3>Enrolled Employees & User Mapping</h3>
+              <p class="subtitle">Assign names and departments to User IDs from your SpeedFace device</p>
+            </div>
+            <div class="card-header-actions" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <div class="quick-dates" style="display:inline-flex; gap: 4px;">
+                <button class="btn-chip active" id="filterEmpStatusAll">All (<span id="empCountAll">-</span>)</button>
+                <button class="btn-chip" id="filterEmpStatusActive">🟢 Active (<span id="empCountActive">-</span>)</button>
+                <button class="btn-chip" id="filterEmpStatusInactive">⚪ Inactive (<span id="empCountInactive">-</span>)</button>
+              </div>
+              <button class="btn btn-primary" id="btnPushAllToDevice" title="Push all employee names and roles to the SpeedFace terminal">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                Sync with Device
+              </button>
+              <button class="btn btn-outline" id="btnOpenBulkShiftModal" title="Bulk assign shift to employees">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                Assign Shift
+              </button>
+              <button class="btn btn-primary" id="btnUploadEmployees" title="Upload employee directory from CSV or Excel file">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                Upload CSV / Excel
+              </button>
+              <button class="btn btn-success" id="btnExportEmployeesExcel">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Export Excel (.xlsx)
+              </button>
+              <button class="btn btn-outline" id="btnExportEmployeesCsv" title="Export as CSV">
+                CSV
+              </button>
+              <button class="btn btn-outline" id="btnSyncUsers" title="Pull users enrolled on the terminal into database">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                Pull from Device
+              </button>
+            </div>
+          </div>
+          <div class="card-body table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>FingerPrint ID</th>
+                  <th>Service ID</th>
+                  <th>NIC</th>
+                  <th>Full Name</th>
+                  <th>Gender</th>
+                  <th>Employment</th>
+                  <th>Active</th>
+                  <th>Mobile / Phone</th>
+                  <th>Assigned Shift</th>
+                  <th>Total Punches</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="employeesTableBody">
+                <tr><td colspan="11" class="text-center py-4">Loading employee list...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB: WORKING SHIFTS & HOLIDAYS -->
+      <section class="tab-content" id="tab-shifts">
+        <!-- Working Shifts Card -->
+        <div class="card" style="margin-bottom: 24px;">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h3>Working Shifts</h3>
+              <p class="subtitle">Configure work schedules, working weekdays, grace periods, and shift assignments</p>
+            </div>
+            <div class="card-header-actions">
+              <button class="btn btn-primary" id="btnAddNewShift">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                + New Shift
+              </button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="shifts-grid" id="shiftsContainer">
+              <div class="text-center py-4 text-muted">Loading working shifts...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Holidays Management Card -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h3>Official Holidays & Off-Days</h3>
+              <p class="subtitle">Days registered here are automatically recognized as official holidays across attendance analytics</p>
+            </div>
+            <div class="card-header-actions" style="display: flex; gap: 8px; align-items: center;">
+              <input type="file" id="inputHolidayUpload" accept=".csv, .xlsx, .xls" style="display: none;">
+              <button class="btn btn-outline" id="btnUploadHolidays" type="button" title="Upload holidays from CSV or Excel">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px; vertical-align: middle; margin-right: 4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                📁 Upload CSV / Excel
+              </button>
+              <button class="btn btn-primary" id="btnAddHoliday" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                + Add Holiday
+              </button>
+            </div>
+          </div>
+          <div class="card-body table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Holiday Name</th>
+                  <th>Date</th>
+                  <th>Day of Week</th>
+                  <th>Classification</th>
+                  <th>Recurrence</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="holidaysTableBody">
+                <tr><td colspan="6" class="text-center py-4 text-muted">Loading holidays...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: DEVICE CONTROL & SETTINGS -->
+      <section class="tab-content" id="tab-device">
+        <div class="device-grid">
+          <!-- Device Status Card -->
+          <div class="card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <h3 style="margin-bottom: 0;">SpeedFace-V5L Terminal Status</h3>
+                <span class="badge badge-out" id="devOnlineBadge">🔴 OFFLINE</span>
+              </div>
+              <button class="btn btn-sm btn-outline" id="btnTestConn">Test Connection</button>
+            </div>
+            <div class="card-body">
+              <div class="device-info-list">
+                <div class="info-row">
+                  <span class="info-key">Terminal IP Address</span>
+                  <span class="info-val font-mono" id="devIpVal">192.168.10.15</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-key">Active Network Interface</span>
+                  <span class="info-val font-mono" id="devInterfaceVal">Auto-Detect</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-key">Communication Port</span>
+                  <span class="info-val font-mono">4370 (TCP)</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-key">Device Time</span>
+                  <span class="info-val font-mono" id="devTimeVal">-</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-key">Enrolled Users on Terminal</span>
+                  <span class="info-val" id="devUserCountVal">-</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-key">Stored Logs on Terminal</span>
+                  <span class="info-val" id="devLogCountVal">-</span>
+                </div>
+                <div class="info-row">
+                  <span class="info-key">Terminal Log Capacity</span>
+                  <span class="info-val" id="devCapVal">-</span>
+                </div>
+              </div>
+
+              <div class="device-actions-row">
+                <button class="btn btn-primary" id="btnActionSync">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                  Download All Records Now
+                </button>
+                <button class="btn btn-outline" id="btnActionSyncTime">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                  Sync Device Clock with PC
+                </button>
+                <button class="btn btn-danger-outline" id="btnActionReboot">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+                  Reboot Terminal
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Settings Card -->
+          <div class="card">
+            <div class="card-header">
+              <h3>Connection & Sync Settings</h3>
+            </div>
+            <div class="card-body">
+              <form id="settingsForm">
+                <div class="form-group">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <label for="settingNetworkInterface" style="font-weight: 600; margin-bottom: 0;">
+                      🌐 Network Interface (Adapter for Device Comm.)
+                    </label>
+                    <button type="button" class="btn btn-sm btn-outline" id="btnRefreshInterfaces" style="font-size: 0.75rem; padding: 2px 8px;" title="Re-scan local network adapters">
+                      🔄 Refresh Adapters
+                    </button>
+                  </div>
+                  <select id="settingNetworkInterface" class="form-control font-mono">
+                    <option value="">-- Auto-Detect (System Default Route) --</option>
+                  </select>
+                  <input type="hidden" id="settingNetworkInterfaceIp" value="">
+                  <div id="interfaceSubnetBadge" style="margin-top: 6px; font-size: 0.82rem;"></div>
+                  <small class="form-hint">Select the specific network adapter (e.g. Ethernet) physically connected to the SpeedFace device.</small>
+                </div>
+
+                <div class="form-group">
+                  <label>SpeedFace Device IP Address</label>
+                  <input type="text" id="settingIp" class="form-control" value="192.168.10.15">
+                  <small class="form-hint">Must be reachable on your local network (e.g. 192.168.10.15)</small>
+                </div>
+
+                <div class="form-group">
+                  <label>ZKTeco TCP Port</label>
+                  <input type="number" id="settingPort" class="form-control" value="4370">
+                  <small class="form-hint">Standard port is 4370</small>
+                </div>
+
+                <div class="form-group">
+                  <label>Auto-Sync Interval (Seconds)</label>
+                  <input type="number" id="settingInterval" class="form-control" value="60" min="15">
+                  <small class="form-hint">How often the server pulls new records from the device in background</small>
+                </div>
+
+                <div class="form-group form-check">
+                  <input type="checkbox" id="settingAutoSyncEnabled" checked>
+                  <label for="settingAutoSyncEnabled">Enable Automated Background Sync</label>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Save Settings</button>
+              </form>
+            </div>
+        </div>
+
+        <!-- Organization & Report Letterhead Settings Card -->
+        <div class="card mt-4">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <h3 style="margin-bottom: 2px;">🏛️ Organization & Report Letterhead Details</h3>
+              <p class="subtitle" style="margin-bottom: 0;">Configure your official institution header, contact details, and signature block for all printed timesheets & PDF reports</p>
+            </div>
+            <span class="badge-tag" style="background:#eff6ff;color:#1e40af;font-weight:700;font-size:0.8rem;">Print Letterhead</span>
+          </div>
+          <div class="card-body">
+            <form id="orgSettingsForm">
+              <div class="form-group">
+                <label for="settingOrgName">Organization / Institution / Company Name <span class="text-danger">*</span></label>
+                <input type="text" id="settingOrgName" class="form-control" placeholder="e.g. National Institute of Fisheries and Nautical Engineering (NIFNE)" required style="font-weight:700; font-size:1.05rem;">
+                <small class="form-hint">Displayed prominently as the main title header on all reports and timesheets</small>
+              </div>
+
+              <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                  <label for="settingOrgSubtitle">Division / Department / Subtitle</label>
+                  <input type="text" id="settingOrgSubtitle" class="form-control" placeholder="e.g. Head Office - Human Resources & Attendance Division">
+                </div>
+                <div class="form-group">
+                  <label for="settingOrgWebsite">Website / Registration No.</label>
+                  <input type="text" id="settingOrgWebsite" class="form-control" placeholder="e.g. www.nifne.ac.lk / Reg: GA-10294">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="settingOrgAddress">Official Address / Location</label>
+                <input type="text" id="settingOrgAddress" class="form-control" placeholder="e.g. Crow Island, Mattakkuliya, Colombo 15, Sri Lanka">
+              </div>
+
+              <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                  <label for="settingOrgPhone">Contact Phone / Hotline</label>
+                  <input type="text" id="settingOrgPhone" class="form-control" placeholder="e.g. +94 11 252 0451 / 071 813 4698">
+                </div>
+                <div class="form-group">
+                  <label for="settingOrgEmail">Official Contact Email</label>
+                  <input type="email" id="settingOrgEmail" class="form-control" placeholder="e.g. info@nifne.ac.lk / hr@company.com">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="settingOrgFooter">Report Footer / Document System Note</label>
+                <input type="text" id="settingOrgFooter" class="form-control" placeholder="e.g. SpeedFace-V5L Automated Biometric Attendance & Payroll System">
+                <small class="form-hint">Appears at the very bottom of every printed A4 / Legal page alongside verification sign-offs</small>
+              </div>
+
+              <button type="submit" class="btn btn-primary" id="btnSaveOrgSettings">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                Save Organization Details
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Recent Sync Log Card -->
+        <div class="card mt-4">
+          <div class="card-header">
+            <h3>Recent Synchronization Logs</h3>
+          </div>
+          <div class="card-body table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Sync Type</th>
+                  <th>Status</th>
+                  <th>New Records Inserted</th>
+                  <th>Total Logs on Device</th>
+                  <th>Message</th>
+                </tr>
+              </thead>
+              <tbody id="syncLogsTableBody">
+                <tr><td colspan="6" class="text-center py-4">No sync logs yet</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Data Management & System Reset Card (Danger Zone) -->
+        <div class="card card-danger-zone mt-4" id="cardDataReset">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 1.4rem;">⚠️</span>
+              <div>
+                <h3 style="margin-bottom: 2px; color: #b91c1c;">Data Management & System Reset</h3>
+                <p class="subtitle" style="margin-bottom: 0;">Safely download database backups, purge attendance records, or wipe employee directories</p>
+              </div>
+            </div>
+            <span class="badge" style="background:#fee2e2; color:#b91c1c; font-weight:700; border: 1px solid #fca5a5;">
+              DANGER ZONE
+            </span>
+          </div>
+          <div class="card-body">
+            <!-- Warning & Information Banner -->
+            <div style="background: #fff5f5; border: 1px solid #fed7d7; border-left: 4px solid #ef4444; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; font-size: 0.9rem; color: #7f1d1d;">
+              <strong>Notice:</strong> Reset operations permanently delete data from the local SQLite database. They cannot be undone unless you have a backup. It is strongly advised to download a complete JSON backup prior to performing any reset.
+            </div>
+
+            <!-- Current Database Summary Stats -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                <div style="font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Attendance Punches</div>
+                <div id="resetStatAttCount" style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                <div style="font-size: 0.75rem; color: #94a3b8;">Stored in attendance_records</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                <div style="font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Enrolled Employees</div>
+                <div id="resetStatEmpCount" style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                <div style="font-size: 0.75rem; color: #94a3b8;">Stored in employees table</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                <div style="font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Sync & Audit Logs</div>
+                <div id="resetStatLogCount" style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                <div style="font-size: 0.75rem; color: #94a3b8;">Stored in sync_logs table</div>
+              </div>
+            </div>
+
+            <!-- Action Controls -->
+            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: flex-start;">
+              <button type="button" class="btn btn-outline" id="btnDownloadBackup" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Download Full Database Backup (.JSON)
+              </button>
+              <button type="button" class="btn btn-danger-outline" id="btnOpenResetModal" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                Reset Attendance & Employees...
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Production System Diagnostics, Health & Rolling Backups Card -->
+        <div class="card mt-4" id="cardSystemHealth">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 1.4rem;">🛡️</span>
+              <div>
+                <h3 style="margin-bottom: 2px;">Production System Health & Diagnostics</h3>
+                <p class="subtitle" style="margin-bottom: 0;">Live memory metrics, SQLite WAL status, automated rolling backups, and live server logs</p>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button type="button" class="btn btn-sm btn-outline" id="btnRefreshHealth" title="Refresh system metrics">
+                🔄 Refresh Metrics
+              </button>
+            </div>
+          </div>
+          <div class="card-body">
+            <!-- Production Health Metric Boxes -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px;">
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">System Uptime</div>
+                <div id="healthUptime" style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                <div style="font-size: 0.75rem; color: #16a34a; font-weight: 600;">🟢 Process Running</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">RAM / Memory (RSS)</div>
+                <div id="healthMemory" style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                <div id="healthHeap" style="font-size: 0.75rem; color: #64748b;">Heap: -</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Database Engine</div>
+                <div id="healthDbSize" style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                <div style="font-size: 0.75rem; color: #0284c7; font-weight: 600;">⚡ SQLite WAL Active</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Connected Clients</div>
+                <div id="healthWsClients" style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                <div style="font-size: 0.75rem; color: #64748b;">Live WebSockets</div>
+              </div>
+            </div>
+
+            <!-- Automated Rolling Backups Management Section -->
+            <div style="margin-bottom: 24px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
+                <div>
+                  <h4 style="margin: 0; color: #166534; font-size: 0.95rem; display: flex; align-items: center; gap: 6px;">
+                    <span>💾</span> Automated Rolling Database Snapshots (.DB)
+                  </h4>
+                  <div style="font-size: 0.8rem; color: #15803d; margin-top: 2px;">
+                    Daily zero-downtime snapshots saved to <code class="font-mono" style="background:#dcfce7; padding:1px 4px; border-radius:3px;">data/backups/</code> with automatic rotation.
+                  </div>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline" id="btnCreateSnapshotNow" style="background:#fff; font-weight:600; font-size:0.8rem;">
+                  ⚡ Create Snapshot Now
+                </button>
+              </div>
+              <div id="backupSnapshotsList" style="display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.82rem;">
+                <span class="text-muted">Loading snapshots...</span>
+              </div>
+            </div>
+
+            <!-- Live Server Logs Viewer -->
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <label style="font-weight: 700; font-size: 0.88rem; margin: 0;">📋 Live Server & Biometric Activity Log</label>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <button type="button" class="btn btn-sm btn-outline" id="btnRefreshServerLogs" style="font-size: 0.75rem; padding: 2px 8px;">
+                    🔄 Refresh Log
+                  </button>
+                  <button type="button" class="btn btn-sm btn-outline" id="btnClearLogView" style="font-size: 0.75rem; padding: 2px 8px;">
+                    Clear View
+                  </button>
+                </div>
+              </div>
+              <div id="serverLogsConsole" class="font-mono" style="background: #0f172a; color: #f8fafc; border-radius: 6px; padding: 12px 14px; font-size: 0.78rem; line-height: 1.5; max-height: 220px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;">
+Loading application logs...
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 5: SPEEDFACE SETUP GUIDE -->
+      <section class="tab-content" id="tab-guide">
+        <div class="card guide-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h2>SpeedFace-V5L Network & Real-Time Push Setup</h2>
+              <p class="subtitle">Follow these quick steps on the physical SpeedFace machine to enable real-time facial recognition push</p>
+            </div>
+          </div>
+          <div class="card-body guide-body">
+            <!-- Host IPs Banner -->
+            <div class="guide-banner">
+              <div class="banner-icon">💡</div>
+              <div class="banner-content">
+                <strong>Your Computer's Local IP Address:</strong>
+                <div class="ip-chips" id="localIpChips">
+                  <span class="ip-chip font-mono">Loading IP...</span>
+                </div>
+                <p>Use this IP address when configuring the Cloud Server / ADMS menu on your SpeedFace terminal.</p>
+              </div>
+            </div>
+
+            <div class="guide-steps">
+              <div class="step-card">
+                <div class="step-num">1</div>
+                <div class="step-content">
+                  <h3>Verify Network Connection</h3>
+                  <p>On your SpeedFace-V5L terminal screen:</p>
+                  <ul>
+                    <li>Tap the screen and enter <strong>Menu</strong> (Admin authentication if locked).</li>
+                    <li>Go to <strong>Comm.</strong> &rarr; <strong>Ethernet</strong> (or <strong>Wireless Network</strong>).</li>
+                    <li>Ensure <strong>IP Address</strong> is set to <code>192.168.10.15</code>, Subnet Mask <code>255.255.255.0</code>, Gateway <code>192.168.10.1</code>.</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div class="step-card">
+                <div class="step-num">2</div>
+                <div class="step-content">
+                  <h3>Configure Cloud Server / ADMS (Real-time Push)</h3>
+                  <p>To enable real-time instant punch uploads whenever someone looks at the camera:</p>
+                  <ul>
+                    <li>In <strong>Menu</strong>, navigate to <strong>Comm.</strong> &rarr; <strong>Cloud Server Setting</strong> (or <strong>ADMS / Web Server</strong>).</li>
+                    <li><strong>Server Mode:</strong> ADMS / Cloud Server</li>
+                    <li><strong>Enable Domain Name:</strong> OFF (Set to OFF to enter an IP directly)</li>
+                    <li><strong>Server Address:</strong> Enter your PC's IP (<code class="highlight-ip" id="guidePcIp">192.168.10.57</code>)</li>
+                    <li><strong>Server Port:</strong> <code>8088</code></li>
+                    <li><strong>Enable Proxy Server:</strong> OFF</li>
+                    <li>Tap <strong>OK / Save</strong>.</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div class="step-card">
+                <div class="step-num">3</div>
+                <div class="step-content">
+                  <h3>Enjoy Zero-Touch Automatic Attendance!</h3>
+                  <p>The device will instantly connect to this application. Whenever an employee scans their face or palm:</p>
+                  <ul>
+                    <li>A live sound/visual alert will appear on the <strong>Dashboard</strong>.</li>
+                    <li>The record is saved permanently in your SQLite database.</li>
+                    <li>You can filter and export reports to <strong>Excel (.xlsx)</strong> or <strong>CSV</strong> anytime!</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 6: API SERVICE & INTEGRATION -->
+      <section class="tab-content" id="tab-api">
+        <!-- Top Status & Base URL Banner -->
+        <div class="card" style="margin-bottom: 20px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #f8fafc; border: none; box-shadow: var(--shadow-md);">
+          <div class="card-body" style="padding: 22px 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
+              <div>
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                  <span style="font-size: 1.4rem;">⚡</span>
+                  <h2 style="margin: 0; font-size: 1.3rem; color: #fff; font-weight: 700;">SpeedFace-V5L REST API Gateway</h2>
+                  <span class="badge" style="background: #10b981; color: #fff; font-weight: 700; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem;">v1.0 ONLINE</span>
+                </div>
+                <p style="margin: 0; font-size: 0.88rem; color: #94a3b8; max-width: 780px;">
+                  Direct programmatic endpoints to query enrolled employees, active shift policies, and fully calculated daily attendance records (punches, grace periods, short leaves, half days, and overtime) for ERP, Payroll, and HRIS systems.
+                </p>
+              </div>
+
+              <!-- Quick Info Pill -->
+              <div style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; padding: 10px 16px; display: flex; align-items: center; gap: 12px;">
+                <div>
+                  <div style="font-size: 0.72rem; text-transform: uppercase; color: #94a3b8; font-weight: 700;">Base API Endpoint</div>
+                  <div class="font-mono" id="apiBaseUrlDisplay" style="font-size: 0.95rem; font-weight: 700; color: #38bdf8;">http://localhost:8088/api</div>
+                </div>
+                <button type="button" class="btn btn-sm" id="btnCopyBaseApiUrl" style="background: rgba(255,255,255,0.15); color: #fff; border: none; padding: 5px 10px; font-size: 0.8rem; border-radius: 6px; cursor: pointer;" title="Copy Base URL">
+                  📋 Copy
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Endpoints Grid -->
+        <div style="display: flex; flex-direction: column; gap: 24px;">
+
+          <!-- ENDPOINT 1: GET /api/v1/users -->
+          <div class="card" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border);">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--border); padding: 16px 20px;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span class="badge" style="background: #10b981; color: #fff; font-weight: 800; font-size: 0.8rem; padding: 4px 10px; border-radius: 6px;">GET</span>
+                <span class="font-mono" style="font-size: 1.05rem; font-weight: 700; color: #1e293b;">/api/v1/users</span>
+                <span class="badge" style="background: #f1f5f9; color: #64748b; font-size: 0.75rem;">Alias: /api/users</span>
+              </div>
+              <div style="font-size: 0.85rem; color: #64748b; font-weight: 500;">
+                👥 Enrolled Users &amp; Profiles
+              </div>
+            </div>
+
+            <div class="card-body" style="padding: 20px;">
+              <p style="font-size: 0.88rem; color: #475569; margin-bottom: 16px;">
+                Returns all enrolled employees with full profile details (NIC, service ID, title, gender, phone, email), assigned working shift configuration (hours, grace limits, short leaves, OT status), and total punch counts.
+              </p>
+
+              <!-- Filter Parameters Form -->
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 10px;">
+                  Query Parameters
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 0.8rem; font-weight: 600;">Status Filter</label>
+                    <select id="apiUsersFilterStatus" class="form-control" style="font-size: 0.85rem;">
+                      <option value="all" selected>All (Active &amp; Inactive)</option>
+                      <option value="active">Active Employees Only</option>
+                      <option value="inactive">Inactive Only</option>
+                    </select>
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 0.8rem; font-weight: 600;">Department (Optional)</label>
+                    <input type="text" id="apiUsersFilterDept" class="form-control" placeholder="e.g. Executive, IT, Sales" style="font-size: 0.85rem;">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 0.8rem; font-weight: 600;">Search Keyword (Optional)</label>
+                    <input type="text" id="apiUsersFilterSearch" class="form-control" placeholder="Name, User ID, NIC..." style="font-size: 0.85rem;">
+                  </div>
+                </div>
+
+                <!-- URL Bar & Test Button -->
+                <div style="margin-top: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                  <div style="flex: 1; min-width: 260px; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between;">
+                    <span class="font-mono text-xs text-muted" id="apiUsersRequestUrlPreview">http://localhost:8088/api/v1/users?status=all</span>
+                    <button type="button" class="btn btn-sm btn-outline" id="btnCopyUsersUrl" style="padding: 2px 8px; font-size: 0.72rem;">Copy URL</button>
+                  </div>
+                  <button type="button" class="btn btn-primary" id="btnSendUsersRequest" style="padding: 8px 18px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    Send Request
+                  </button>
+                </div>
+              </div>
+
+              <!-- Response Preview Console -->
+              <div id="apiUsersResponseWrap" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 0.82rem; font-weight: 700; color: #1e293b;">Response:</span>
+                    <span class="badge" id="apiUsersStatusBadge" style="background: #10b981; color: #fff; font-weight: 700; font-size: 0.75rem;">200 OK</span>
+                    <span class="text-xs text-muted" id="apiUsersTimeBadge">-- ms</span>
+                    <span class="text-xs text-muted" id="apiUsersCountBadge">-- users</span>
+                  </div>
+                  <button type="button" class="btn btn-sm btn-outline" id="btnCopyUsersJson" style="font-size: 0.75rem; padding: 2px 8px;">
+                    📋 Copy JSON
+                  </button>
+                </div>
+                <div style="position: relative;">
+                  <pre id="apiUsersJsonOutput" class="font-mono" style="background: #0f172a; color: #f8fafc; border-radius: 8px; padding: 14px; font-size: 0.8rem; line-height: 1.5; max-height: 280px; overflow-y: auto; white-space: pre; word-wrap: normal; border: 1px solid #1e293b;"></pre>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ENDPOINT 2: GET /api/v1/users/:userId/attendance -->
+          <div class="card" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border);">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--border); padding: 16px 20px;">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <span class="badge" style="background: #10b981; color: #fff; font-weight: 800; font-size: 0.8rem; padding: 4px 10px; border-radius: 6px;">GET</span>
+                <span class="font-mono" style="font-size: 1.05rem; font-weight: 700; color: #1e293b;">/api/v1/users/<span style="color: #2563eb;">:userId</span>/attendance</span>
+                <span class="badge" style="background: #f1f5f9; color: #64748b; font-size: 0.75rem;">Alias: /api/users/:userId/attendance</span>
+              </div>
+              <div style="font-size: 0.85rem; color: #64748b; font-weight: 500;">
+                📊 Calculated Attendance &amp; Period Totals
+              </div>
+            </div>
+
+            <div class="card-body" style="padding: 20px;">
+              <p style="font-size: 0.88rem; color: #475569; margin-bottom: 16px;">
+                Calculates and returns complete attendance for a specific employee across a month, date range, or single day. Applies official shift engine rules: <strong>Morning Grace (max 2/month)</strong>, <strong>Morning &amp; Evening Short Leaves</strong>, <strong>Half-Day hours</strong>, <strong>Full-Day thresholds</strong>, <strong>Overtime (OT)</strong>, and period summary totals.
+              </p>
+
+              <!-- Parameters Form -->
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                <div style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 10px;">
+                  Parameters &amp; Filters
+                </div>
+                <div style="display: grid; grid-template-columns: 1.5fr 1.2fr 1.5fr auto; gap: 12px; align-items: flex-end;">
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 0.8rem; font-weight: 600;">Employee (User ID) <span class="text-danger">*</span></label>
+                    <select id="apiAttSelectUser" class="form-control" style="font-size: 0.85rem;">
+                      <option value="">Loading enrolled employees...</option>
+                    </select>
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 0.8rem; font-weight: 600;">Period Filter Mode</label>
+                    <select id="apiAttPeriodMode" class="form-control" style="font-size: 0.85rem;">
+                      <option value="month" selected>Month (YYYY-MM)</option>
+                      <option value="range">Date Range (From - To)</option>
+                      <option value="date">Single Date (YYYY-MM-DD)</option>
+                    </select>
+                  </div>
+                  <!-- Month input -->
+                  <div class="form-group" id="apiAttMonthWrap" style="margin-bottom: 0;">
+                    <label style="font-size: 0.8rem; font-weight: 600;">Target Month</label>
+                    <input type="month" id="apiAttMonthInput" class="form-control" style="font-size: 0.85rem;">
+                  </div>
+                  <!-- Date Range input -->
+                  <div class="form-group" id="apiAttRangeWrap" style="display: none; margin-bottom: 0;">
+                    <label style="font-size: 0.8rem; font-weight: 600;">Date Range</label>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                      <input type="date" id="apiAttStartDate" class="form-control" style="font-size: 0.8rem; padding: 6px 8px;">
+                      <span>-</span>
+                      <input type="date" id="apiAttEndDate" class="form-control" style="font-size: 0.8rem; padding: 6px 8px;">
+                    </div>
+                  </div>
+                  <!-- Single Date input -->
+                  <div class="form-group" id="apiAttDateWrap" style="display: none; margin-bottom: 0;">
+                    <label style="font-size: 0.8rem; font-weight: 600;">Target Date</label>
+                    <input type="date" id="apiAttDateInput" class="form-control" style="font-size: 0.85rem;">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0; padding-bottom: 6px;">
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.85rem; margin-bottom: 0;">
+                      <input type="checkbox" id="apiAttIncludePunches" checked style="cursor: pointer;">
+                      <span>Raw Punches</span>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- URL Bar & Test Button -->
+                <div style="margin-top: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                  <div style="flex: 1; min-width: 260px; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between;">
+                    <span class="font-mono text-xs text-muted" id="apiAttRequestUrlPreview">http://localhost:8088/api/v1/users/44/attendance?month=2026-09</span>
+                    <button type="button" class="btn btn-sm btn-outline" id="btnCopyAttUrl" style="padding: 2px 8px; font-size: 0.72rem;">Copy URL</button>
+                  </div>
+                  <button type="button" class="btn btn-primary" id="btnSendAttRequest" style="padding: 8px 18px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    Send Request
+                  </button>
+                </div>
+              </div>
+
+              <!-- Response Preview Console -->
+              <div id="apiAttResponseWrap" style="display: none;">
+                <!-- Summary KPI Chips -->
+                <div id="apiAttSummaryChips" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;"></div>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 0.82rem; font-weight: 700; color: #1e293b;">Response:</span>
+                    <span class="badge" id="apiAttStatusBadge" style="background: #10b981; color: #fff; font-weight: 700; font-size: 0.75rem;">200 OK</span>
+                    <span class="text-xs text-muted" id="apiAttTimeBadge">-- ms</span>
+                  </div>
+                  <button type="button" class="btn btn-sm btn-outline" id="btnCopyAttJson" style="font-size: 0.75rem; padding: 2px 8px;">
+                    📋 Copy JSON
+                  </button>
+                </div>
+                <div style="position: relative;">
+                  <pre id="apiAttJsonOutput" class="font-mono" style="background: #0f172a; color: #f8fafc; border-radius: 8px; padding: 14px; font-size: 0.8rem; line-height: 1.5; max-height: 340px; overflow-y: auto; white-space: pre; word-wrap: normal; border: 1px solid #1e293b;"></pre>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Code Integration Snippets Card -->
+          <div class="card" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border);">
+            <div class="card-header" style="border-bottom: 1px solid var(--border); padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                <span>💻</span> Ready-to-Use Client Code Snippets
+              </h3>
+              <div style="display: flex; gap: 6px;">
+                <button type="button" class="btn btn-sm btn-outline api-snippet-tab active" data-lang="curl">cURL</button>
+                <button type="button" class="btn btn-sm btn-outline api-snippet-tab" data-lang="js">JavaScript (Fetch)</button>
+                <button type="button" class="btn btn-sm btn-outline api-snippet-tab" data-lang="python">Python (requests)</button>
+              </div>
+            </div>
+            <div class="card-body" style="padding: 16px 20px;">
+              <div style="position: relative;">
+                <button type="button" class="btn btn-sm btn-outline" id="btnCopySnippet" style="position: absolute; top: 10px; right: 10px; font-size: 0.75rem; background: rgba(255,255,255,0.1); color: #f8fafc; border: 1px solid rgba(255,255,255,0.2);">
+                  📋 Copy Code
+                </button>
+                <pre id="apiSnippetContent" class="font-mono" style="background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 16px; font-size: 0.82rem; line-height: 1.6; overflow-x: auto; margin: 0;"></pre>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Employee Edit Modal -->
+  <div class="modal" id="employeeModal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalTitle">Edit Employee Details</h3>
+        <button class="btn-close" id="btnModalClose">&times;</button>
+      </div>
+      <form id="employeeForm">
+        <div class="modal-body">
+          <!-- Employee Photo Section -->
+          <div class="photo-upload-box">
+            <div class="photo-avatar-wrap" id="photoPreviewWrap">
+              <img id="modalPhotoImg" src="" alt="Employee Photo" style="display: none;">
+              <div id="modalPhotoPlaceholder" class="photo-avatar-placeholder">👤</div>
+            </div>
+            <div class="photo-upload-meta">
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <label class="btn btn-sm btn-outline" for="modalPhotoInput" style="cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                  Choose Photo
+                </label>
+                <button type="button" class="btn btn-sm btn-outline text-danger" id="btnRemovePhoto" style="display: none;">Remove</button>
+              </div>
+              <input type="file" id="modalPhotoInput" accept="image/jpeg,image/png,image/webp" style="display: none;">
+              <input type="hidden" id="modalPhotoData">
+              <div class="text-xs text-muted" style="margin-top: 4px;">Portrait photo for SpeedFace visible light facial recognition</div>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>FingerPrint ID (Device ID)</label>
+              <input type="text" id="modalUserId" class="form-control font-mono font-bold" readonly style="background: #f1f5f9;">
+            </div>
+            <div class="form-group">
+              <label>Employee Service ID</label>
+              <input type="text" id="modalServiceId" class="form-control font-mono" placeholder="e.g. EMP003">
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>National ID (NIC)</label>
+              <input type="text" id="modalNic" class="form-control font-mono" placeholder="e.g. 198519500591">
+            </div>
+            <div class="form-group">
+              <label>Title</label>
+              <select id="modalTitleSelect" class="form-control">
+                <option value="">Select Title</option>
+                <option value="Mr">Mr</option>
+                <option value="Mrs">Mrs</option>
+                <option value="Miss">Miss</option>
+                <option value="Ms">Ms</option>
+                <option value="Dr">Dr</option>
+                <option value="Rev">Rev</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Full Employee Name</label>
+            <input type="text" id="modalName" class="form-control" placeholder="e.g. I.L. WILRAMANAYAKA" required>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>Gender</label>
+              <select id="modalGender" class="form-control">
+                <option value="">Select Gender</option>
+                <option value="Male">Male ♂</option>
+                <option value="Female">Female ♀</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Employment Status</label>
+              <select id="modalStatus" class="form-control">
+                <option value="Permanent">Permanent</option>
+                <option value="Temporary">Temporary</option>
+                <option value="Probation">Probation</option>
+                <option value="Contract">Contract</option>
+                <option value="Trainee">Trainee</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>Date of Birth</label>
+              <input type="text" id="modalBirthday" class="form-control" placeholder="YYYY.MM.DD">
+            </div>
+            <div class="form-group">
+              <label>Appointment / Joining Date</label>
+              <input type="text" id="modalAppointmentDate" class="form-control" placeholder="YYYY.MM.DD">
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>Department</label>
+              <input type="text" id="modalDept" class="form-control" placeholder="e.g. Sales, Operations, IT">
+            </div>
+            <div class="form-group">
+              <label>Designation / Role</label>
+              <input type="text" id="modalRole" class="form-control" placeholder="e.g. Manager, Staff">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Assigned Working Shift</label>
+            <select id="modalShiftId" class="form-control"></select>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>Mobile / Phone Number</label>
+              <input type="text" id="modalPhone" class="form-control" placeholder="071xxxxxxx">
+            </div>
+            <div class="form-group">
+              <label>Email Address</label>
+              <input type="email" id="modalEmail" class="form-control" placeholder="name@company.com">
+            </div>
+          </div>
+
+          <div class="form-group form-check" style="margin-top: 10px; background: #eff6ff; padding: 12px; border-radius: 8px; border: 1px solid #bfdbfe;">
+            <input type="checkbox" id="modalIsActive" checked>
+            <label for="modalIsActive" style="font-weight: 700; color: #1e40af; cursor: pointer;">
+              Active Employee (Include in Attendance Calculations & Reports)
+            </label>
+            <div class="text-xs text-muted" style="margin-top: 2px;">When unchecked, this employee will not appear on daily roll-calls or be marked absent.</div>
+          </div>
+
+          <div class="form-group form-check" style="margin-top: 8px; background: #f0fdf4; padding: 12px; border-radius: 8px; border: 1px solid #bbf7d0;">
+            <input type="checkbox" id="modalSyncDevice" checked>
+            <label for="modalSyncDevice" style="font-weight: 600; color: #166534; cursor: pointer;">
+              Sync Name & Role with SpeedFace terminal (192.168.10.15) immediately
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnModalCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnModalSave">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Save & Sync with Device
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Shift Create / Edit Modal -->
+  <div class="modal" id="shiftModal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content" style="max-width: 820px; width: 95%;">
+      <div class="modal-header">
+        <h3 id="shiftModalTitle">New Working Shift</h3>
+        <button class="btn-close" id="btnShiftModalClose">&times;</button>
+      </div>
+      <form id="shiftForm">
+        <input type="hidden" id="shiftModalId">
+        <div class="modal-body">
+          <!-- Top Row: Name, Color, Start & End -->
+          <div style="display: grid; grid-template-columns: 2fr 1fr 1.2fr 1.2fr; gap: 14px; margin-bottom: 14px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label>Shift Name</label>
+              <input type="text" id="shiftModalName" class="form-control" placeholder="e.g. Morning Shift, General Shift" required>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label>Shift Color</label>
+              <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px;">
+                <input type="color" id="shiftModalColor" value="#2563eb" style="width: 44px; height: 38px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; padding: 2px;">
+                <span class="text-xs text-muted" id="shiftModalColorCode">#2563eb</span>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label>Morning Start</label>
+              <input type="time" id="shiftModalStart" class="form-control" value="08:30" required>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label>Full Day End</label>
+              <input type="time" id="shiftModalEnd" class="form-control" value="16:15" required>
+            </div>
+          </div>
+
+          <!-- Morning Grace Period Card (Stacked) -->
+          <div style="background: var(--bg-hover, #f8fafc); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <span style="font-size: 0.8rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px;">
+                ⏱️ Morning Grace Period Rules
+              </span>
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; color: var(--text-main); margin-bottom: 0;">
+                <input type="checkbox" id="shiftModalEnableGrace" checked>
+                <span>Enable Grace Period</span>
+              </label>
+            </div>
+            <div id="shiftModalGraceBody" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; transition: opacity 0.2s ease;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label>Arrival Grace (Minutes)</label>
+                <input type="number" id="shiftModalGrace" class="form-control" min="0" max="120" value="30" required>
+                <span class="text-xs text-muted">Morning arrival tolerance beyond start time</span>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label>Max Grace Days / Month</label>
+                <input type="number" id="shiftModalMonthlyGrace" class="form-control" min="0" max="31" value="2" required>
+                <span class="text-xs text-muted">Allowed per calendar month</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Short Leave Card (Stacked) -->
+          <div style="background: var(--bg-hover, #f8fafc); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <span style="font-size: 0.8rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px;">
+                🚪 Short Leave Conditions &amp; Rules
+              </span>
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; color: var(--text-main); margin-bottom: 0;">
+                <input type="checkbox" id="shiftModalEnableShortLeave" checked>
+                <span>Enable Short Leave</span>
+              </label>
+            </div>
+            <div id="shiftModalShortLeaveBody" style="transition: opacity 0.2s ease;">
+              <div style="display: grid; grid-template-columns: 1fr 1.4fr 1.4fr; gap: 14px; margin-bottom: 10px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label>Max Days / Month</label>
+                  <input type="number" id="shiftModalMonthlyShortLeaves" class="form-control" min="0" max="31" value="2" required>
+                  <span class="text-xs text-muted">Allowed per calendar month</span>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label>Morning Short Leave Window</label>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <input type="time" id="shiftModalMShortStart" class="form-control" value="09:00" style="padding: 6px 8px; font-size: 0.85rem;">
+                    <span class="text-muted font-bold">&ndash;</span>
+                    <input type="time" id="shiftModalMShortEnd" class="form-control" value="10:00" style="padding: 6px 8px; font-size: 0.85rem;">
+                  </div>
+                  <span class="text-xs text-muted">Full Day if leaves &ge; 16:15 (after 10:00 covers 4h)</span>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label>Evening Short Leave Window</label>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <input type="time" id="shiftModalEShortStart" class="form-control" value="14:45" style="padding: 6px 8px; font-size: 0.85rem;">
+                    <span class="text-muted font-bold">&ndash;</span>
+                    <input type="time" id="shiftModalEShortEnd" class="form-control" value="16:15" style="padding: 6px 8px; font-size: 0.85rem;">
+                  </div>
+                  <span class="text-xs text-muted">Full Day if arrived on time &le; 08:30</span>
+                </div>
+              </div>
+              <div class="form-check" style="margin-top: 8px;">
+                <input type="checkbox" id="shiftModalDisallowGraceAndShortLeave" checked>
+                <label for="shiftModalDisallowGraceAndShortLeave" style="cursor: pointer; font-size: 0.84rem; color: var(--text-main);">
+                  <strong>Strict Daily Rule:</strong> Only <strong>Morning Short Leave OR Evening Short Leave</strong> per day (never both). Also mutually exclusive with Morning Grace Period.
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Half Day & Full Day Calculation Rules -->
+          <div style="background: var(--bg-hover, #f8fafc); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <span style="font-size: 0.8rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px;">
+                🌓 Half Day &amp; Full Day Calculation Rules
+              </span>
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; color: var(--text-main); margin-bottom: 0;">
+                <input type="checkbox" id="shiftModalEnableHalfDay" checked>
+                <span>Enable Half Day &amp; Covering</span>
+              </label>
+            </div>
+            <div id="shiftModalHalfDayBody" style="transition: opacity 0.2s ease;">
+              <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 10px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label>On-Time Half Day (Hrs)</label>
+                  <input type="number" id="shiftModalHalfDay" class="form-control" step="any" min="0.1" max="12" value="3.5" placeholder="e.g. 3.5" required>
+                  <span class="text-xs text-muted" id="halfDayHint">3.5 hrs (Leaves at 12:00)</span>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label>Late Half Day Base (Hrs)</label>
+                  <input type="number" id="shiftModalLateHalfDay" class="form-control" step="any" min="0.1" max="12" value="4.0" placeholder="e.g. 4.0" required>
+                  <span class="text-xs text-muted" id="lateHalfDayHint">4.0 hrs (12:30 + Late)</span>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label>Full Day Required (Hrs)</label>
+                  <input type="number" id="shiftModalFullDay" class="form-control" step="any" min="0.1" max="24" value="7.75" placeholder="e.g. 7.75" required>
+                  <span class="text-xs text-muted" id="fullDayHint">7.75 hrs (Leaves at 16:15)</span>
+                </div>
+              </div>
+
+              <div class="form-check" style="margin-top: 8px;">
+                <input type="checkbox" id="shiftModalLateCover" checked>
+                <label for="shiftModalLateCover" style="cursor: pointer; font-size: 0.84rem; color: var(--text-main);">
+                  <strong>Require Late Covering:</strong> If arrived late, extend departure time by late minutes (e.g. 12:30 + Late &amp; 16:15 + Late).
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Overtime (OT) Calculation Rules (Stacked) -->
+          <div style="background: var(--bg-hover, #f8fafc); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <span style="font-size: 0.8rem; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px;">
+                ⚡ Overtime (OT) Calculation Rules
+              </span>
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; color: var(--text-main); margin-bottom: 0;">
+                <input type="checkbox" id="shiftModalEnableOt" checked>
+                <span>Enable Overtime (OT)</span>
+              </label>
+            </div>
+            <div id="shiftModalOtBody" style="transition: opacity 0.2s ease;">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 8px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label>Min Qualifying Extra Time (Mins)</label>
+                  <input type="number" id="shiftModalOtMinMins" class="form-control" min="0" max="300" value="60" required>
+                  <span class="text-xs text-muted">Starts after 1st hour (60m) beyond covered day</span>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label>OT Increment Step (Mins)</label>
+                  <input type="number" id="shiftModalOtStepMins" class="form-control" min="1" max="60" value="15" required>
+                  <span class="text-xs text-muted">Adds every 15 mins (1.0H, 1.25H, 1.5H, 1.75H, 2.0H...)</span>
+                </div>
+              </div>
+              <span class="text-xs text-muted" style="display: block; line-height: 1.3;">
+                🔒 <strong>Policy Rule:</strong> Short Leave Days &amp; Half Days are <strong>NOT allowed</strong> for OT calculation.
+              </span>
+            </div>
+          </div>
+
+          <!-- Working Weekdays & Default Toggle -->
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 4px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label style="display: flex; gap: 8px; align-items: baseline; margin-bottom: 6px;">
+                <span>Working Weekdays</span>
+                <span class="text-xs text-muted">(Unchecked = <strong>Weekend Off</strong>)</span>
+              </label>
+              <div class="days-selector-wrap" id="shiftModalDaysWrap">
+                <label class="day-chip"><input type="checkbox" name="workDay" value="1" checked><span>Mon</span></label>
+                <label class="day-chip"><input type="checkbox" name="workDay" value="2" checked><span>Tue</span></label>
+                <label class="day-chip"><input type="checkbox" name="workDay" value="3" checked><span>Wed</span></label>
+                <label class="day-chip"><input type="checkbox" name="workDay" value="4" checked><span>Thu</span></label>
+                <label class="day-chip"><input type="checkbox" name="workDay" value="5" checked><span>Fri</span></label>
+                <label class="day-chip"><input type="checkbox" name="workDay" value="6"><span>Sat</span></label>
+                <label class="day-chip"><input type="checkbox" name="workDay" value="0"><span>Sun</span></label>
+              </div>
+            </div>
+
+            <div class="form-check" style="margin-bottom: 0;">
+              <input type="checkbox" id="shiftModalIsDefault">
+              <label for="shiftModalIsDefault" style="cursor: pointer; font-size: 0.88rem;">
+                <strong>Set as Default Shift</strong> (New employees)
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnShiftModalCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnShiftModalSave">Save Working Shift</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Holiday Create Modal -->
+  <div class="modal" id="holidayModal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 id="holidayModalTitle">Add Holiday</h3>
+        <button class="btn-close" id="btnHolidayModalClose">&times;</button>
+      </div>
+      <form id="holidayForm">
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Holiday Name</label>
+            <input type="text" id="holidayModalName" class="form-control" placeholder="e.g. Labor Day, National Holiday" required>
+          </div>
+          <div class="form-group">
+            <label>Holiday Date</label>
+            <input type="date" id="holidayModalDate" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Holiday Type</label>
+            <select id="holidayModalType" class="form-control">
+              <option value="Public Holiday">Public Holiday</option>
+              <option value="Company Holiday">Company Holiday</option>
+              <option value="Festival Holiday">Festival Holiday</option>
+              <option value="Optional / Restricted">Optional / Restricted</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-top: 12px;">
+            <label style="font-weight: 600; margin-bottom: 6px; display: block;">Holiday Classification</label>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9rem;">
+                <input type="checkbox" id="holidayModalPublic" checked> 🏛️ Public Holiday
+              </label>
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9rem;">
+                <input type="checkbox" id="holidayModalBank" checked> 🏦 Bank Holiday
+              </label>
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.9rem;">
+                <input type="checkbox" id="holidayModalMercantile"> 🏢 Mercantile Holiday
+              </label>
+            </div>
+          </div>
+          <div class="form-group form-check" style="margin-top: 12px;">
+            <input type="checkbox" id="holidayModalRecurring" checked>
+            <label for="holidayModalRecurring" style="cursor: pointer; font-size: 0.9rem;">
+              Recurring annual holiday (repeats on same date every year)
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnHolidayModalCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnHolidayModalSave">Save Holiday</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Upload Holidays (CSV / Excel) Modal -->
+  <div class="modal" id="holidayUploadModal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content" style="max-width: 620px;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.3rem;">📅</span>
+          <h3 style="margin: 0;">Upload Official Holidays (CSV / Excel)</h3>
+        </div>
+        <button class="btn-close" id="btnHolidayUploadModalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="holidayUploadDropzone" style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 24px 16px; text-align: center; background: #f8fafc; cursor: pointer; transition: all 0.2s ease;">
+          <svg style="width: 42px; height: 42px; color: #64748b; margin-bottom: 8px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          <div style="font-weight: 600; color: #1e293b; font-size: 1rem; margin-bottom: 4px;">Choose CSV or Excel file</div>
+          <div style="font-size: 0.82rem; color: #64748b;">Supports .csv, .xlsx, .xls formats (Date, Holiday Description, Bank, Public, Mercantile)</div>
+          <div style="margin-top: 12px;">
+            <button type="button" class="btn btn-sm btn-outline" id="btnBrowseHolidayFile">Browse File</button>
+          </div>
+        </div>
+
+        <div id="holidayUploadPreviewArea" style="display: none; margin-top: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 8px 12px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px;">
+            <div style="font-size: 0.88rem; color: #166534; font-weight: 600;" id="holidayUploadFileInfo">
+              <!-- File info filled dynamically -->
+            </div>
+            <button type="button" class="btn btn-sm btn-outline" id="btnDownloadSampleHolidaysCsv" style="font-size: 0.78rem;">
+              ⬇️ Sample Template
+            </button>
+          </div>
+
+          <div style="max-height: 220px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 16px;">
+            <table class="data-table" style="font-size: 0.85rem; margin-bottom: 0;">
+              <thead style="position: sticky; top: 0; background: #f8fafc;">
+                <tr>
+                  <th>Date</th>
+                  <th>Holiday Name</th>
+                  <th>Classification</th>
+                </tr>
+              </thead>
+              <tbody id="holidayUploadPreviewTableBody">
+              </tbody>
+            </table>
+          </div>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px;">
+            <label style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 8px;">Import Mode</label>
+            <div style="display: flex; gap: 20px;">
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.88rem;">
+                <input type="radio" name="holidayImportMode" value="append" checked>
+                Merge / Update existing holidays
+              </label>
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.88rem; color: #b91c1c;">
+                <input type="radio" name="holidayImportMode" value="replace">
+                Replace all existing holidays
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" id="btnHolidayUploadCancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btnHolidayUploadConfirm" disabled>
+          Import Holidays
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bulk Assign Shift Modal -->
+  <div class="modal" id="bulkShiftModal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3>Bulk Assign Working Shift</h3>
+        <button class="btn-close" id="btnBulkShiftModalClose">&times;</button>
+      </div>
+      <form id="bulkShiftForm">
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Select Shift to Assign</label>
+            <select id="bulkShiftSelect" class="form-control" required></select>
+          </div>
+          <div class="form-group">
+            <label>Assign Scope</label>
+            <select id="bulkShiftScope" class="form-control">
+              <option value="all">All Registered Employees</option>
+              <option value="dept">By Department...</option>
+            </select>
+          </div>
+          <div class="form-group" id="bulkShiftDeptWrap" style="display: none;">
+            <label>Select Department</label>
+            <select id="bulkShiftDeptSelect" class="form-control"></select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnBulkShiftModalCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnBulkShiftModalSave">Apply Shift Assignment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Data Reset Confirmation Modal -->
+  <div class="modal" id="resetDataModal">
+    <div class="modal-backdrop" id="resetDataModalBackdrop"></div>
+    <div class="modal-content" style="max-width: 540px;">
+      <div class="modal-header" style="background: #fff5f5; border-bottom: 1px solid #fed7d7;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 1.3rem;">⚠️</span>
+          <h3 style="color: #991b1b; margin-bottom: 0;">Reset Employees & Attendance Data</h3>
+        </div>
+        <button class="btn-close" id="btnResetDataModalClose">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 20px;">
+        <div style="background: #fee2e2; border: 1px solid #fca5a5; border-radius: 6px; padding: 12px; margin-bottom: 16px; color: #991b1b; font-size: 0.88rem; line-height: 1.4;">
+          <strong>Warning:</strong> Selected data will be permanently wiped from the database. Ensure you have exported a backup copy beforehand.
+          <div style="margin-top: 6px;">
+            <a href="/api/device/backup-download" target="_blank" download style="color: #b91c1c; font-weight: 700; text-decoration: underline;">
+              📥 Click here to download full backup file now
+            </a>
+          </div>
+        </div>
+
+        <label style="font-weight: 700; font-size: 0.9rem; margin-bottom: 8px; display: block;">Select Data to Reset:</label>
+        <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; background: #f8fafc; border: 1px solid #e2e8f0; padding: 14px; border-radius: 8px;">
+          <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 0.9rem;">
+            <input type="checkbox" id="chkResetAttendance" checked style="margin-top: 3px; cursor: pointer;">
+            <div>
+              <strong>Attendance Punch Records</strong>
+              <div style="font-size: 0.78rem; color: #64748b;">Deletes all clock-in / clock-out punches from local database (<span id="modalCountAttendance">0</span> records)</div>
+            </div>
+          </label>
+
+          <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 0.9rem;">
+            <input type="checkbox" id="chkResetEmployees" checked style="margin-top: 3px; cursor: pointer;">
+            <div>
+              <strong>Employee Directory</strong>
+              <div style="font-size: 0.78rem; color: #64748b;">Deletes all employee profiles, department mappings, and assigned shifts (<span id="modalCountEmployees">0</span> employees)</div>
+            </div>
+          </label>
+
+          <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 0.9rem;">
+            <input type="checkbox" id="chkResetSyncLogs" style="margin-top: 3px; cursor: pointer;">
+            <div>
+              <strong>Sync & Audit Logs</strong>
+              <div style="font-size: 0.78rem; color: #64748b;">Clears historical device synchronization audit records (<span id="modalCountSyncLogs">0</span> logs)</div>
+            </div>
+          </label>
+
+          <div style="border-top: 1px dashed #cbd5e1; margin-top: 6px; padding-top: 10px;">
+            <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 0.9rem; color: #b91c1c;">
+              <input type="checkbox" id="chkClearTerminalLogs" style="margin-top: 3px; cursor: pointer;">
+              <div>
+                <strong>Wipe Punch Logs on Physical SpeedFace Terminal <span class="badge" style="background:#fee2e2;color:#b91c1c;font-size:0.7rem;margin-left:4px;">HARDWARE</span></strong>
+                <div style="font-size: 0.78rem; color: #b91c1c;">Sends command to connected terminal (<span id="modalDevIp">192.168.10.15</span>) to clear its internal attendance log buffer</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="inputResetConfirmText" style="font-weight: 700; font-size: 0.9rem; color: #0f172a;">
+            Type <span style="color: #b91c1c; font-family: monospace; background: #fee2e2; padding: 2px 6px; border-radius: 4px; font-weight: 800;">RESET</span> to confirm:
+          </label>
+          <input type="text" id="inputResetConfirmText" class="form-control font-mono" placeholder="Type RESET in capital letters" autocomplete="off" style="font-size: 1rem; letter-spacing: 1px;">
+          <small id="resetConfirmHint" class="form-hint" style="color: #64748b;">Button will remain disabled until confirmation text matches.</small>
+        </div>
+      </div>
+      <div class="modal-footer" style="background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+        <button type="button" class="btn btn-outline" id="btnResetDataModalCancel">Cancel</button>
+        <button type="button" class="btn btn-danger" id="btnConfirmResetData" disabled style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          Permanently Wipe Data
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Employee Upload Modal -->
+  <div class="modal" id="employeeUploadModal">
+    <div class="modal-backdrop" id="employeeUploadModalBackdrop"></div>
+    <div class="modal-content" style="max-width: 840px;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.3rem;">👥</span>
+          <h3 style="margin: 0;">Upload Employee Directory (CSV / Excel)</h3>
+        </div>
+        <button class="btn-close" id="btnEmployeeUploadModalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="employeeUploadDropzone" style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 24px 16px; text-align: center; background: #f8fafc; cursor: pointer; transition: all 0.2s ease;">
+          <svg style="width: 42px; height: 42px; color: #64748b; margin-bottom: 8px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          <div style="font-weight: 600; color: #1e293b; font-size: 1rem; margin-bottom: 4px;">Choose CSV or Excel file</div>
+          <div style="font-size: 0.82rem; color: #64748b;">Supports .csv, .xlsx, .xls formats (FingerPrint ID, Full Name, Service ID, NIC, Department, Role, Shift, Phone, Email)</div>
+          <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+            <button type="button" class="btn btn-sm btn-outline" id="btnBrowseEmployeeFile">Browse File</button>
+            <a href="/api/employees/sample-template?format=csv" download class="btn btn-sm btn-outline" id="btnDownloadSampleTemplateTop">
+              ⬇️ Download Sample Template (.CSV)
+            </a>
+          </div>
+          <input type="file" id="inputEmployeeUpload" accept=".csv, .xlsx, .xls, .txt" style="display: none;">
+        </div>
+
+        <div id="employeeUploadPreviewArea" style="display: none; margin-top: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 8px 12px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; flex-wrap: wrap; gap: 8px;">
+            <div style="font-size: 0.88rem; color: #166534; font-weight: 600;" id="employeeUploadFileInfo">
+              <!-- File info filled dynamically -->
+            </div>
+            <a href="/api/employees/sample-template?format=csv" download class="btn btn-sm btn-outline" id="btnDownloadSampleEmployeeCsv" style="font-size: 0.78rem;">
+              ⬇️ Sample Template (.CSV)
+            </a>
+          </div>
+
+          <div style="max-height: 240px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 16px;">
+            <table class="data-table" style="font-size: 0.85rem; margin-bottom: 0;">
+              <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 2;">
+                <tr>
+                  <th>FingerPrint ID</th>
+                  <th>Service ID</th>
+                  <th>Full Name</th>
+                  <th>NIC</th>
+                  <th>Department</th>
+                  <th>Role</th>
+                  <th>Assigned Shift</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="employeeUploadPreviewTableBody">
+              </tbody>
+            </table>
+          </div>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; margin-bottom: 12px;">
+            <label style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 8px;">Import Mode</label>
+            <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.88rem;">
+                <input type="radio" name="employeeImportMode" value="merge" checked>
+                Merge / Update existing employees (recommended)
+              </label>
+              <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.88rem; color: #b91c1c;">
+                <input type="radio" name="employeeImportMode" value="replace">
+                Replace all existing employees
+              </label>
+            </div>
+          </div>
+
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 10px 12px; border-radius: 6px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.88rem; color: #1e40af; margin-bottom: 0;">
+              <input type="checkbox" id="chkSyncUploadedToDevice" style="cursor: pointer;">
+              <span><strong>Push imported employee names to physical SpeedFace terminal</strong> (via TCP port 4370)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" id="btnEmployeeUploadCancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btnEmployeeUploadConfirm" disabled>
+          Import Employees
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Print & PDF Options Modal -->
+  <div class="modal" id="printOptionsModal" style="z-index: 2000;">
+    <div class="modal-backdrop" onclick="closePrintOptionsModal()"></div>
+    <div class="modal-content" style="max-width: 660px; z-index: 2001;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.3rem;">🖨️</span>
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem;">Print &amp; PDF Export Settings</h3>
+            <p style="margin: 0; font-size: 0.8rem; color: var(--text-muted);">Configure paper sizing, margins, letterhead, signatures &amp; toner saver</p>
+          </div>
+        </div>
+        <button type="button" class="btn-close" id="btnPrintOptionsModalClose" onclick="closePrintOptionsModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="display: flex; flex-direction: column; gap: 16px;">
+        
+        <!-- Section 1: Paper Format & Orientation -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px;">
+          <h4 style="margin: 0 0 10px 0; font-size: 0.9rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 6px;">
+            <span>📄</span> Paper Format, Orientation &amp; Density
+          </h4>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="modalPrintPageSize" style="font-size: 0.82rem; font-weight: 600;">Paper Size &amp; Orientation</label>
+              <select id="modalPrintPageSize" class="form-control" style="font-size: 0.85rem; font-weight: 600;">
+                <option value="a4-landscape">📄 A4 Landscape (297 × 210 mm) - Default</option>
+                <option value="a4-portrait">📄 A4 Portrait (210 × 297 mm)</option>
+                <option value="letter-landscape">📄 US Letter Landscape (11 × 8.5 in)</option>
+                <option value="letter-portrait">📄 US Letter Portrait (8.5 × 11 in)</option>
+                <option value="legal-landscape">📜 US Legal Landscape (14 × 8.5 in)</option>
+                <option value="legal-portrait">📜 US Legal Portrait (8.5 × 14 in)</option>
+                <option value="a3-landscape">🗺️ A3 Landscape (420 × 297 mm - Wide Matrix)</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="modalPrintMargin" style="font-size: 0.82rem; font-weight: 600;">Page Margins</label>
+              <select id="modalPrintMargin" class="form-control" style="font-size: 0.85rem; font-weight: 600;">
+                <option value="compact">Compact (4mm / 5mm - Max Data)</option>
+                <option value="normal" selected>Standard (8mm - Recommended)</option>
+                <option value="wide">Wide (14mm - For Binders / Folders)</option>
+                <option value="zero">Zero / Borderless (0mm)</option>
+              </select>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="modalPrintFontScale" style="font-size: 0.82rem; font-weight: 600;">Table Scale &amp; Row Density</label>
+              <select id="modalPrintFontScale" class="form-control" style="font-size: 0.85rem; font-weight: 600;">
+                <option value="compact">Compact (85% scale, 7pt - More rows/page)</option>
+                <option value="standard" selected>Standard (100% scale, 8pt - Normal)</option>
+                <option value="large">Spacious (115% scale, 9.5pt - High legibility)</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="modalPrintColorMode" style="font-size: 0.82rem; font-weight: 600;">Color &amp; Ink Mode</label>
+              <select id="modalPrintColorMode" class="form-control" style="font-size: 0.85rem; font-weight: 600;">
+                <option value="color" selected>Full Color (Rich badges &amp; highlights)</option>
+                <option value="ink-saver">Ink Saver / Monochrome (High-contrast B&amp;W)</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top: 10px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.82rem; color: #334155;">
+              <input type="checkbox" id="modalPrintRepeatHeaders" checked style="cursor: pointer;">
+              <span>Repeat table headers (<code>&lt;thead&gt;</code>) at top of each printed page</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Section 2: Organization Letterhead & Meta Header -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px;">
+          <h4 style="margin: 0 0 10px 0; font-size: 0.9rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 6px;">
+            <span>🏛️</span> Organization Letterhead &amp; Metadata
+          </h4>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 0.84rem; color: #1e293b;">
+              <input type="checkbox" id="modalPrintShowLetterhead" checked style="margin-top: 3px; cursor: pointer;">
+              <div>
+                <strong>Include Company / Institution Letterhead</strong>
+                <div style="font-size: 0.78rem; color: #64748b;">Includes institution name, division, address, phone &amp; email. <em>Uncheck this if you are feeding pre-printed company letterhead stationery into your printer.</em></div>
+              </div>
+            </label>
+            <label style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; font-size: 0.84rem; color: #1e293b;">
+              <input type="checkbox" id="modalPrintShowMeta" checked style="margin-top: 3px; cursor: pointer;">
+              <div>
+                <strong>Include Report Period &amp; Generation Timestamp Badge</strong>
+                <div style="font-size: 0.78rem; color: #64748b;">Displays report period, generated date &amp; time, and terminal device info on top-right.</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Section 3: Signatures & Sign-off Blocks -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h4 style="margin: 0; font-size: 0.9rem; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 6px;">
+              <span>✍️</span> Sign-off &amp; Authorization Blocks
+            </h4>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.82rem; font-weight: 700; color: #1e40af;">
+              <input type="checkbox" id="modalPrintShowSignatures" checked style="cursor: pointer;">
+              <span>Print Signatures</span>
+            </label>
+          </div>
+          <div id="modalPrintSigInputsWrap" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+            <div style="background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px;">
+              <span style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Sign-off Column 1</span>
+              <input type="text" id="modalPrintSig1Title" class="form-control" value="Prepared By" style="font-size: 0.8rem; font-weight: 600; padding: 4px 6px; margin: 4px 0;">
+              <input type="text" id="modalPrintSig1Sub" class="form-control" value="HR / Attendance Officer" style="font-size: 0.76rem; padding: 3px 6px; color: #64748b;">
+            </div>
+            <div style="background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px;">
+              <span style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Sign-off Column 2</span>
+              <input type="text" id="modalPrintSig2Title" class="form-control" value="Checked &amp; Verified By" style="font-size: 0.8rem; font-weight: 600; padding: 4px 6px; margin: 4px 0;">
+              <input type="text" id="modalPrintSig2Sub" class="form-control" value="Head of Department" style="font-size: 0.76rem; padding: 3px 6px; color: #64748b;">
+            </div>
+            <div style="background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px;">
+              <span style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Sign-off Column 3</span>
+              <input type="text" id="modalPrintSig3Title" class="form-control" value="Authorized Approval" style="font-size: 0.8rem; font-weight: 600; padding: 4px 6px; margin: 4px 0;">
+              <input type="text" id="modalPrintSig3Sub" class="form-control" value="Director / General Manager" style="font-size: 0.76rem; padding: 3px 6px; color: #64748b;">
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 4: Monthly Book Print Scope -->
+        <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <strong style="font-size: 0.85rem; color: #1e40af;">📑 Monthly Timesheet Book Print Scope:</strong>
+              <div style="font-size: 0.78rem; color: #3b82f6;">When printing in 1-Page-Per-Person mode:</div>
+            </div>
+            <select id="modalPrintBookScope" class="form-control" style="width: auto; font-size: 0.82rem; font-weight: 700; padding: 4px 10px; background: #fff;">
+              <option value="all" selected>All Employees (Complete Book)</option>
+              <option value="selected">Currently Selected Employee Only (1 Page)</option>
+            </select>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+        <button type="button" class="btn btn-outline btn-sm" id="btnModalPrintReset" onclick="resetPrintOptionsToDefaults()" style="font-weight: 600;">
+          ↺ Reset Defaults
+        </button>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn btn-outline" id="btnModalPrintCancel" onclick="closePrintOptionsModal()">Cancel</button>
+          <button type="button" class="btn btn-secondary" id="btnModalPrintSave" onclick="savePrintOptionsFromModal()" style="background: #475569; color: #fff; font-weight: 600;">
+            💾 Save Settings
+          </button>
+          <button type="button" class="btn btn-primary" id="btnModalPrintExecute" onclick="executePrintFromModal()" style="font-weight: 700; display: flex; align-items: center; gap: 6px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+            Print / PDF Now
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="js/app.js?v=2.1.0"></script>
+</body>
+</html>

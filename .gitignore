@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Production logs
+logs/
+*.log
+
+# Database files and backups
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/backups/
+data/employee_master.json
+
+# Uploaded portrait photos (private PII)
+public/uploads/photos/*
+!public/uploads/photos/.gitkeep
+
+# Temporary browser testing & scrap folders
+edge_temp/
+scratch_chrome/
+
+# Environment local secrets
+.env
+.env.local
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,27 @@
+Date,Day,Holiday Description,Bank Holiday,Public Holiday,Mercantile Holiday
+2026-01-03,Saturday,Duruthu Full Moon Poya Day,True,True,False
+2026-01-15,Thursday,Tamil Thai Pongal Day,True,True,True
+2026-02-01,Sunday,Navam Full Moon Poya Day,True,True,False
+2026-02-04,Wednesday,Independence Day,True,True,True
+2026-02-15,Sunday,Mahasivarathri Day,True,True,False
+2026-03-02,Monday,Medin Full Moon Poya Day,True,True,False
+2026-03-21,Saturday,Id-Ul-Fitre (Ramazan Festival Day),True,True,False
+2026-04-01,Wednesday,Bak Full Moon Poya Day,True,True,False
+2026-04-03,Friday,Good Friday,True,True,False
+2026-04-13,Monday,Day prior to Sinhala & Tamil New Year Day,True,True,True
+2026-04-14,Tuesday,Sinhala & Tamil New Year Day,True,True,True
+2026-05-01,Friday,Vesak Full Moon Poya Day,True,True,False
+2026-05-01,Friday,May Day (International Workers' Day),True,True,True
+2026-05-02,Saturday,Day following Vesak Full Moon Poya Day,True,True,True
+2026-05-28,Thursday,Id-Ul-Allah (Hadji Festival Day),True,True,False
+2026-05-30,Saturday,Adhi Poson Full Moon Poya Day,True,True,False
+2026-06-29,Monday,Poson Full Moon Poya Day,True,True,False
+2026-07-29,Wednesday,Esala Full Moon Poya Day,True,True,False
+2026-08-26,Wednesday,Milad-Un-Nabi (Holy Prophet's Birthday),True,True,True
+2026-08-27,Thursday,Nikini Full Moon Poya Day,True,True,False
+2026-09-26,Saturday,Binara Full Moon Poya Day,True,True,False
+2026-10-25,Sunday,Vap Full Moon Poya Day,True,True,False
+2026-11-08,Sunday,Deepawali Festival Day,True,True,False
+2026-11-24,Tuesday,Ill Full Moon Poya Day,True,True,False
+2026-12-23,Wednesday,Unduwap Full Moon Poya Day,True,True,False
+2026-12-25,Friday,Christmas Day,True,True,True
