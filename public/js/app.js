@@ -4466,15 +4466,24 @@ function initWebSocket() {
   connect();
 }
 
+let debouncedStatsTimer = null;
+function debouncedLoadDashboardStats() {
+  if (debouncedStatsTimer) clearTimeout(debouncedStatsTimer);
+  debouncedStatsTimer = setTimeout(() => {
+    loadDashboardStats();
+    debouncedStatsTimer = null;
+  }, 400);
+}
+
 function handleWebSocketMessage(msg) {
   if (msg.type === 'LIVE_PUNCH') {
     const punch = msg.data;
     addLivePunchItem(punch);
-    loadDashboardStats();
+    debouncedLoadDashboardStats();
     showToast(`Punch detected: User ${punch.user_id} (${punch.verify_name || 'Face Recognition'})`, 'success');
   } else if (msg.type === 'NEW_RECORDS_SYNCED') {
     showToast(`${msg.data.newCount} new attendance record(s) synced from machine!`, 'info');
-    loadDashboardStats();
+    debouncedLoadDashboardStats();
     loadLiveFeed();
     loadTodayPreview();
     if (state.currentTab === 'tab-records') loadRecords();

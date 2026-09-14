@@ -50,7 +50,7 @@ const config = {
   logLevel: process.env.LOG_LEVEL || 'info',
 
   // Rate Limiting
-  rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || '300', 10),
+  rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || '1500', 10),
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '60000', 10)
 };
 

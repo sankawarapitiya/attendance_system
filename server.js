@@ -55,19 +55,34 @@ setInterval(() => {
 }, 300000); // Clean up every 5 minutes
 
 function rateLimiter(req, res, next) {
+  // 1. Terminal ADMS push (/iclock/*) and health checks are strictly exempt
   if (req.path.startsWith('/iclock') || req.path === '/health' || req.path === '/api/health') {
     return next();
   }
 
   const ip = req.ip || req.socket?.remoteAddress || '127.0.0.1';
+
+  // 2. Loopback / local host access is exempt from rate limiting to prevent self-lockout
+  if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip === 'localhost') {
+    return next();
+  }
+
   const now = Date.now();
   let record = rateLimitMap.get(ip);
 
   if (!record || (now - record.startTime) > config.rateLimitWindowMs) {
     rateLimitMap.set(ip, { count: 1, startTime: now });
+    res.setHeader('X-RateLimit-Limit', config.rateLimitMax);
+    res.setHeader('X-RateLimit-Remaining', Math.max(0, config.rateLimitMax - 1));
   } else {
     record.count++;
+    const remaining = Math.max(0, config.rateLimitMax - record.count);
+    res.setHeader('X-RateLimit-Limit', config.rateLimitMax);
+    res.setHeader('X-RateLimit-Remaining', remaining);
+
     if (record.count > config.rateLimitMax) {
+      const retryAfterSec = Math.ceil((config.rateLimitWindowMs - (now - record.startTime)) / 1000);
+      res.setHeader('Retry-After', Math.max(1, retryAfterSec));
       logger.warn('RATE_LIMIT', `Rate limit exceeded for IP: ${ip} on ${req.method} ${req.path}`);
       return res.status(429).json({
         success: false,

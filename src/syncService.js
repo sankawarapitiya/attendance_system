@@ -194,10 +194,12 @@ async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, loc
       ['DIRECT_SYNC', 'SUCCESS', insertResult.inserted, records.length, `Completed in ${duration}s`]
     );
 
-    // If new records were found, broadcast each one to the live punch feed!
+    // If new records were found, update feed and notify dashboard!
     if (insertResult.inserted > 0) {
       const newRecs = records.slice(-insertResult.inserted);
-      for (const nr of newRecs) {
+      // Broadcast at most the latest 3 punches to live feed so batch sync does not flood WebSocket/clients
+      const feedPreview = newRecs.slice(-3);
+      for (const nr of feedPreview) {
         try {
           const emp = await dbGet(`SELECT name, department FROM employees WHERE user_id = ?`, [nr.user_id]);
           broadcastLivePunch({
