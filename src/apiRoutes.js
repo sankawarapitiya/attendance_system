@@ -2015,11 +2015,27 @@ router.get('/network-interfaces', async (req, res) => {
     const deviceIp = ipSetting ? ipSetting.value : '192.168.10.15';
     const interfaces = getLocalIps(deviceIp);
 
+    let selectedInterface = ifaceSetting ? ifaceSetting.value : '';
+    let selectedInterfaceIp = ifaceIpSetting ? ifaceIpSetting.value : '';
+
+    // Check if currently saved IP is still valid on this machine
+    const isSavedIpActive = selectedInterfaceIp && interfaces.some(i => i.ip === selectedInterfaceIp);
+    if (!isSavedIpActive && interfaces.length > 0) {
+      const bestMatch = interfaces.find(i => i.inSameSubnet) || interfaces[0];
+      selectedInterface = bestMatch.name;
+      selectedInterfaceIp = bestMatch.ip;
+      // Auto-update DB settings to keep them fresh
+      try {
+        await dbRun(`UPDATE settings SET value = ? WHERE key = 'network_interface'`, [selectedInterface]);
+        await dbRun(`UPDATE settings SET value = ? WHERE key = 'network_interface_ip'`, [selectedInterfaceIp]);
+      } catch (e) {}
+    }
+
     res.json({
       success: true,
       interfaces,
-      selectedInterface: ifaceSetting ? ifaceSetting.value : (interfaces[0]?.name || ''),
-      selectedInterfaceIp: ifaceIpSetting ? ifaceIpSetting.value : (interfaces[0]?.ip || ''),
+      selectedInterface,
+      selectedInterfaceIp,
       deviceIp,
       serverPort: 8088
     });

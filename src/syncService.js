@@ -1,6 +1,53 @@
+const os = require('os');
 const { SpeedFaceClient } = require('./zktProtocol');
 const { insertAttendanceBatch, upsertEmployees, dbRun, dbGet } = require('./db');
 const { broadcastLivePunch, getConnectedAdmsDevices } = require('./admsServer');
+
+/**
+ * Validates the preferred interface IP against the host machine's active network adapters.
+ * If preferredIp is stale or missing, automatically finds the active adapter on the same subnet
+ * as targetDeviceIp, auto-corrects the database settings, and returns the valid IP.
+ */
+async function getOrDetectLocalAddress(preferredIp, targetDeviceIp = '192.168.10.15') {
+  const interfaces = os.networkInterfaces();
+  const allActiveIps = [];
+
+  for (const name of Object.keys(interfaces)) {
+    for (const netInfo of interfaces[name]) {
+      if (netInfo.family === 'IPv4' && !netInfo.internal) {
+        allActiveIps.push({ name, ip: netInfo.address, netmask: netInfo.netmask });
+      }
+    }
+  }
+
+  // 1. If preferredIp is valid and currently assigned to this PC, use it
+  if (preferredIp && allActiveIps.some(i => i.ip === preferredIp)) {
+    return preferredIp;
+  }
+
+  // 2. Look for an active interface on the same subnet as target device
+  if (targetDeviceIp) {
+    const targetPrefix = targetDeviceIp.split('.').slice(0, 3).join('.');
+    const sameSubnet = allActiveIps.find(i => i.ip.split('.').slice(0, 3).join('.') === targetPrefix);
+    if (sameSubnet) {
+      if (preferredIp && preferredIp !== sameSubnet.ip) {
+        try {
+          await dbRun(`UPDATE settings SET value = ? WHERE key = 'network_interface_ip'`, [sameSubnet.ip]);
+          await dbRun(`UPDATE settings SET value = ? WHERE key = 'network_interface'`, [sameSubnet.name]);
+          console.log(`[NETWORK] Auto-corrected stale network interface IP from ${preferredIp} to active ${sameSubnet.ip} (${sameSubnet.name})`);
+        } catch (e) {}
+      }
+      return sameSubnet.ip;
+    }
+  }
+
+  // 3. Fall back to first non-internal IPv4 if any exist
+  if (allActiveIps.length > 0) {
+    return allActiveIps[0].ip;
+  }
+
+  return null;
+}
 
 let isSyncing = false;
 let isHealthChecking = false;
@@ -53,6 +100,7 @@ async function checkDeviceHealth(deviceIp = '192.168.10.15', devicePort = 4370, 
         if (netSetting && netSetting.value) localAddress = netSetting.value;
       } catch (e) {}
     }
+    localAddress = await getOrDetectLocalAddress(localAddress, deviceIp);
     const client = new SpeedFaceClient(deviceIp, devicePort, 4000, localAddress);
     const connInfo = await client.testConnection();
 
@@ -135,6 +183,7 @@ async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, loc
     } catch (e) {}
   }
 
+  localAddress = await getOrDetectLocalAddress(localAddress, deviceIp);
   const client = new SpeedFaceClient(deviceIp, devicePort, 10000, localAddress);
   const startTime = Date.now();
 
@@ -302,6 +351,7 @@ function startAutoSync(intervalSeconds = 60, getSettingsFn) {
         if (ifaceRow && ifaceRow.value) localAddress = ifaceRow.value;
       } catch (e) {}
     }
+    localAddress = await getOrDetectLocalAddress(localAddress, ip);
     return { ip, port, localAddress, enabled };
   }
 

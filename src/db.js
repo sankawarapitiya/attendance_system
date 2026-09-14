@@ -306,8 +306,24 @@ async function initDatabase() {
   await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('device_port', '4370')`);
   await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_sync_interval', '60')`);
   await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_sync_enabled', 'true')`);
-  await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('network_interface', 'Ethernet')`);
-  await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('network_interface_ip', '192.168.10.41')`);
+
+  let defaultIface = 'Ethernet';
+  let defaultIfaceIp = '192.168.10.55';
+  try {
+    const os = require('os');
+    const ifaces = os.networkInterfaces();
+    for (const [name, nets] of Object.entries(ifaces)) {
+      const match = (nets || []).find(n => n.family === 'IPv4' && !n.internal && n.address.startsWith('192.168.10.'));
+      if (match) {
+        defaultIface = name;
+        defaultIfaceIp = match.address;
+        break;
+      }
+    }
+  } catch (e) {}
+
+  await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('network_interface', ?)`, [defaultIface]);
+  await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('network_interface_ip', ?)`, [defaultIfaceIp]);
 
   // Default organization & company profile settings
   await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('org_name', 'National Institute of Fisheries and Nautical Engineering')`);

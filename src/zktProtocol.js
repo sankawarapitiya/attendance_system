@@ -1,7 +1,24 @@
 const net = require('net');
+const os = require('os');
 const ZKLib = require('node-zklib');
 const { COMMANDS, REQUEST_DATA } = require('node-zklib/constants');
 const { getVerifyModeName, getPunchStateName } = require('./db');
+
+/**
+ * Returns all active, non-internal IPv4 addresses assigned to this machine.
+ */
+function getActiveLocalIpv4s() {
+  const interfaces = os.networkInterfaces();
+  const ips = [];
+  for (const name of Object.keys(interfaces)) {
+    for (const netInfo of interfaces[name]) {
+      if (netInfo.family === 'IPv4' && !netInfo.internal) {
+        ips.push(netInfo.address);
+      }
+    }
+  }
+  return ips;
+}
 
 /**
  * Decodes the 32-bit encoded timestamp used by ZKTeco SpeedFace-V5L firmware.
@@ -67,29 +84,60 @@ class SpeedFaceClient {
 
   createInstance() {
     const zk = new ZKLib(this.ip, this.port, this.timeout, 4000);
-    if (this.localAddress) {
-      const bindAddr = this.localAddress;
-      zk.zklibTcp.createSocket = function(cbError, cbClose) {
-        return new Promise((resolve, reject) => {
-          this.socket = new net.Socket();
-          this.socket.once('error', (err) => {
-            reject(err);
+    const activeIps = getActiveLocalIpv4s();
+    const validBindAddr = (this.localAddress && activeIps.includes(this.localAddress)) ? this.localAddress : null;
+
+    if (this.localAddress && !validBindAddr) {
+      console.warn(`[SpeedFaceClient] Configured interface IP ${this.localAddress} is not active on this host (${activeIps.join(', ')}). Connecting via default routing.`);
+    }
+
+    zk.zklibTcp.createSocket = function(cbError, cbClose) {
+      return new Promise((resolve, reject) => {
+        let socket = new net.Socket();
+        this.socket = socket;
+        let hasResolved = false;
+
+        const connectWith = (bindAddr) => {
+          socket.removeAllListeners('error');
+          socket.removeAllListeners('connect');
+          socket.removeAllListeners('close');
+
+          socket.once('error', (err) => {
+            if (bindAddr && (err.code === 'EADDRNOTAVAIL' || err.code === 'EINVAL')) {
+              console.warn(`[SpeedFaceClient] Socket bind to ${bindAddr} failed (${err.code}). Retrying without localAddress...`);
+              try { socket.destroy(); } catch (e) {}
+              socket = new net.Socket();
+              this.socket = socket;
+              connectWith(null);
+              return;
+            }
+            if (!hasResolved) reject(err);
             cbError && cbError(err);
           });
-          this.socket.once('connect', () => {
-            resolve(this.socket);
+
+          socket.once('connect', () => {
+            hasResolved = true;
+            resolve(socket);
           });
-          this.socket.once('close', (err) => {
+
+          socket.once('close', (err) => {
             this.socket = null;
             cbClose && cbClose('tcp');
           });
+
           if (this.timeout) {
-            this.socket.setTimeout(this.timeout);
+            socket.setTimeout(this.timeout);
           }
-          this.socket.connect({ port: this.port, host: this.ip, localAddress: bindAddr });
-        });
-      };
-    }
+
+          const connectOpts = { port: this.port, host: this.ip };
+          if (bindAddr) connectOpts.localAddress = bindAddr;
+          socket.connect(connectOpts);
+        };
+
+        connectWith(validBindAddr);
+      });
+    };
+
     return zk;
   }
 
