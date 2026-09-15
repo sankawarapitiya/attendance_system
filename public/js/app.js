@@ -830,7 +830,7 @@ function renderDailyTable(records) {
         <td>${escapeHtml(r.department || 'General')}</td>
         <td>
           <span class="badge-shift-pill" title="Assigned Shift">
-            <span class="badge-shift-dot" style="background:#2563eb;"></span>
+            <span class="badge-shift-dot" style="background:#6a2625;"></span>
             ${escapeHtml(r.shift_name || 'General')}
           </span>
         </td>
@@ -910,7 +910,7 @@ function renderRecordsTable(records) {
         <td>
           <div style="display: flex; flex-direction: column; gap: 3px;">
             <span class="badge-shift-pill" title="Assigned Shift">
-              <span class="badge-shift-dot" style="background: ${r.shift_color || '#2563eb'};"></span>
+              <span class="badge-shift-dot" style="background: ${r.shift_color || '#6a2625'};"></span>
               ${escapeHtml(r.shift_name || 'General')}
             </span>
             <span class="${r.punctuality_badge || 'badge-on-time'}">
@@ -2044,9 +2044,9 @@ function renderReportKPIBanner(data) {
           <span class="report-kpi-val" style="color: #dc2626;">${tot.daysAbsent || 0} Days</span>
           <span class="report-kpi-sub">Unattended workdays</span>
         </div>
-        <div class="report-kpi-card" style="border-left: 4px solid #2563eb;">
-          <span class="report-kpi-label" style="color: #2563eb;">Total Worked Time</span>
-          <span class="report-kpi-val" style="color: #2563eb;">${tot.totalWorkedFormatted || '0h 0m'}</span>
+        <div class="report-kpi-card" style="border-left: 4px solid #6a2625;">
+          <span class="report-kpi-label" style="color: #6a2625;">Total Worked Time</span>
+          <span class="report-kpi-val" style="color: #6a2625;">${tot.totalWorkedFormatted || '0h 0m'}</span>
           <span class="report-kpi-sub">Cumulative hours</span>
         </div>
         <div class="report-kpi-card" style="border-left: 4px solid #9333ea;">
@@ -2065,9 +2065,9 @@ function renderReportKPIBanner(data) {
           <span class="report-kpi-val">${data.totalEnrolled || 0}</span>
           <span class="report-kpi-sub">Employees</span>
         </div>
-        <div class="report-kpi-card" style="border-left: 4px solid #2563eb;">
-          <span class="report-kpi-label" style="color: #2563eb;">Period</span>
-          <span class="report-kpi-val" style="font-size: 1rem; color: #2563eb;">${data.startDate} &rarr; ${data.endDate}</span>
+        <div class="report-kpi-card" style="border-left: 4px solid #6a2625;">
+          <span class="report-kpi-label" style="color: #6a2625;">Period</span>
+          <span class="report-kpi-val" style="font-size: 1rem; color: #6a2625;">${data.startDate} &rarr; ${data.endDate}</span>
           <span class="report-kpi-sub">7 calendar days</span>
         </div>
         <div class="report-kpi-card" style="border-left: 4px solid #16a34a;">
@@ -2106,9 +2106,9 @@ function renderReportKPIBanner(data) {
           <span class="report-kpi-val" style="color: #ea580c;">${tot.graceUsed || 0}G / ${tot.shortLeaveUsed || 0}SL</span>
           <span class="report-kpi-sub">Monthly allowances</span>
         </div>
-        <div class="report-kpi-card" style="border-left: 4px solid #2563eb;">
-          <span class="report-kpi-label" style="color: #2563eb;">Total Worked Time</span>
-          <span class="report-kpi-val" style="color: #2563eb;">${tot.totalWorkedFormatted || '0h 0m'}</span>
+        <div class="report-kpi-card" style="border-left: 4px solid #6a2625;">
+          <span class="report-kpi-label" style="color: #6a2625;">Total Worked Time</span>
+          <span class="report-kpi-val" style="color: #6a2625;">${tot.totalWorkedFormatted || '0h 0m'}</span>
           <span class="report-kpi-sub">Regular hours</span>
         </div>
         <div class="report-kpi-card" style="border-left: 4px solid #9333ea;">
@@ -2127,9 +2127,9 @@ function renderReportKPIBanner(data) {
           <span class="report-kpi-val">${data.totalEnrolled || 0}</span>
           <span class="report-kpi-sub">Employees</span>
         </div>
-        <div class="report-kpi-card" style="border-left: 4px solid #2563eb;">
-          <span class="report-kpi-label" style="color: #2563eb;">Reporting Month</span>
-          <span class="report-kpi-val" style="color: #2563eb;">${data.periodLabel || data.month}</span>
+        <div class="report-kpi-card" style="border-left: 4px solid #6a2625;">
+          <span class="report-kpi-label" style="color: #6a2625;">Reporting Month</span>
+          <span class="report-kpi-val" style="color: #6a2625;">${data.periodLabel || data.month}</span>
           <span class="report-kpi-sub">Full calendar month</span>
         </div>
         <div class="report-kpi-card" style="border-left: 4px solid #16a34a;">
@@ -2157,8 +2157,8 @@ function renderReportProfileBanner(data) {
   card.style.display = 'block';
   const emp = data.employee;
   const avatarHtml = emp.employee_photo
-    ? `<img src="${emp.employee_photo}" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid #2563eb;" alt="Photo">`
-    : `<div style="width: 44px; height: 44px; border-radius: 50%; background: #2563eb; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1rem;">${String(emp.user_id).slice(-2)}</div>`;
+    ? `<img src="${emp.employee_photo}" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid #6a2625;" alt="Photo">`
+    : `<div style="width: 44px; height: 44px; border-radius: 50%; background: #6a2625; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1rem;">${String(emp.user_id).slice(-2)}</div>`;
 
     const fullName = [emp.title, emp.employee_name].filter(Boolean).join(' ') || 'Unassigned';
     card.innerHTML = `
@@ -2168,7 +2168,7 @@ function renderReportProfileBanner(data) {
           <div>
             <h4 style="margin: 0; font-size: 1.15rem; color: #0f172a; font-weight: 800;">
               ${escapeHtml(fullName)}
-              <span style="font-size: 0.85rem; font-weight: 600; color: #64748b; margin-left: 6px;">(FingerPrint ID: ${emp.user_id}${emp.employee_service_id ? ` • <span style="color:#2563eb;">${escapeHtml(emp.employee_service_id)}</span>` : ''})</span>
+              <span style="font-size: 0.85rem; font-weight: 600; color: #64748b; margin-left: 6px;">(FingerPrint ID: ${emp.user_id}${emp.employee_service_id ? ` • <span style="color:#6a2625;">${escapeHtml(emp.employee_service_id)}</span>` : ''})</span>
             </h4>
             <div style="display: flex; gap: 14px; align-items: center; margin-top: 6px; font-size: 0.82rem; color: #475569; flex-wrap: wrap;">
               ${emp.nic ? `<span>🪪 <strong>NIC:</strong> <span class="font-mono">${escapeHtml(emp.nic)}</span></span>` : ''}
@@ -2182,7 +2182,7 @@ function renderReportProfileBanner(data) {
           </div>
         </div>
         <div style="text-align: right; font-size: 0.82rem; color: #64748b;">
-          <span class="badge-tag" style="background:#dbeafe;color:#1d4ed8;font-weight:700;font-size:0.85rem;">
+          <span class="badge-tag" style="background:#f0f7fb;color:#1b628d;border:1px solid #bcdbf0;font-weight:700;font-size:0.85rem;">
             ${escapeHtml(data.periodLabel || state.report.date)}
           </span>
         </div>
@@ -2372,7 +2372,7 @@ function renderMonthlyBookReport(data) {
             <div class="kpi-mini-item"><span class="kpi-label">S-Leave</span><span class="kpi-val">${totals.shortLeaveUsed || 0}</span></div>
             <div class="kpi-mini-item"><span class="kpi-label">Worked</span><span class="kpi-val">${totals.totalWorkedFormatted || '0h 0m'}</span></div>
             <div class="kpi-mini-item"><span class="kpi-label">OT</span><span class="kpi-val" style="color: #7e22ce;">${totals.totalOtHours || 0}H</span></div>
-            <div class="kpi-mini-item"><span class="kpi-label">Rate</span><span class="kpi-val" style="color: #1e40af;">${totals.attendance_pct || '0%'}</span></div>
+            <div class="kpi-mini-item"><span class="kpi-label">Rate</span><span class="kpi-val" style="color: #1b628d;">${totals.attendance_pct || '0%'}</span></div>
           </div>
         </div>
 
@@ -2471,11 +2471,11 @@ function setMatrixLayout(layout) {
       btnStd.style.background = 'transparent';
       btnStd.style.color = '#475569';
       btnProp.className = 'btn btn-sm btn-primary';
-      btnProp.style.background = '#2563eb';
+      btnProp.style.background = '#6a2625';
       btnProp.style.color = '#ffffff';
     } else {
       btnStd.className = 'btn btn-sm btn-primary';
-      btnStd.style.background = '#2563eb';
+      btnStd.style.background = '#6a2625';
       btnStd.style.color = '#ffffff';
       btnProp.className = 'btn btn-sm btn-outline';
       btnProp.style.background = 'transparent';
@@ -2515,11 +2515,11 @@ function renderMonthlyMatrixTable(data) {
       btnStd.style.background = 'transparent';
       btnStd.style.color = '#475569';
       btnProp.className = 'btn btn-sm btn-primary';
-      btnProp.style.background = '#2563eb';
+      btnProp.style.background = '#6a2625';
       btnProp.style.color = '#ffffff';
     } else {
       btnStd.className = 'btn btn-sm btn-primary';
-      btnStd.style.background = '#2563eb';
+      btnStd.style.background = '#6a2625';
       btnStd.style.color = '#ffffff';
       btnProp.className = 'btn btn-sm btn-outline';
       btnProp.style.background = 'transparent';
@@ -2595,7 +2595,7 @@ function renderMonthlyMatrixTable(data) {
                 <span class="matrix-banner-pill" style="background:#ffedd5; color:#c2410c;" title="Half Days">HD: <strong>${tot.halfDays || 0}</strong></span>
                 <span class="matrix-banner-pill" style="background:#fef9c3; color:#854d0e;" title="Morning Grace Used">Grace: <strong>${tot.graceUsed || 0}</strong></span>
                 <span class="matrix-banner-pill" style="background:#f0f9ff; color:#0284c7;" title="Short Leaves Used">SL: <strong>${tot.shortLeaveUsed || 0}</strong></span>
-                <span class="matrix-banner-pill" style="background:#dbeafe; color:#1d4ed8;" title="Total Worked Hours">Worked: <strong>${tot.totalWorkedFormatted || '0h'}</strong></span>
+                <span class="matrix-banner-pill" style="background:#fdf5f5; color:#6a2625; border:1px solid #f0cccc;" title="Total Worked Hours">Worked: <strong>${tot.totalWorkedFormatted || '0h'}</strong></span>
                 <span class="matrix-banner-pill" style="background:#f3e8ff; color:#7e22ce;" title="Total Overtime Hours">OT: <strong>${tot.totalOtHours > 0 ? `+${tot.totalOtHours}H` : '0H'}</strong></span>
                 <span class="matrix-banner-pill" style="background:#ccfbf1; color:#0f766e;" title="Attendance Rate">Att: <strong>${tot.attendance_pct || '0%'}</strong></span>
               </div>
@@ -2724,7 +2724,7 @@ function renderMonthlyMatrixTable(data) {
         <th class="matrix-tot-th matrix-tot-hd" data-col="col-totals" style="color: #c2410c;" title="Half Days">HD</th>
         <th class="matrix-tot-th matrix-tot-grace" data-col="col-totals" style="color: #a16207;" title="Morning Grace Days Used">Grace</th>
         <th class="matrix-tot-th matrix-tot-sl" data-col="col-totals" style="color: #0369a1;" title="Short Leaves Used">SL</th>
-        <th class="matrix-tot-th matrix-tot-worked" data-col="col-totals" style="color: #1d4ed8; min-width: 72px;" title="Total Worked Hours">Worked</th>
+        <th class="matrix-tot-th matrix-tot-worked" data-col="col-totals" style="color: #6a2625; min-width: 72px;" title="Total Worked Hours">Worked</th>
         <th class="matrix-tot-th matrix-tot-ot" data-col="col-totals" style="color: #7e22ce; min-width: 48px;" title="Total Overtime Hours">OT</th>
         <th class="matrix-tot-th matrix-tot-att" data-col="col-totals" style="color: #0284c7; min-width: 48px;" title="Attendance Percentage">Att %</th>
       </tr>
@@ -2824,7 +2824,7 @@ function renderMonthlyMatrixTable(data) {
           <td class="matrix-tot-td matrix-tot-hd" data-col="col-totals">${tot.halfDays || 0}</td>
           <td class="matrix-tot-td matrix-tot-grace" data-col="col-totals">${tot.graceUsed || 0}</td>
           <td class="matrix-tot-td matrix-tot-sl" data-col="col-totals">${tot.shortLeaveUsed || 0}</td>
-          <td class="matrix-tot-td matrix-tot-worked" data-col="col-totals" style="color: #1d4ed8; font-weight: 800;">${tot.totalWorkedFormatted || '0h 0m'}</td>
+          <td class="matrix-tot-td matrix-tot-worked" data-col="col-totals" style="color: #6a2625; font-weight: 800;">${tot.totalWorkedFormatted || '0h 0m'}</td>
           <td class="matrix-tot-td matrix-tot-ot" data-col="col-totals" style="color: ${tot.totalOtHours > 0 ? '#7e22ce' : 'var(--text-muted)'}; font-weight: 800;">
             ${tot.totalOtHours > 0 ? `+${tot.totalOtHours}H` : '0H'}
           </td>
@@ -2962,7 +2962,7 @@ function applyReportColumnStyles() {
     } else {
       badge.textContent = `${visibleCount}/${colDefs.length}`;
       badge.style.background = '#dbeafe';
-      badge.style.color = '#1e40af';
+      badge.style.color = '#1b628d';
     }
   });
 
@@ -3456,7 +3456,7 @@ async function initEmployees() {
       e.preventDefault();
       e.stopPropagation();
       empDropzone.style.borderColor = 'var(--primary)';
-      empDropzone.style.background = '#eff6ff';
+      empDropzone.style.background = '#fdf5f5';
     });
   });
 
@@ -3845,7 +3845,7 @@ function renderEmpColumnSelector() {
     return `
       <label style="display: flex; align-items: center; justify-content: space-between; font-size: 0.82rem; color: #334155; cursor: ${isRequired ? 'not-allowed' : 'pointer'}; padding: 4px 6px; border-radius: 4px; transition: background 0.1s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
         <span style="display: flex; align-items: center; gap: 8px;">
-          <input type="checkbox" class="emp-col-chk" data-col="${c.key}" ${isChecked ? 'checked' : ''} ${isRequired ? 'disabled' : ''} style="cursor: pointer; accent-color: #2563eb;">
+          <input type="checkbox" class="emp-col-chk" data-col="${c.key}" ${isChecked ? 'checked' : ''} ${isRequired ? 'disabled' : ''} style="cursor: pointer; accent-color: #6a2625;">
           <span style="${isRequired ? 'font-weight: 600; color: #1e293b;' : ''}">${escapeHtml(c.label)}</span>
         </span>
         ${isRequired ? '<span style="font-size: 0.68rem; background: #e2e8f0; color: #475569; padding: 1px 4px; border-radius: 4px; font-weight: 600;">Fixed</span>' : ''}
@@ -4208,7 +4208,7 @@ function renderEmployeesTable() {
         case 'user_id':
           return `<td data-col="user_id" class="font-mono"><strong>${emp.user_id}</strong></td>`;
         case 'service_id':
-          return `<td data-col="service_id" class="font-mono" style="font-weight:600; color:#2563eb;">${escapeHtml(emp.employee_service_id || '-')}</td>`;
+          return `<td data-col="service_id" class="font-mono" style="font-weight:600; NaN`;
         case 'nic':
           return `<td data-col="nic" class="font-mono text-muted" style="font-size:0.85rem;">${escapeHtml(emp.nic || '-')}</td>`;
         case 'name':
@@ -4249,7 +4249,7 @@ function renderEmployeesTable() {
         case 'email':
           return `
             <td data-col="email">
-              ${emp.email ? `<a href="mailto:${escapeHtml(emp.email)}" style="color:#2563eb; text-decoration:none;">${escapeHtml(emp.email)}</a>` : '<span class="text-muted">-</span>'}
+              ${emp.email ? `<a href="mailto:${escapeHtml(emp.email)}" style="color:#6a2625; text-decoration:none;">${escapeHtml(emp.email)}</a>` : '<span class="text-muted">-</span>'}
             </td>
           `;
         case 'card_no':
@@ -4262,7 +4262,7 @@ function renderEmployeesTable() {
           return `
             <td data-col="shift">
               <span class="badge-shift-pill" title="${emp.shift_start || ''} - ${emp.shift_end || ''}">
-                <span class="badge-shift-dot" style="background: ${emp.shift_color || '#2563eb'};"></span>
+                <span class="badge-shift-dot" style="background: ${emp.shift_color || '#6a2625'};"></span>
                 ${escapeHtml(emp.shift_name || 'General Shift')}
               </span>
             </td>
@@ -4326,7 +4326,7 @@ function renderEmployeesTable() {
                 <div class="emp-dossier-card">
                   <h4>🏢 Employment &amp; Service</h4>
                   <div class="emp-dossier-list">
-                    <div class="emp-dossier-item"><span class="emp-dossier-label">Service ID:</span><span class="emp-dossier-val font-mono" style="color:#2563eb;">${escapeHtml(emp.employee_service_id || '-')}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Service ID:</span><span class="emp-dossier-val font-mono" style="NaN
                     <div class="emp-dossier-item"><span class="emp-dossier-label">Department:</span><span class="emp-dossier-val">${escapeHtml(emp.department || 'General')}</span></div>
                     <div class="emp-dossier-item"><span class="emp-dossier-label">Designation / Role:</span><span class="emp-dossier-val">${escapeHtml(emp.role || 'Staff')}</span></div>
                     <div class="emp-dossier-item"><span class="emp-dossier-label">Employment Status:</span><span class="emp-dossier-val">${escapeHtml(emp.employment_status || 'Permanent')}</span></div>
@@ -5746,8 +5746,8 @@ async function initShiftsAndHolidays() {
 
   dropzone?.addEventListener('dragover', (e) => {
     e.preventDefault();
-    dropzone.style.borderColor = '#2563eb';
-    dropzone.style.background = '#eff6ff';
+    dropzone.style.borderColor = '#6a2625';
+    dropzone.style.background = '#fdf5f5';
   });
 
   dropzone?.addEventListener('dragleave', (e) => {
@@ -5897,11 +5897,11 @@ async function loadShifts() {
       }).join('');
 
       return `
-        <div class="shift-card" style="border-top-color: ${s.color || '#2563eb'};">
+        <div class="shift-card" style="border-top-color: ${s.color || '#6a2625'};">
           <div>
             <div class="shift-card-header">
               <div class="shift-title-wrap">
-                <span class="badge-shift-dot" style="background: ${s.color || '#2563eb'};"></span>
+                <span class="badge-shift-dot" style="background: ${s.color || '#6a2625'};"></span>
                 <span class="shift-title">${escapeHtml(s.name)}</span>
               </div>
               <div>
@@ -6177,8 +6177,8 @@ function openShiftModal(shift = null) {
   document.getElementById('shiftModalTitle').textContent = isEdit ? `Edit Working Shift: ${shift.name}` : 'New Working Shift';
   document.getElementById('shiftModalId').value = isEdit ? shift.id : '';
   document.getElementById('shiftModalName').value = isEdit ? shift.name : '';
-  document.getElementById('shiftModalColor').value = isEdit ? (shift.color || '#2563eb') : '#2563eb';
-  document.getElementById('shiftModalColorCode').textContent = isEdit ? (shift.color || '#2563eb') : '#2563eb';
+  document.getElementById('shiftModalColor').value = isEdit ? (shift.color || '#6a2625') : '#6a2625';
+  document.getElementById('shiftModalColorCode').textContent = isEdit ? (shift.color || '#6a2625') : '#6a2625';
   document.getElementById('shiftModalStart').value = isEdit ? shift.start_time : '08:30';
   document.getElementById('shiftModalEnd').value = isEdit ? shift.end_time : '16:15';
   document.getElementById('shiftModalGrace').value = isEdit ? (shift.grace_period_mins !== undefined ? shift.grace_period_mins : 30) : 30;
@@ -7143,8 +7143,8 @@ function initFirebaseSync() {
     isManualOrgId = Boolean(orgIdInput.value.trim());
     if (autoTag) {
       autoTag.textContent = isManualOrgId ? 'CUSTOM CODE' : 'AUTO-PAIRED';
-      autoTag.style.background = isManualOrgId ? '#fef3c7' : '#eff6ff';
-      autoTag.style.color = isManualOrgId ? '#92400e' : '#2563eb';
+      autoTag.style.background = isManualOrgId ? '#fef3c7' : '#fdf5f5';
+      autoTag.style.color = isManualOrgId ? '#92400e' : '#6a2625';
     }
   });
 
@@ -7154,8 +7154,8 @@ function initFirebaseSync() {
       orgIdInput.value = slugifyOrg(orgNameInput.value);
       if (autoTag) {
         autoTag.textContent = 'AUTO-PAIRED';
-        autoTag.style.background = '#eff6ff';
-        autoTag.style.color = '#2563eb';
+        autoTag.style.background = '#fdf5f5';
+        autoTag.style.color = '#6a2625';
       }
     }
   });
@@ -7325,8 +7325,8 @@ function initFirebaseSync() {
 
   dropZone?.addEventListener('dragover', (e) => {
     e.preventDefault();
-    dropZone.style.borderColor = '#2563eb';
-    dropZone.style.background = '#eff6ff';
+    dropZone.style.borderColor = '#6a2625';
+    dropZone.style.background = '#fdf5f5';
   });
 
   dropZone?.addEventListener('dragleave', () => {
@@ -7449,12 +7449,12 @@ function updateCloudSyncProgressUI(prog) {
   if (prog.isSyncing) {
     // Header Pill
     if (headerPill) {
-      headerPill.style.background = '#eff6ff';
-      headerPill.style.borderColor = '#3b82f6';
-      headerPill.style.color = '#1d4ed8';
+      headerPill.style.background = '#f0f7fb';
+      headerPill.style.borderColor = '#92c3e1';
+      headerPill.style.color = '#1b628d';
     }
     if (headerDot) {
-      headerDot.style.background = '#2563eb';
+      headerDot.style.background = '#6a2625';
       headerDot.style.animation = 'pulse 1.2s infinite';
     }
     if (headerText) {
@@ -7463,30 +7463,30 @@ function updateCloudSyncProgressUI(prog) {
 
     // Badge
     if (badge) {
-      badge.innerHTML = `<span class="spin" style="width:10px;height:10px;border:2px solid #1e40af;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Syncing...`;
-      badge.style.background = '#eff6ff';
-      badge.style.color = '#1e40af';
+      badge.innerHTML = `<span class="spin" style="width:10px;height:10px;border:2px solid #6a2625;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Syncing...`;
+      badge.style.background = '#f0f7fb';
+      badge.style.color = '#1b628d';
     }
 
     // Banner
     if (banner) {
-      banner.style.background = '#eff6ff';
+      banner.style.background = '#f0f7fb';
       banner.style.borderColor = '#93c5fd';
     }
     if (bannerIcon) {
-      bannerIcon.innerHTML = `<span class="spin" style="width:20px;height:20px;border:2.5px solid #2563eb;border-top-color:transparent;border-radius:50%;display:inline-block;"></span>`;
-      bannerIcon.style.background = '#dbeafe';
+      bannerIcon.innerHTML = `<span class="spin" style="width:20px;height:20px;border:2.5px solid #6a2625;border-top-color:transparent;border-radius:50%;display:inline-block;"></span>`;
+      bannerIcon.style.background = '#e1f0f8';
     }
     if (bannerTitle) {
-      bannerTitle.innerHTML = `Cloud Sync Engine Active <span style="font-size:0.75rem; font-weight:700; color:#2563eb; background:#dbeafe; padding:2px 8px; border-radius:12px;">UPLOADING</span>`;
+      bannerTitle.innerHTML = `Cloud Sync Engine Active <span style="font-size:0.75rem; font-weight:700; color:#6a2625; background:#e1f0f8; padding:2px 8px; border-radius:12px;">UPLOADING</span>`;
     }
     if (bannerSubtitle) {
       bannerSubtitle.textContent = prog.message || 'Actively uploading attendance punch batches to Firestore...';
     }
     if (bannerState) {
       bannerState.textContent = 'SYNCING NOW';
-      bannerState.style.background = '#dbeafe';
-      bannerState.style.color = '#1d4ed8';
+      bannerState.style.background = '#e1f0f8';
+      bannerState.style.color = '#1b628d';
     }
     if (progressWrap) progressWrap.style.display = 'block';
     const pct = prog.percent || 0;
@@ -7681,40 +7681,40 @@ function updateFirebaseStatusUI(status) {
   if (isSyncing) {
     // 1. SYNCING ACTIVE
     if (headerPill) {
-      headerPill.style.background = '#eff6ff';
-      headerPill.style.borderColor = '#3b82f6';
-      headerPill.style.color = '#1d4ed8';
+      headerPill.style.background = '#f0f7fb';
+      headerPill.style.borderColor = '#92c3e1';
+      headerPill.style.color = '#1b628d';
     }
     if (headerDot) {
-      headerDot.style.background = '#2563eb';
+      headerDot.style.background = '#6a2625';
       headerDot.style.animation = 'pulse 1.2s infinite';
     }
     if (headerText) headerText.innerHTML = `☁️ Syncing Now (${Number(prog.uploadedCount || 0).toLocaleString()} uploaded)`;
 
     if (badge) {
-      badge.innerHTML = `<span class="spin" style="width:10px;height:10px;border:2px solid #1e40af;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Syncing Now...`;
-      badge.style.background = '#eff6ff';
-      badge.style.color = '#1e40af';
+      badge.innerHTML = `<span class="spin" style="width:10px;height:10px;border:2px solid #6a2625;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Syncing Now...`;
+      badge.style.background = '#f0f7fb';
+      badge.style.color = '#1b628d';
     }
 
     if (banner) {
-      banner.style.background = '#eff6ff';
+      banner.style.background = '#f0f7fb';
       banner.style.borderColor = '#93c5fd';
     }
     if (bannerIcon) {
-      bannerIcon.innerHTML = `<span class="spin" style="width:20px;height:20px;border:2.5px solid #2563eb;border-top-color:transparent;border-radius:50%;display:inline-block;"></span>`;
-      bannerIcon.style.background = '#dbeafe';
+      bannerIcon.innerHTML = `<span class="spin" style="width:20px;height:20px;border:2.5px solid #6a2625;border-top-color:transparent;border-radius:50%;display:inline-block;"></span>`;
+      bannerIcon.style.background = '#e1f0f8';
     }
     if (bannerTitle) {
-      bannerTitle.innerHTML = `Cloud Sync Engine Active <span style="font-size:0.75rem; font-weight:700; color:#2563eb; background:#dbeafe; padding:2px 8px; border-radius:12px;">UPLOADING</span>`;
+      bannerTitle.innerHTML = `Cloud Sync Engine Active <span style="font-size:0.75rem; font-weight:700; color:#6a2625; background:#e1f0f8; padding:2px 8px; border-radius:12px;">UPLOADING</span>`;
     }
     if (bannerSubtitle) {
       bannerSubtitle.textContent = prog.message || `Uploading pending punches to partition "${status.orgId}" in Firestore...`;
     }
     if (bannerState) {
       bannerState.textContent = 'SYNCING NOW';
-      bannerState.style.background = '#dbeafe';
-      bannerState.style.color = '#1d4ed8';
+      bannerState.style.background = '#e1f0f8';
+      bannerState.style.color = '#1b628d';
     }
     if (progressWrap) progressWrap.style.display = 'block';
     const pct = prog.percent || 0;
@@ -7938,7 +7938,7 @@ function updateFirebaseStatusUI(status) {
       if (pendingSubtext) pendingSubtext.textContent = 'Waiting to upload (offline queue safe)';
     } else {
       pendingKpi.style.borderColor = '#bfdbfe';
-      pendingKpi.style.background = '#eff6ff';
+      pendingKpi.style.background = '#fdf5f5';
       if (pendingSubtext) pendingSubtext.textContent = 'All local punches backed up!';
     }
   }

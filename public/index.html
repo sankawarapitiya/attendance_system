@@ -4,8 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SpeedFace-V5L Attendance Manager</title>
-  <link rel="stylesheet" href="css/style.css?v=2.0.5">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%232563eb'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=2.1.0">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236a2625'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/></svg>">
   <script>
     // Immediate global handlers to ensure zero ReferenceError on early clicks
     window.openPrintOptionsModal = function() {
@@ -531,12 +534,12 @@
             </div>
             
             <div class="card-header-actions" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-              <div style="display: inline-flex; align-items: center; gap: 6px; background: #eff6ff; padding: 3px 6px; border-radius: 8px; border: 1px solid #bfdbfe;">
+              <div style="display: inline-flex; align-items: center; gap: 6px; background: var(--accent-light); padding: 3px 6px; border-radius: 8px; border: 1px solid var(--accent-border);">
                 <button class="btn btn-primary btn-sm" id="btnPrintReport" title="Print Complete Report or Save as PDF">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
                   Print / PDF
                 </button>
-                <select id="selectReportPageSize" title="Paper Size & Print Orientation" style="padding: 4px 8px; border: 1px solid #93c5fd; border-radius: 6px; font-size: 0.8rem; font-weight: 700; background: #fff; color: #1e40af; cursor: pointer;">
+                <select id="selectReportPageSize" title="Paper Size & Print Orientation" style="padding: 4px 8px; border: 1px solid var(--accent-border); border-radius: 6px; font-size: 0.8rem; font-weight: 700; background: #fff; color: var(--accent-dark); cursor: pointer;">
                   <option value="a4-landscape" selected>📄 A4 Landscape (12-14 Cols)</option>
                   <option value="a4-portrait">📄 A4 Portrait (Timesheet)</option>
                   <option value="letter-landscape">📄 Letter Landscape</option>
@@ -545,7 +548,7 @@
                   <option value="legal-portrait">📜 Legal Portrait</option>
                   <option value="a3-landscape">🗺️ A3 Landscape (Wide Grid)</option>
                 </select>
-                <button type="button" class="btn btn-outline btn-sm" id="btnOpenPrintOptionsModal" onclick="openPrintOptionsModal()" title="All Print &amp; PDF Options (Margins, Letterhead, Signatures, Font Scale, Ink Saver)" style="padding: 4px 8px; font-weight: 700; background: #fff; border-color: #93c5fd; color: #1e40af; cursor: pointer;">
+                <button type="button" class="btn btn-outline btn-sm" id="btnOpenPrintOptionsModal" onclick="openPrintOptionsModal()" title="All Print &amp; PDF Options (Margins, Letterhead, Signatures, Font Scale, Ink Saver)" style="padding: 4px 8px; font-weight: 700; background: #fff; border-color: var(--accent-border); color: var(--accent-dark); cursor: pointer;">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                   <span>Options</span>
                 </button>
@@ -566,7 +569,7 @@
                       <div id="reportColumnsSubtitle" style="font-size: 0.72rem; color: #64748b;">Daily Report (12 columns)</div>
                     </div>
                     <div style="display: flex; gap: 6px; align-items: center;">
-                      <button type="button" class="btn-link" id="btnReportColumnsAll" onclick="selectAllReportColumns()" style="font-size: 0.75rem; color: #2563eb; background: none; border: none; cursor: pointer; font-weight: 600;">All</button>
+                      <button type="button" class="btn-link" id="btnReportColumnsAll" onclick="selectAllReportColumns()" style="font-size: 0.75rem; color: var(--primary); background: none; border: none; cursor: pointer; font-weight: 600;">All</button>
                       <span style="color: #cbd5e1;">|</span>
                       <button type="button" class="btn-link" id="btnReportColumnsReset" onclick="resetReportColumns()" style="font-size: 0.75rem; color: #64748b; background: none; border: none; cursor: pointer; font-weight: 600;">Reset</button>
                     </div>
@@ -636,7 +639,7 @@
                   <input type="date" id="inputReportWeekDate" style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-weight: 600; font-family: monospace; font-size: 0.88rem; background: #fff;">
                   <button class="btn btn-sm btn-outline" id="btnReportNextWeek">Next Week ▶</button>
                   <button class="btn btn-sm btn-outline" id="btnReportCurrentWeek">Current Week</button>
-                  <span id="reportWeekRangeLabel" style="font-size: 0.85rem; font-weight: 700; color: #2563eb; margin-left: 4px;"></span>
+                  <span id="reportWeekRangeLabel" style="font-size: 0.85rem; font-weight: 700; color: var(--primary); margin-left: 4px;"></span>
                 </div>
 
                 <!-- Monthly Period Controls -->
@@ -899,7 +902,7 @@
               <!-- Advanced Filter Toggle Button -->
               <button class="btn btn-outline btn-sm" id="btnToggleEmpAdvancedFilter">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
-                Filters <span id="empActiveFiltersBadge" style="display:none; font-size:0.75rem; background:#2563eb; color:#fff; padding:1px 6px; border-radius:10px; font-weight:700; margin-left:2px;">0</span>
+                Filters <span id="empActiveFiltersBadge" style="display:none; font-size:0.75rem; background: var(--primary); color: #fff; padding: 1px 6px; border-radius:10px; font-weight:700; margin-left:2px;">0</span>
               </button>
 
               <!-- Page Size Selector -->
@@ -1210,7 +1213,7 @@
               <h3 style="margin-bottom: 2px;">🏛️ Organization & Report Letterhead Details</h3>
               <p class="subtitle" style="margin-bottom: 0;">Configure your official institution header, contact details, and signature block for all printed timesheets & PDF reports</p>
             </div>
-            <span class="badge-tag" style="background:#eff6ff;color:#1e40af;font-weight:700;font-size:0.8rem;">Print Letterhead</span>
+            <span class="badge-tag" style="background: var(--accent-light); color: var(--accent-dark); font-weight: 700; font-size: 0.8rem; border: 1px solid var(--accent-border);">Print Letterhead</span>
           </div>
           <div class="card-body">
             <form id="orgSettingsForm">
@@ -1300,7 +1303,7 @@
                   </div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 10px;">
-                  <span id="fbLiveSyncPercentBadge" class="badge" style="font-size: 0.85rem; padding: 5px 12px; font-weight: 700; background: #dbeafe; color: #1e40af; display: none;">0%</span>
+                  <span id="fbLiveSyncPercentBadge" class="badge" style="font-size: 0.85rem; padding: 5px 12px; font-weight: 700; background: var(--accent-light); color: var(--accent-dark); border: 1px solid var(--accent-border); display: none;">0%</span>
                   <span id="fbLiveSyncStatePill" class="badge" style="font-size: 0.82rem; padding: 5px 14px; font-weight: 700; background: #f1f5f9; color: #475569;">CHECKING</span>
                 </div>
               </div>
@@ -1312,7 +1315,7 @@
                   <span id="fbLiveProgressRatio">0 / 0</span>
                 </div>
                 <div style="height: 10px; background: #e2e8f0; border-radius: 999px; overflow: hidden; position: relative;">
-                  <div id="fbLiveProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6, #2563eb); border-radius: 999px; transition: width 0.3s ease;"></div>
+                  <div id="fbLiveProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #92c3e1, #6a2625); border-radius: 999px; transition: width 0.3s ease;"></div>
                 </div>
               </div>
             </div>
@@ -1347,9 +1350,9 @@
                 <div style="font-size:1.45rem; font-weight:800; color:#15803d; margin-top:4px;" id="fbStatSynced">0</div>
                 <div style="font-size:0.75rem; color:#22c55e; margin-top:2px;">Safely backed up in cloud</div>
               </div>
-              <div class="kpi-card" style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:14px;" id="fbPendingKpiCard">
-                <div style="font-size:0.8rem; color:#1e40af; font-weight:600; text-transform:uppercase;">Pending Cloud Upload</div>
-                <div style="font-size:1.45rem; font-weight:800; color:#2563eb; margin-top:4px;" id="fbStatPending">0</div>
+              <div class="kpi-card" style="background:var(--primary-light); border:1px solid var(--primary-border); border-radius:8px; padding:14px;" id="fbPendingKpiCard">
+                <div style="font-size:0.8rem; color:var(--primary); font-weight:700; text-transform:uppercase;">Pending Cloud Upload</div>
+                <div style="font-size:1.45rem; font-weight:800; color:var(--primary); margin-top:4px;" id="fbStatPending">0</div>
                 <div style="font-size:0.75rem; color:#60a5fa; margin-top:2px;" id="fbPendingSubtext">Queue waiting for sync</div>
               </div>
               <div class="kpi-card" style="background:#faf5ff; border:1px solid #e9d5ff; border-radius:10px; padding:14px;">
@@ -1386,7 +1389,7 @@
                   <div class="form-group">
                     <label for="settingFirestoreOrgId" style="font-weight: 600; display:flex; justify-content:space-between; align-items:center;">
                       <span>Organization ID / Partition Code <span class="text-danger">*</span></span>
-                      <span id="orgIdAutoTag" style="font-size:0.72rem; font-weight:700; color:#2563eb; background:#eff6ff; padding:2px 6px; border-radius:4px;">AUTO-PAIRED</span>
+                      <span id="orgIdAutoTag" style="font-size:0.72rem; font-weight:700; color:var(--primary); background:var(--primary-light); border:1px solid var(--primary-border); padding:2px 6px; border-radius:4px;">AUTO-PAIRED</span>
                     </label>
                     <input type="text" id="settingFirestoreOrgId" class="form-control font-mono" placeholder="Auto-generated (e.g. DSOFFICE_LUNUGAMWEHERA)" required style="font-weight: 700; text-transform: uppercase;">
                     <small class="form-hint">Unique Firestore namespace. All records store under <code>organizations/{orgId}/attendance</code>.</small>
@@ -1817,7 +1820,7 @@ Loading application logs...
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; border-bottom: 1px solid var(--border); padding: 16px 20px;">
               <div style="display: flex; align-items: center; gap: 12px;">
                 <span class="badge" style="background: #10b981; color: #fff; font-weight: 800; font-size: 0.8rem; padding: 4px 10px; border-radius: 6px;">GET</span>
-                <span class="font-mono" style="font-size: 1.05rem; font-weight: 700; color: #1e293b;">/api/v1/users/<span style="color: #2563eb;">:userId</span>/attendance</span>
+                <span class="font-mono" style="font-size: 1.05rem; font-weight: 700; color: #1e293b;">/api/v1/users/<span style="color: var(--primary);">:userId</span>/attendance</span>
                 <span class="badge" style="background: #f1f5f9; color: #64748b; font-size: 0.75rem;">Alias: /api/users/:userId/attendance</span>
               </div>
               <div style="font-size: 0.85rem; color: #64748b; font-weight: 500;">
@@ -2063,9 +2066,9 @@ Loading application logs...
             </div>
           </div>
 
-          <div class="form-group form-check" style="margin-top: 10px; background: #eff6ff; padding: 12px; border-radius: 8px; border: 1px solid #bfdbfe;">
+          <div class="form-group form-check" style="margin-top: 10px; background: var(--bg-main); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
             <input type="checkbox" id="modalIsActive" checked>
-            <label for="modalIsActive" style="font-weight: 700; color: #1e40af; cursor: pointer;">
+            <label for="modalIsActive" style="font-weight: 700; color: var(--text-main); cursor: pointer;">
               Active Employee (Include in Attendance Calculations & Reports)
             </label>
             <div class="text-xs text-muted" style="margin-top: 2px;">When unchecked, this employee will not appear on daily roll-calls or be marked absent.</div>
@@ -2108,7 +2111,7 @@ Loading application logs...
       </div>
       <div class="modal-body" style="padding: 20px;">
         <p style="font-size: 0.95rem; color: #1e293b; margin-bottom: 12px;">
-          Are you sure you want to delete <strong id="deleteEmpNameDisplay" style="color: #0f172a;">-</strong> (User ID: <span id="deleteEmpIdDisplay" class="font-mono" style="font-weight: 700; color: #2563eb;">-</span>)?
+          Are you sure you want to delete <strong id="deleteEmpNameDisplay" style="color: #0f172a;">-</strong> (User ID: <span id="deleteEmpIdDisplay" class="font-mono" style="font-weight: 700; color: var(--primary);">-</span>)?
         </p>
         <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 0.85rem; color: #475569;">
           <div><strong>Department:</strong> <span id="deleteEmpDeptDisplay">-</span></div>
@@ -2156,8 +2159,8 @@ Loading application logs...
             <div class="form-group" style="margin-bottom: 0;">
               <label>Shift Color</label>
               <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px;">
-                <input type="color" id="shiftModalColor" value="#2563eb" style="width: 44px; height: 38px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; padding: 2px;">
-                <span class="text-xs text-muted" id="shiftModalColorCode">#2563eb</span>
+                <input type="color" id="shiftModalColor" value="#6a2625" style="width: 44px; height: 38px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; padding: 2px;">
+                <span class="text-xs text-muted" id="shiftModalColorCode">#6a2625</span>
               </div>
             </div>
             <div class="form-group" style="margin-bottom: 0;">
@@ -2647,8 +2650,8 @@ Loading application logs...
             </div>
           </div>
 
-          <div style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 10px 12px; border-radius: 6px;">
-            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.88rem; color: #1e40af; margin-bottom: 0;">
+          <div style="background: var(--accent-light); border: 1px solid var(--accent-border); padding: 10px 12px; border-radius: 6px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.88rem; color: var(--accent-dark); margin-bottom: 0;">
               <input type="checkbox" id="chkSyncUploadedToDevice" style="cursor: pointer;">
               <span><strong>Push imported employee names to physical SpeedFace terminal</strong> (via TCP port 4370)</span>
             </label>
@@ -2787,11 +2790,11 @@ Loading application logs...
         </div>
 
         <!-- Section 4: Monthly Book Print Scope -->
-        <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px 14px;">
+        <div style="background: var(--accent-light); border: 1px solid var(--accent-border); border-radius: 8px; padding: 12px 14px;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
-              <strong style="font-size: 0.85rem; color: #1e40af;">📑 Monthly Timesheet Book Print Scope:</strong>
-              <div style="font-size: 0.78rem; color: #3b82f6;">When printing in 1-Page-Per-Person mode:</div>
+              <strong style="font-size: 0.85rem; color: var(--accent-dark);">📑 Monthly Timesheet Book Print Scope:</strong>
+              <div style="font-size: 0.78rem; color: var(--text-muted);">When printing in 1-Page-Per-Person mode:</div>
             </div>
             <select id="modalPrintBookScope" class="form-control" style="width: auto; font-size: 0.82rem; font-weight: 700; padding: 4px 10px; background: #fff;">
               <option value="all" selected>All Employees (Complete Book)</option>
