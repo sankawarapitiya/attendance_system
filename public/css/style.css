@@ -1,18 +1,18 @@
 :root {
-  --primary: #6a2625;
-  --primary-hover: #551e1d;
-  --primary-active: #441716;
-  --primary-light: #fdf5f5;
-  --primary-subtle: #fae8e8;
-  --primary-border: #f0cccc;
-  --primary-glow: rgba(106, 38, 37, 0.15);
+  --primary: #1d4ed8;
+  --primary-hover: #1e40af;
+  --primary-active: #1e3a8a;
+  --primary-light: #eff6ff;
+  --primary-subtle: #dbeafe;
+  --primary-border: #bfdbfe;
+  --primary-glow: rgba(29, 78, 216, 0.15);
 
-  --accent: #92c3e1;
-  --accent-hover: #7baecf;
-  --accent-light: #f0f7fb;
-  --accent-subtle: #e1f0f8;
-  --accent-border: #bcdbf0;
-  --accent-dark: #1b628d;
+  --accent: #38bdf8;
+  --accent-hover: #0ea5e9;
+  --accent-light: #f0f9ff;
+  --accent-subtle: #e0f2fe;
+  --accent-border: #bae6fd;
+  --accent-dark: #0369a1;
 
   --success: #10b981;
   --success-light: #ecfdf5;
@@ -21,13 +21,13 @@
   --danger: #ef4444;
   --danger-light: #fef2f2;
 
-  --bg-main: #f9fafb;
+  --bg-main: #f8fafc;
   --bg-card: #ffffff;
   --bg-sidebar: #ffffff;
   --border: #e2e8f0;
   --border-subtle: #f1f5f9;
   --border-strong: #cbd5e1;
-  --text-main: #1e293b;
+  --text-main: #0f172a;
   --text-muted: #64748b;
   --text-light: #94a3b8;
 
@@ -110,7 +110,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(106, 38, 37, 0.25);
+  box-shadow: 0 2px 8px rgba(29, 78, 216, 0.25);
 }
 
 .brand-icon svg {
@@ -176,7 +176,7 @@ body {
   background: var(--primary);
   color: #ffffff;
   font-weight: 600;
-  box-shadow: 0 2px 8px rgba(106, 38, 37, 0.22);
+  box-shadow: 0 2px 8px rgba(29, 78, 216, 0.22);
 }
 
 .nav-item.active svg {
@@ -363,12 +363,12 @@ body {
 
 .btn-primary:hover {
   background: var(--primary-hover);
-  box-shadow: 0 3px 8px rgba(106, 38, 37, 0.25);
+  box-shadow: 0 3px 8px rgba(29, 78, 216, 0.25);
 }
 
 .btn-primary:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(146, 195, 225, 0.45);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.45);
 }
 
 .btn-success {
@@ -1465,7 +1465,7 @@ body {
   background: var(--primary);
   color: #ffffff;
   border-color: var(--primary);
-  box-shadow: 0 1px 3px rgba(106, 38, 37, 0.3);
+  box-shadow: 0 1px 3px rgba(29, 78, 216, 0.3);
 }
 
 /* Day Classification Badges */
@@ -3300,7 +3300,7 @@ body {
 .emp-search-input:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(146, 195, 225, 0.35);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.35);
 }
 
 /* Advanced Filter Drawer */
@@ -3349,7 +3349,7 @@ body {
 .emp-filter-item input:focus {
   outline: none;
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(146, 195, 225, 0.35);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.35);
 }
 
 .emp-filter-actions-bar {
