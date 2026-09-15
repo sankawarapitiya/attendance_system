@@ -5,6 +5,7 @@ const fs = require('fs');
 const { dbAll, dbGet, dbRun, runDatabaseBackup } = require('./db');
 const { syncFromDevice, checkDeviceHealth, getSyncStatus, startAutoSync, stopAutoSync } = require('./syncService');
 const { SpeedFaceClient } = require('./zktProtocol');
+const { firebaseService } = require('./firebaseService');
 const config = require('./config');
 const logger = require('./logger');
 const { 
@@ -2502,6 +2503,105 @@ router.get([
     res.json(attendanceData);
   } catch (err) {
     logger.error('API_USER_ATTENDANCE', `Failed to calculate attendance for user ${req.params.userId}: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================================================
+// FIREBASE FIRESTORE CLOUD SYNC & MULTI-ORGANIZATION ROUTES
+// ============================================================================
+
+// 1. Get Firebase Status & Stats
+router.get('/firebase/status', async (req, res) => {
+  try {
+    const status = await firebaseService.getStatus();
+    res.json({ success: true, status });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 2. Test Connection to Firestore
+router.post('/firebase/test-connection', async (req, res) => {
+  try {
+    const result = await firebaseService.testConnection();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3. Save Service Account Key (Upload / Paste)
+router.post('/firebase/upload-key', async (req, res) => {
+  try {
+    const keyData = req.body?.keyData || req.body?.serviceAccount || req.body;
+    if (!keyData || (typeof keyData === 'object' && Object.keys(keyData).length === 0)) {
+      return res.status(400).json({ success: false, error: 'No service account key provided' });
+    }
+
+    const result = await firebaseService.saveServiceAccountKey(keyData);
+    res.json({
+      success: true,
+      message: 'Firebase Service Account key installed and verified successfully!',
+      ...result
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// 4. Update Organization & Cloud Sync Config
+router.post('/firebase/config', async (req, res) => {
+  try {
+    const { orgId, orgName, enabled, autoSync, intervalSeconds } = req.body;
+
+    if (orgId !== undefined) {
+      const cleanOrgId = String(orgId).trim().toUpperCase();
+      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_org_id', ?)`, [cleanOrgId]);
+    }
+    if (orgName !== undefined) {
+      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_org_name', ?)`, [String(orgName).trim()]);
+    }
+    if (enabled !== undefined) {
+      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_enabled', ?)`, [enabled ? '1' : '0']);
+    }
+    if (autoSync !== undefined) {
+      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_auto_sync', ?)`, [autoSync ? '1' : '0']);
+    }
+    if (intervalSeconds !== undefined) {
+      const sec = Math.max(15, parseInt(intervalSeconds, 10) || 60);
+      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_sync_interval', ?)`, [String(sec)]);
+    }
+
+    const updatedStatus = await firebaseService.getStatus();
+    res.json({
+      success: true,
+      message: 'Cloud sync configuration updated successfully!',
+      status: updatedStatus
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 5. Trigger Immediate Attendance Sync
+router.post('/firebase/sync-now', async (req, res) => {
+  try {
+    const limit = req.body?.limit ? parseInt(req.body.limit, 10) : 500;
+    const force = req.body?.force === true;
+    const result = await firebaseService.syncPendingAttendance({ limit, force });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 6. Sync Employee Directory
+router.post('/firebase/sync-employees', async (req, res) => {
+  try {
+    const result = await firebaseService.syncEmployees();
+    res.json(result);
+  } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });

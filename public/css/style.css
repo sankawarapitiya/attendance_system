@@ -3863,3 +3863,28 @@ body {
     font-size: 0.75rem;
   }
 }
+
+/* Firebase Firestore Cloud Sync Card Styles */
+#firebaseSyncCard {
+  border: 1px solid #fed7aa;
+  background: linear-gradient(180deg, #fffcf9 0%, #ffffff 120px);
+  box-shadow: 0 4px 16px rgba(249, 115, 22, 0.05);
+}
+
+#fbKeyDropZone:hover {
+  border-color: #2563eb !important;
+  background: #f0f7ff !important;
+}
+
+@media (max-width: 768px) {
+  .fb-stats-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .fb-stats-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+

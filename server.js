@@ -298,7 +298,11 @@ async function start() {
     // 2. Initialize Automated Rolling Database Backup Scheduler
     initBackupScheduler();
 
-    // 3. Start HTTP Listener
+    // 3. Initialize Firebase Firestore Cloud Service
+    const { firebaseService } = require('./src/firebaseService');
+    await firebaseService.init();
+
+    // 4. Start HTTP Listener
     server.listen(config.port, config.host, () => {
       logger.info('SYSTEM', '================================================================');
       logger.info('SYSTEM', ` SpeedFace-V5L Attendance Management System (PRODUCTION)`);

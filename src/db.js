@@ -85,6 +85,15 @@ async function initDatabase() {
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_att_punch_time ON attendance_records(punch_time)`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_att_device ON attendance_records(device_ip)`);
 
+  // Cloud Sync Columns Migration for attendance_records
+  try {
+    await dbRun(`ALTER TABLE attendance_records ADD COLUMN synced_to_cloud INTEGER DEFAULT 0`);
+  } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE attendance_records ADD COLUMN cloud_synced_at DATETIME DEFAULT NULL`);
+  } catch (e) {}
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_att_synced_cloud ON attendance_records(synced_to_cloud)`);
+
   await dbRun(`
     CREATE TABLE IF NOT EXISTS employees (
       user_id TEXT PRIMARY KEY,
@@ -123,7 +132,9 @@ async function initDatabase() {
     'appointment_date TEXT',
     'employment_status TEXT',
     'order_by_id TEXT',
-    'is_active INTEGER DEFAULT 1'
+    'is_active INTEGER DEFAULT 1',
+    'synced_to_cloud INTEGER DEFAULT 0',
+    'cloud_synced_at DATETIME DEFAULT NULL'
   ];
   for (const col of extraCols) {
     try {
@@ -547,6 +558,78 @@ function closeDatabase() {
   });
 }
 
+// Fetch attendance records pending cloud sync
+async function getUnsyncedAttendance(limit = 500) {
+  return dbAll(`
+    SELECT a.*, 
+           e.name as employee_name, 
+           e.department, 
+           e.role, 
+           e.employee_service_id,
+           e.card_no
+    FROM attendance_records a
+    LEFT JOIN employees e ON a.user_id = e.user_id
+    WHERE a.synced_to_cloud = 0 OR a.synced_to_cloud IS NULL
+    ORDER BY a.punch_time ASC
+    LIMIT ?
+  `, [limit]);
+}
+
+// Mark attendance records as successfully synced to cloud
+async function markAttendanceCloudSynced(recordIds = []) {
+  if (!recordIds || recordIds.length === 0) return 0;
+  const placeholders = recordIds.map(() => '?').join(',');
+  const res = await dbRun(`
+    UPDATE attendance_records
+    SET synced_to_cloud = 1, cloud_synced_at = CURRENT_TIMESTAMP
+    WHERE id IN (${placeholders})
+  `, recordIds);
+  return res.changes || 0;
+}
+
+// Fetch employees pending cloud sync
+async function getUnsyncedEmployees(limit = 500) {
+  return dbAll(`
+    SELECT * FROM employees
+    WHERE synced_to_cloud = 0 OR synced_to_cloud IS NULL
+    ORDER BY user_id ASC
+    LIMIT ?
+  `, [limit]);
+}
+
+// Mark employees as synced to cloud
+async function markEmployeesCloudSynced(userIds = []) {
+  if (!userIds || userIds.length === 0) return 0;
+  const placeholders = userIds.map(() => '?').join(',');
+  const res = await dbRun(`
+    UPDATE employees
+    SET synced_to_cloud = 1, cloud_synced_at = CURRENT_TIMESTAMP
+    WHERE user_id IN (${placeholders})
+  `, userIds);
+  return res.changes || 0;
+}
+
+// Get cloud synchronization metrics
+async function getCloudSyncStats() {
+  const row = await dbGet(`
+    SELECT
+      (SELECT COUNT(*) FROM attendance_records) as total_attendance,
+      (SELECT COUNT(*) FROM attendance_records WHERE synced_to_cloud = 1) as synced_attendance,
+      (SELECT COUNT(*) FROM attendance_records WHERE synced_to_cloud = 0 OR synced_to_cloud IS NULL) as pending_attendance,
+      (SELECT MAX(cloud_synced_at) FROM attendance_records) as last_cloud_synced_at,
+      (SELECT COUNT(*) FROM employees) as total_employees,
+      (SELECT COUNT(*) FROM employees WHERE synced_to_cloud = 1) as synced_employees
+  `);
+  return row || {
+    total_attendance: 0,
+    synced_attendance: 0,
+    pending_attendance: 0,
+    last_cloud_synced_at: null,
+    total_employees: 0,
+    synced_employees: 0
+  };
+}
+
 module.exports = {
   db,
   dbRun,
@@ -560,5 +643,10 @@ module.exports = {
   getVerifyModeName,
   getPunchStateName,
   insertAttendanceBatch,
-  upsertEmployees
+  upsertEmployees,
+  getUnsyncedAttendance,
+  markAttendanceCloudSynced,
+  getUnsyncedEmployees,
+  markEmployeesCloudSynced,
+  getCloudSyncStats
 };

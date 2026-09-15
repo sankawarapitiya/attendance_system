@@ -26,6 +26,9 @@ scratch_chrome/
 # Environment local secrets
 .env
 .env.local
+data/credentials/
+data/firebase-*.json
+config/firebase-*.json
 
 # OS files
 .DS_Store

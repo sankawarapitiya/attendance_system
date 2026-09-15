@@ -2,6 +2,7 @@ const os = require('os');
 const { SpeedFaceClient } = require('./zktProtocol');
 const { insertAttendanceBatch, upsertEmployees, dbRun, dbGet } = require('./db');
 const { broadcastLivePunch, getConnectedAdmsDevices } = require('./admsServer');
+const { firebaseService } = require('./firebaseService');
 
 /**
  * Validates the preferred interface IP against the host machine's active network adapters.
@@ -53,6 +54,7 @@ let isSyncing = false;
 let isHealthChecking = false;
 let syncTimer = null;
 let healthCheckTimer = null;
+let cloudSyncTimer = null;
 let lastKnownLogCount = 0;
 
 let lastSyncStatus = {
@@ -274,6 +276,13 @@ async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, loc
       deviceOnline: true
     });
 
+    // Auto-upload pending records to Firebase Firestore (non-blocking)
+    firebaseService.syncPendingAttendance({ limit: 500 }).then(cloudRes => {
+      if (cloudRes.success && cloudRes.uploadedCount > 0) {
+        notifyWs('FIREBASE_SYNC_PROGRESS', cloudRes);
+      }
+    }).catch(() => {});
+
     isSyncing = false;
     return {
       success: true,
@@ -378,6 +387,20 @@ function startAutoSync(intervalSeconds = 60, getSettingsFn) {
       console.warn('[SYNC] Scheduled sync cycle error:', err.message);
     }
   }, ms);
+
+  // 4. Periodic background cloud sync to Firebase Firestore
+  if (cloudSyncTimer) clearInterval(cloudSyncTimer);
+  cloudSyncTimer = setInterval(async () => {
+    try {
+      const status = await firebaseService.getStatus();
+      if (status.configured && status.enabled && status.autoSync && status.stats.pendingAttendance > 0) {
+        const cloudRes = await firebaseService.syncPendingAttendance({ limit: 500 });
+        if (cloudRes.success && cloudRes.uploadedCount > 0) {
+          notifyWs('FIREBASE_SYNC_PROGRESS', cloudRes);
+        }
+      }
+    } catch (cErr) {}
+  }, Math.max(30000, ms));
 }
 
 function stopAutoSync() {
@@ -388,6 +411,10 @@ function stopAutoSync() {
   if (healthCheckTimer) {
     clearInterval(healthCheckTimer);
     healthCheckTimer = null;
+  }
+  if (cloudSyncTimer) {
+    clearInterval(cloudSyncTimer);
+    cloudSyncTimer = null;
   }
 }
 

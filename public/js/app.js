@@ -4696,6 +4696,7 @@ function closeDeleteEmployeeModal() {
 
 // 5. Device Control & Diagnostics
 async function initDeviceControl() {
+  initFirebaseSync();
   document.getElementById('btnTestConn')?.addEventListener('click', testDeviceConnection);
   document.getElementById('btnActionSync')?.addEventListener('click', triggerManualSync);
   document.getElementById('btnActionSyncTime')?.addEventListener('click', syncDeviceTime);
@@ -5118,6 +5119,7 @@ async function loadDeviceControlData() {
   loadDataResetSummary();
   loadSystemHealth();
   loadSystemLogs();
+  loadFirebaseStatus();
 }
 
 async function loadDataResetSummary() {
@@ -5430,6 +5432,13 @@ function handleWebSocketMessage(msg) {
     loadLiveFeed();
     loadTodayPreview();
     if (state.currentTab === 'tab-records') loadRecords();
+  } else if (msg.type === 'FIREBASE_SYNC_PROGRESS') {
+    if (msg.data && msg.data.uploadedCount > 0) {
+      showToast(`Uploaded ${msg.data.uploadedCount} punch record(s) to Firebase Firestore!`, 'success');
+    }
+    loadFirebaseStatus();
+  } else if (msg.type === 'FIREBASE_STATUS') {
+    loadFirebaseStatus();
   } else if (msg.type === 'DEVICE_STATUS') {
     const dev = msg.data;
     const isOnline = Boolean(dev.online);
@@ -7102,5 +7111,328 @@ function fallbackCopyText(text, successMsg) {
   }
   document.body.removeChild(ta);
 }
+
+// ============================================================================
+// FIREBASE FIRESTORE CLOUD SYNC & MULTI-ORGANIZATION UI LOGIC
+// ============================================================================
+
+function initFirebaseSync() {
+  // 1. Config Form Submit
+  const configForm = document.getElementById('firestoreConfigForm');
+  configForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const orgId = document.getElementById('settingFirestoreOrgId')?.value || '';
+    const orgName = document.getElementById('settingFirestoreOrgName')?.value || '';
+    const intervalSeconds = document.getElementById('settingFirestoreInterval')?.value || '60';
+    const autoSync = document.getElementById('settingFirestoreAutoSync')?.checked;
+    const enabled = document.getElementById('settingFirestoreEnabled')?.checked;
+
+    try {
+      showToast('Saving Firebase configuration...', 'info');
+      const res = await fetch('/api/firebase/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgId, orgName, intervalSeconds, autoSync, enabled })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Firebase cloud sync settings saved!', 'success');
+        updateFirebaseStatusUI(data.status);
+      } else {
+        showToast(data.error || 'Failed to save Firebase config', 'error');
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  // 2. Test Connection Button
+  const btnTest = document.getElementById('btnTestFirestoreConn');
+  btnTest?.addEventListener('click', async () => {
+    const origHtml = btnTest.innerHTML;
+    btnTest.disabled = true;
+    btnTest.innerHTML = '⚡ Testing...';
+    try {
+      const res = await fetch('/api/firebase/test-connection', { method: 'POST' });
+      const data = await res.json();
+      if (data.success && data.online) {
+        showToast(`Connected to Firestore! Latency: ${data.latencyMs}ms (${data.projectId})`, 'success', 4000);
+      } else {
+        showToast(data.error || 'Connection failed', 'error');
+      }
+      await loadFirebaseStatus();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btnTest.disabled = false;
+      btnTest.innerHTML = origHtml;
+    }
+  });
+
+  // 3. Sync Pending Records Button
+  const btnSyncNow = document.getElementById('btnSyncFirestoreNow');
+  btnSyncNow?.addEventListener('click', async () => {
+    const origHtml = btnSyncNow.innerHTML;
+    btnSyncNow.disabled = true;
+    btnSyncNow.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Uploading...`;
+    try {
+      showToast('Starting cloud upload to Firestore...', 'info');
+      const res = await fetch('/api/firebase/sync-now', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true, limit: 500 })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Uploaded ${data.uploadedCount || 0} record(s) to Firestore for org ${data.orgId}!`, 'success', 4000);
+      } else if (data.offline) {
+        showToast(`System is offline. Queued records locally for next retry.`, 'warning', 4000);
+      } else {
+        showToast(data.message || data.error || 'Sync could not complete', 'error');
+      }
+      await loadFirebaseStatus();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btnSyncNow.disabled = false;
+      btnSyncNow.innerHTML = origHtml;
+    }
+  });
+
+  // 4. Sync Employees Button
+  const btnSyncEmp = document.getElementById('btnSyncEmployeesFirestore');
+  btnSyncEmp?.addEventListener('click', async () => {
+    const origHtml = btnSyncEmp.innerHTML;
+    btnSyncEmp.disabled = true;
+    btnSyncEmp.innerHTML = '👥 Uploading...';
+    try {
+      const res = await fetch('/api/firebase/sync-employees', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Synced ${data.count || 0} employees to cloud directory!`, 'success');
+      } else {
+        showToast(data.error || 'Failed to sync employees to cloud', 'error');
+      }
+      await loadFirebaseStatus();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btnSyncEmp.disabled = false;
+      btnSyncEmp.innerHTML = origHtml;
+    }
+  });
+
+  // 5. File Upload Dropzone
+  const dropZone = document.getElementById('fbKeyDropZone');
+  const fileInput = document.getElementById('fbKeyFileInput');
+
+  dropZone?.addEventListener('click', () => fileInput?.click());
+
+  dropZone?.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.style.borderColor = '#2563eb';
+    dropZone.style.background = '#eff6ff';
+  });
+
+  dropZone?.addEventListener('dragleave', () => {
+    dropZone.style.borderColor = '#cbd5e1';
+    dropZone.style.background = '#fafafa';
+  });
+
+  dropZone?.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.style.borderColor = '#cbd5e1';
+    dropZone.style.background = '#fafafa';
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      handleKeyFileUpload(files[0]);
+    }
+  });
+
+  fileInput?.addEventListener('change', (e) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      handleKeyFileUpload(files[0]);
+    }
+  });
+
+  async function handleKeyFileUpload(file) {
+    if (!file.name.endsWith('.json')) {
+      showToast('Please upload a valid .json service account key file', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target.result;
+        await uploadKeyJson(text);
+      } catch (err) {
+        showToast('Error reading key file: ' + err.message, 'error');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // 6. Paste JSON handlers
+  const btnTogglePaste = document.getElementById('btnTogglePasteKey');
+  const pasteBox = document.getElementById('fbPasteKeyBox');
+  const btnCancelPaste = document.getElementById('btnCancelPasteKey');
+  const btnSavePasted = document.getElementById('btnSavePastedKey');
+
+  btnTogglePaste?.addEventListener('click', () => {
+    if (pasteBox) {
+      pasteBox.style.display = pasteBox.style.display === 'none' ? 'block' : 'none';
+    }
+  });
+
+  btnCancelPaste?.addEventListener('click', () => {
+    if (pasteBox) pasteBox.style.display = 'none';
+  });
+
+  btnSavePasted?.addEventListener('click', async () => {
+    const keyVal = document.getElementById('fbKeyTextarea')?.value;
+    if (!keyVal || !keyVal.trim()) {
+      showToast('Please paste valid JSON service account key', 'warning');
+      return;
+    }
+    await uploadKeyJson(keyVal.trim());
+    if (pasteBox) pasteBox.style.display = 'none';
+  });
+
+  async function uploadKeyJson(jsonStringOrObj) {
+    try {
+      showToast('Verifying & installing service account key...', 'info');
+      const res = await fetch('/api/firebase/upload-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keyData: jsonStringOrObj })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Firebase Service Account installed & verified successfully!', 'success', 5000);
+        await loadFirebaseStatus();
+      } else {
+        showToast(data.error || 'Key validation failed', 'error', 5000);
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  }
+}
+
+async function loadFirebaseStatus() {
+  try {
+    const res = await fetch('/api/firebase/status');
+    const data = await res.json();
+    if (data.success && data.status) {
+      updateFirebaseStatusUI(data.status);
+    }
+  } catch (err) {
+    console.warn('Could not load Firebase status:', err);
+  }
+}
+
+function updateFirebaseStatusUI(status) {
+  if (!status) return;
+
+  const badge = document.getElementById('fbStatusBadge');
+  const projBadge = document.getElementById('fbProjectBadge');
+  const statTotal = document.getElementById('fbStatTotal');
+  const statSynced = document.getElementById('fbStatSynced');
+  const statPending = document.getElementById('fbStatPending');
+  const statLastSync = document.getElementById('fbStatLastSync');
+  const keyEmail = document.getElementById('fbKeyEmailText');
+  const keyProject = document.getElementById('fbKeyProjectText');
+  const keyBadge = document.getElementById('fbKeyInstalledBadge');
+  const pendingKpi = document.getElementById('fbPendingKpiCard');
+  const pendingSubtext = document.getElementById('fbPendingSubtext');
+
+  // Badge Status
+  if (badge) {
+    if (!status.configured) {
+      badge.textContent = '🟡 No Key Installed';
+      badge.style.background = '#fef3c7';
+      badge.style.color = '#92400e';
+    } else if (status.isSyncing) {
+      badge.textContent = '🔄 Syncing to Cloud...';
+      badge.style.background = '#eff6ff';
+      badge.style.color = '#1e40af';
+    } else if (status.online) {
+      badge.textContent = '🟢 Connected to Cloud';
+      badge.style.background = '#dcfce7';
+      badge.style.color = '#15803d';
+    } else {
+      badge.textContent = '🔴 Offline (Local Queue Active)';
+      badge.style.background = '#fee2e2';
+      badge.style.color = '#991b1b';
+    }
+  }
+
+  // Project Badge
+  if (projBadge) {
+    if (status.projectId) {
+      projBadge.textContent = status.projectId;
+      projBadge.style.display = 'inline-block';
+    } else {
+      projBadge.style.display = 'none';
+    }
+  }
+
+  // KPIs
+  const stats = status.stats || {};
+  if (statTotal) statTotal.textContent = Number(stats.totalAttendance || 0).toLocaleString();
+  if (statSynced) statSynced.textContent = Number(stats.syncedAttendance || 0).toLocaleString();
+  if (statPending) statPending.textContent = Number(stats.pendingAttendance || 0).toLocaleString();
+
+  if (pendingKpi) {
+    if ((stats.pendingAttendance || 0) > 0) {
+      pendingKpi.style.borderColor = '#f59e0b';
+      pendingKpi.style.background = '#fffbeb';
+      if (pendingSubtext) pendingSubtext.textContent = 'Waiting to upload (offline queue safe)';
+    } else {
+      pendingKpi.style.borderColor = '#bfdbfe';
+      pendingKpi.style.background = '#eff6ff';
+      if (pendingSubtext) pendingSubtext.textContent = 'All local punches backed up!';
+    }
+  }
+
+  if (statLastSync) {
+    if (stats.lastCloudSyncedAt) {
+      const dt = new Date(stats.lastCloudSyncedAt);
+      statLastSync.textContent = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' (' + dt.toLocaleDateString() + ')';
+    } else {
+      statLastSync.textContent = 'Never';
+    }
+  }
+
+  // Inputs
+  const inputOrgId = document.getElementById('settingFirestoreOrgId');
+  const inputOrgName = document.getElementById('settingFirestoreOrgName');
+  const inputInterval = document.getElementById('settingFirestoreInterval');
+  const chkAutoSync = document.getElementById('settingFirestoreAutoSync');
+  const chkEnabled = document.getElementById('settingFirestoreEnabled');
+
+  if (inputOrgId && !inputOrgId.value && status.orgId) inputOrgId.value = status.orgId;
+  if (inputOrgName && !inputOrgName.value && status.orgName) inputOrgName.value = status.orgName;
+  if (inputInterval && status.intervalSeconds) inputInterval.value = status.intervalSeconds;
+  if (chkAutoSync) chkAutoSync.checked = Boolean(status.autoSync);
+  if (chkEnabled) chkEnabled.checked = Boolean(status.enabled);
+
+  // Key details
+  if (keyEmail) keyEmail.textContent = status.clientEmail || 'No active service account';
+  if (keyProject) keyProject.textContent = `Project: ${status.projectId || 'None'} | Org: ${status.orgId || 'Default'}`;
+  if (keyBadge) {
+    if (status.configured) {
+      keyBadge.textContent = 'Installed & Active';
+      keyBadge.style.background = '#dcfce7';
+      keyBadge.style.color = '#15803d';
+    } else {
+      keyBadge.textContent = 'Missing Key';
+      keyBadge.style.background = '#fee2e2';
+      keyBadge.style.color = '#991b1b';
+    }
+  }
+}
+
 
 

@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const { insertAttendanceBatch, upsertEmployees, dbRun, getVerifyModeName, getPunchStateName } = require('./db');
+const { firebaseService } = require('./firebaseService');
 
 // In-memory device command queue: { [deviceSn]: Array<{ id, cmd }> }
 const deviceCommandQueues = {};
@@ -202,6 +203,9 @@ function setupAdmsRoutes(app) {
 
           // Broadcast the latest punch live to the UI
           records.forEach((rec) => broadcastLivePunch(rec));
+
+          // Non-blocking auto-upload to Firebase Firestore
+          firebaseService.syncPendingAttendance({ limit: 500 }).catch(() => {});
 
           // Log sync event
           await dbRun(
