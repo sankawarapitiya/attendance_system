@@ -7193,6 +7193,8 @@ function initFirebaseSync() {
       const data = await res.json();
       if (data.success) {
         showToast(`Uploaded ${data.uploadedCount || 0} record(s) to Firestore for org ${data.orgId}!`, 'success', 4000);
+      } else if (data.quotaExceeded) {
+        showToast(`Firestore Daily Quota Limit Reached (20,000 writes/day). All punches are 100% safe in SQLite and will resume when quota resets.`, 'warning', 6000);
       } else if (data.offline) {
         showToast(`System is offline. Queued records locally for next retry.`, 'warning', 4000);
       } else {
@@ -7477,6 +7479,35 @@ function updateCloudSyncProgressUI(prog) {
     }
     if (progressWrap) progressWrap.style.display = 'none';
     if (bannerPercent) bannerPercent.style.display = 'none';
+  } else if (prog.state === 'QUOTA_EXHAUSTED') {
+    if (headerPill) {
+      headerPill.style.background = '#fff7ed';
+      headerPill.style.borderColor = '#fdba74';
+      headerPill.style.color = '#c2410c';
+    }
+    if (headerDot) {
+      headerDot.style.background = '#ea580c';
+      headerDot.style.animation = 'none';
+    }
+    if (headerText) headerText.textContent = `☁️ Cloud: Quota Limit (${Number(prog.totalPending || 0).toLocaleString()} Safe)`;
+
+    if (banner) {
+      banner.style.background = '#fff7ed';
+      banner.style.borderColor = '#fed7aa';
+    }
+    if (bannerIcon) {
+      bannerIcon.innerHTML = '⚠️';
+      bannerIcon.style.background = '#ffedd5';
+    }
+    if (bannerTitle) bannerTitle.innerHTML = `Daily Write Quota Reached <span style="font-size:0.75rem; font-weight:700; color:#c2410c; background:#ffedd5; padding:2px 8px; border-radius:12px;">PUNCHES SAFE</span>`;
+    if (bannerSubtitle) bannerSubtitle.textContent = prog.message || 'Google Cloud Firestore daily write quota reached (Spark Free Plan: 20,000 writes/day). All local punches remain 100% safe in SQLite.';
+    if (bannerState) {
+      bannerState.textContent = 'QUOTA PAUSED';
+      bannerState.style.background = '#fed7aa';
+      bannerState.style.color = '#9a3412';
+    }
+    if (progressWrap) progressWrap.style.display = 'none';
+    if (bannerPercent) bannerPercent.style.display = 'none';
   } else if (prog.state === 'OFFLINE') {
     if (headerPill) {
       headerPill.style.background = '#fee2e2';
@@ -7545,6 +7576,18 @@ function updateFirebaseStatusUI(status) {
   const pendingCount = Number(stats.pendingAttendance || 0);
   const prog = status.syncProgress || {};
   const isSyncing = Boolean(status.isSyncing || prog.isSyncing);
+
+  // Quota Information Card Toggle
+  const quotaGuide = document.getElementById('fbQuotaGuideBox');
+  if (quotaGuide) {
+    if (status.quotaExceeded || prog.state === 'QUOTA_EXHAUSTED') {
+      quotaGuide.style.display = 'block';
+      const projEl = document.getElementById('fbQuotaGuideProjId');
+      if (projEl && status.projectId) projEl.textContent = status.projectId;
+    } else {
+      quotaGuide.style.display = 'none';
+    }
+  }
 
   // Hook header pill click to navigate to Firebase section
   if (headerPill && !headerPill.dataset.hasListener) {
@@ -7638,6 +7681,47 @@ function updateFirebaseStatusUI(status) {
       bannerState.textContent = 'KEY REQUIRED';
       bannerState.style.background = '#fef3c7';
       bannerState.style.color = '#92400e';
+    }
+    if (progressWrap) progressWrap.style.display = 'none';
+    if (bannerPercent) bannerPercent.style.display = 'none';
+
+  } else if (status.quotaExceeded || prog.state === 'QUOTA_EXHAUSTED') {
+    // 2.5 QUOTA EXCEEDED (Daily limit reached)
+    if (headerPill) {
+      headerPill.style.background = '#fff7ed';
+      headerPill.style.borderColor = '#fdba74';
+      headerPill.style.color = '#c2410c';
+    }
+    if (headerDot) {
+      headerDot.style.background = '#ea580c';
+      headerDot.style.animation = 'none';
+    }
+    if (headerText) headerText.textContent = `☁️ Cloud: Quota Limit (${pendingCount.toLocaleString()} Safe)`;
+
+    if (badge) {
+      badge.textContent = `⚠️ Daily Quota Limit (${pendingCount.toLocaleString()} Safe)`;
+      badge.style.background = '#fff7ed';
+      badge.style.color = '#c2410c';
+    }
+
+    if (banner) {
+      banner.style.background = '#fff7ed';
+      banner.style.borderColor = '#fed7aa';
+    }
+    if (bannerIcon) {
+      bannerIcon.innerHTML = '⚠️';
+      bannerIcon.style.background = '#ffedd5';
+    }
+    if (bannerTitle) {
+      bannerTitle.innerHTML = `Daily Quota Reached &mdash; All ${pendingCount.toLocaleString()} Local Punches 100% Safe <span style="font-size:0.75rem; font-weight:700; color:#c2410c; background:#ffedd5; padding:2px 8px; border-radius:12px;">SPARK TIER LIMIT</span>`;
+    }
+    if (bannerSubtitle) {
+      bannerSubtitle.innerHTML = `Google Cloud Firestore daily write quota reached (Spark Free Plan: 20,000 writes/day). Local punches remain completely safe in SQLite and sync will resume automatically when quota resets (or upgrade project <b>${status.projectId || ''}</b> to Blaze plan in Firebase Console for instant sync).`;
+    }
+    if (bannerState) {
+      bannerState.textContent = 'QUOTA PAUSED';
+      bannerState.style.background = '#fed7aa';
+      bannerState.style.color = '#9a3412';
     }
     if (progressWrap) progressWrap.style.display = 'none';
     if (bannerPercent) bannerPercent.style.display = 'none';

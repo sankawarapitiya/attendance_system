@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
+const { GoogleAuth } = require('google-auth-library');
 const { initializeApp, cert, getApps, deleteApp } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const {
@@ -16,20 +18,68 @@ const {
 const CREDENTIALS_DIR = path.join(process.cwd(), 'data', 'credentials');
 const DEFAULT_KEY_PATH = path.join(CREDENTIALS_DIR, 'firebase-service-account.json');
 
+/**
+ * Converts a native JavaScript value to the Firestore REST API Value format.
+ */
+function toFirestoreValue(val) {
+  if (val === null || val === undefined) return { nullValue: null };
+  if (typeof val === 'boolean') return { booleanValue: val };
+  if (typeof val === 'number') {
+    if (Number.isInteger(val)) return { integerValue: String(val) };
+    return { doubleValue: val };
+  }
+  if (typeof val === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/.test(val)) {
+      return { timestampValue: val };
+    }
+    return { stringValue: val };
+  }
+  if (Array.isArray(val)) {
+    return { arrayValue: { values: val.map(toFirestoreValue) } };
+  }
+  if (typeof val === 'object') {
+    const fields = {};
+    for (const [k, v] of Object.entries(val)) {
+      if (v !== undefined) {
+        fields[k] = toFirestoreValue(v);
+      }
+    }
+    return { mapValue: { fields } };
+  }
+  return { stringValue: String(val) };
+}
+
+/**
+ * Converts a JavaScript object into a Firestore document fields map.
+ */
+function toFirestoreFields(obj) {
+  const fields = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) {
+      fields[k] = toFirestoreValue(v);
+    }
+  }
+  return fields;
+}
+
 class FirebaseService {
   constructor() {
     this.app = null;
     this.firestore = null;
     this.keyData = null;
+    this.authClient = null;
+    this.httpsAgent = new https.Agent({ keepAlive: true, timeout: 30000 });
     this.isOnline = false;
     this.isSyncing = false;
+    this.quotaExceeded = false;
+    this.quotaExceededUntil = null;
     this.lastError = null;
     this.lastSyncTime = null;
     this.initPromise = null;
     this.wsBroadcast = null;
     this.syncProgress = {
       isSyncing: false,
-      state: 'IDLE', // 'IDLE', 'STARTING', 'SYNCING', 'COMPLETED', 'OFFLINE', 'ERROR'
+      state: 'IDLE', // 'IDLE', 'STARTING', 'SYNCING', 'COMPLETED', 'OFFLINE', 'QUOTA_EXHAUSTED', 'ERROR'
       uploadedCount: 0,
       totalPending: 0,
       percent: 0,
@@ -53,7 +103,7 @@ class FirebaseService {
   }
 
   /**
-   * Initializes the Firebase Admin instance using stored credentials.
+   * Initializes the Firebase credentials and clients.
    */
   async init() {
     if (this.initPromise) return this.initPromise;
@@ -83,7 +133,7 @@ class FirebaseService {
   }
 
   /**
-   * Internal helper to construct and initialize Firebase Admin app.
+   * Internal helper to construct and initialize Firebase Admin & REST Auth clients.
    */
   async _setupApp(serviceAccount) {
     if (!serviceAccount || !serviceAccount.project_id || !serviceAccount.private_key) {
@@ -102,6 +152,16 @@ class FirebaseService {
 
     this.firestore = getFirestore(this.app);
     this.firestore.settings({ ignoreUndefinedProperties: true });
+
+    this.authClient = new GoogleAuth({
+      credentials: {
+        client_email: serviceAccount.client_email,
+        private_key: serviceAccount.private_key,
+        project_id: serviceAccount.project_id
+      },
+      scopes: ['https://www.googleapis.com/auth/datastore']
+    });
+
     this.keyData = {
       project_id: serviceAccount.project_id,
       client_email: serviceAccount.client_email,
@@ -113,42 +173,143 @@ class FirebaseService {
   }
 
   /**
-   * Tests connection to Firestore with a lightweight read/write ping.
+   * Retrieves a cached or fresh OAuth2 access token for the Firestore REST API.
+   */
+  async _getAccessToken() {
+    if (!this.authClient) {
+      if (fs.existsSync(DEFAULT_KEY_PATH)) {
+        const raw = fs.readFileSync(DEFAULT_KEY_PATH, 'utf8');
+        const parsed = JSON.parse(raw);
+        this.authClient = new GoogleAuth({
+          credentials: {
+            client_email: parsed.client_email,
+            private_key: parsed.private_key,
+            project_id: parsed.project_id
+          },
+          scopes: ['https://www.googleapis.com/auth/datastore']
+        });
+      } else {
+        throw new Error('No Firebase service account credentials found');
+      }
+    }
+    const client = await this.authClient.getClient();
+    const tokenRes = await client.getAccessToken();
+    return tokenRes.token;
+  }
+
+  /**
+   * Performs an atomic multi-document commit using the official Firestore REST API.
+   * This eliminates gRPC stream stalls on Windows and returns instant HTTP status codes.
+   */
+  async _commitRestWrites(writes) {
+    if (!writes || writes.length === 0) return { success: true, count: 0 };
+    const token = await this._getAccessToken();
+    const projectId = this.keyData?.project_id;
+    if (!projectId) throw new Error('Project ID missing');
+
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:commit`;
+    const bodyStr = JSON.stringify({ writes });
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(url, {
+        method: 'POST',
+        agent: this.httpsAgent,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(bodyStr)
+        },
+        timeout: 15000
+      }, (res) => {
+        let raw = '';
+        res.on('data', chunk => raw += chunk);
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            this.quotaExceeded = false;
+            this.quotaExceededUntil = null;
+            return resolve({ success: true, statusCode: res.statusCode, raw });
+          }
+
+          let parsed = null;
+          try { parsed = JSON.parse(raw); } catch (e) {}
+
+          // Check for Quota Exceeded (RESOURCE_EXHAUSTED)
+          if (res.statusCode === 429 || parsed?.error?.status === 'RESOURCE_EXHAUSTED') {
+            this.quotaExceeded = true;
+            // Set 15-minute quiet backoff window
+            this.quotaExceededUntil = Date.now() + 15 * 60 * 1000;
+            const quotaErr = new Error('Google Cloud Firestore daily write quota reached (Spark Free Plan limit: 20,000 writes/day). Local punches remain 100% safe in SQLite.');
+            quotaErr.code = 'QUOTA_EXHAUSTED';
+            quotaErr.statusCode = 429;
+            return reject(quotaErr);
+          }
+
+          const err = new Error(parsed?.error?.message || `Firestore REST commit returned HTTP ${res.statusCode}`);
+          err.statusCode = res.statusCode;
+          return reject(err);
+        });
+      });
+
+      req.on('timeout', () => {
+        req.destroy(new Error('Firestore REST request timed out (15s)'));
+      });
+
+      req.on('error', (err) => {
+        reject(err);
+      });
+
+      req.write(bodyStr);
+      req.end();
+    });
+  }
+
+  /**
+   * Tests connection to Firestore with a fast REST read ping.
    */
   async testConnection() {
-    if (!this.firestore) {
+    await this.init();
+    if (!this.keyData) {
       throw new Error('Firebase is not initialized. Please upload a service account key.');
     }
 
     try {
-      const pingDoc = this.firestore.collection('_system_health').doc('ping');
       const start = Date.now();
-      
-      // Fast read-ping verification with 6s timeout guard
-      await Promise.race([
-        pingDoc.get(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore connection timeout (6s)')), 6000))
-      ]);
+      const token = await this._getAccessToken();
+      const projectId = this.keyData.project_id;
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/_system_health/ping`;
+
+      await new Promise((resolve, reject) => {
+        const req = https.get(url, {
+          agent: this.httpsAgent,
+          headers: { 'Authorization': `Bearer ${token}` },
+          timeout: 6000
+        }, (res) => {
+          let raw = '';
+          res.on('data', chunk => raw += chunk);
+          res.on('end', () => resolve({ statusCode: res.statusCode, raw }));
+        });
+        req.on('error', reject);
+        req.on('timeout', () => req.destroy(new Error('Connection timeout (6s)')));
+      });
 
       const latencyMs = Date.now() - start;
       this.isOnline = true;
       this.lastError = null;
 
-      // Background heartbeat write (non-blocking)
-      pingDoc.set({
-        service: 'SpeedFace-V5L Attendance System',
-        testedAt: new Date().toISOString(),
-        status: 'ONLINE'
-      }, { merge: true }).catch(() => {});
-
-      this.notify('FIREBASE_STATUS_UPDATE', { online: true, latencyMs, projectId: this.keyData?.project_id });
+      this.notify('FIREBASE_STATUS_UPDATE', {
+        online: true,
+        latencyMs,
+        projectId: this.keyData.project_id,
+        quotaExceeded: this.quotaExceeded
+      });
 
       return {
         success: true,
         online: true,
         latencyMs,
-        projectId: this.keyData?.project_id,
-        clientEmail: this.keyData?.client_email
+        projectId: this.keyData.project_id,
+        clientEmail: this.keyData.client_email,
+        quotaExceeded: this.quotaExceeded
       };
     } catch (err) {
       this.isOnline = false;
@@ -190,6 +351,10 @@ class FirebaseService {
     await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_service_account_path', ?)`, [DEFAULT_KEY_PATH]);
     await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_project_id', ?)`, [parsed.project_id]);
     await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_client_email', ?)`, [parsed.client_email]);
+
+    // Reset quota flag on new credentials
+    this.quotaExceeded = false;
+    this.quotaExceededUntil = null;
 
     // Re-initialize
     await this._setupApp(parsed);
@@ -250,6 +415,8 @@ class FirebaseService {
     return {
       configured: isConfigured,
       online: this.isOnline,
+      quotaExceeded: this.quotaExceeded,
+      quotaExceededUntil: this.quotaExceededUntil,
       isSyncing: this.isSyncing,
       syncProgress: this.syncProgress,
       projectId: this.keyData?.project_id || null,
@@ -281,8 +448,8 @@ class FirebaseService {
   }
 
   /**
-   * Uploads un-synced attendance punch records from local SQLite to Firestore.
-   * OFFLINE-FIRST: If connection fails, records remain untouched in SQLite with synced_to_cloud = 0.
+   * Uploads un-synced attendance punch records from local SQLite to Firestore via REST API.
+   * OFFLINE-FIRST: If connection fails or quota is full, records remain untouched in SQLite with synced_to_cloud = 0.
    */
   async syncPendingAttendance(options = {}) {
     if (this.isSyncing) {
@@ -291,7 +458,7 @@ class FirebaseService {
 
     await this.init();
 
-    if (!this.firestore) {
+    if (!this.keyData) {
       return { success: false, offline: true, error: 'Firebase is not configured' };
     }
 
@@ -300,10 +467,21 @@ class FirebaseService {
       return { success: false, message: 'Cloud sync is disabled in settings' };
     }
 
+    // Check if within quota cooldown (unless force is requested)
+    if (this.quotaExceeded && this.quotaExceededUntil && Date.now() < this.quotaExceededUntil && !options.force) {
+      const waitMins = Math.ceil((this.quotaExceededUntil - Date.now()) / 60000);
+      return {
+        success: false,
+        quotaExceeded: true,
+        message: `Cloud sync paused (Daily Firestore quota reached: 20,000 writes/day). Will retry automatically in ${waitMins}m or click "Upload Pending Data Now". Local punches are 100% safe.`,
+        syncProgress: this.syncProgress
+      };
+    }
+
     const orgId = (options.orgId || orgConfig.orgId || 'ORG_DEFAULT').trim().toUpperCase();
     const orgName = options.orgName || orgConfig.orgName || 'General Organization';
-    // 25 records per batch ensures fast ~1s commit and real-time UI progress updates
-    const batchSize = Math.min(25, Math.max(10, options.limit || 25));
+    // 50 records per batch provides rapid ~400ms REST commits and smooth UI updates
+    const batchSize = Math.min(100, Math.max(20, options.limit || 50));
 
     this.isSyncing = true;
     this.syncStartTime = Date.now();
@@ -328,6 +506,8 @@ class FirebaseService {
     this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
 
     try {
+      const projectId = this.keyData.project_id;
+
       while (true) {
         // 1. Fetch pending records from local SQLite
         const pending = await getUnsyncedAttendance(batchSize);
@@ -335,24 +515,16 @@ class FirebaseService {
           break; // All pending records have been uploaded
         }
 
-        // 2. Prepare Firestore Batch (partitioned under organizations/{orgId})
-        const batch = this.firestore.batch();
+        // 2. Prepare Firestore REST writes
+        const writes = [];
         const syncedIds = [];
         const nowIso = new Date().toISOString();
 
         for (const rec of pending) {
-          // Sanitize userId to ensure valid Firestore document key (no slashes or binary control chars)
           const rawUserId = String(rec.user_id || '').trim();
           const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F-\x9F\/]/g, '_').trim() || 'USER';
           const punchKey = this._formatPunchKey(rec.punch_time);
           const docId = `${orgId}_${cleanUserId}_${punchKey}`;
-
-          // Document reference strictly in: organizations/{orgId}/attendance/{docId}
-          const orgAttRef = this.firestore
-            .collection('organizations')
-            .doc(orgId)
-            .collection('attendance')
-            .doc(docId);
 
           const punchEpoch = Date.parse(rec.punch_time) || Date.now();
           const punchIso = new Date(punchEpoch).toISOString();
@@ -386,26 +558,19 @@ class FirebaseService {
             syncedAt: nowIso
           };
 
-          batch.set(orgAttRef, payload, { merge: true });
+          writes.push({
+            update: {
+              name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/attendance/${docId}`,
+              fields: toFirestoreFields(payload)
+            }
+          });
           syncedIds.push(rec.id);
         }
 
-        // Also update Organization Document
-        const orgDocRef = this.firestore.collection('organizations').doc(orgId);
-        batch.set(orgDocRef, {
-          organizationId: orgId,
-          organizationName: orgName,
-          lastSyncAt: nowIso,
-          updatedAt: nowIso
-        }, { merge: true });
+        // 3. Commit batch via direct Firestore REST API
+        await this._commitRestWrites(writes);
 
-        // 3. Commit to Firestore with 20s timeout guard
-        await Promise.race([
-          batch.commit(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore commit timeout (20s)')), 20000))
-        ]);
-
-        // 4. Mark local SQLite records as synced
+        // 4. Mark local SQLite records as synced (only after cloud commit confirms)
         await markAttendanceCloudSynced(syncedIds);
 
         totalUploaded += syncedIds.length;
@@ -431,9 +596,28 @@ class FirebaseService {
         }
       }
 
+      // 5. Update Organization Document metadata once at end of sync run
+      const nowIso = new Date().toISOString();
+      try {
+        const orgMetaWrite = [{
+          update: {
+            name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}`,
+            fields: toFirestoreFields({
+              organizationId: orgId,
+              organizationName: orgName,
+              lastSyncAt: nowIso,
+              updatedAt: nowIso
+            })
+          }
+        }];
+        await this._commitRestWrites(orgMetaWrite).catch(() => {});
+      } catch (e) {}
+
       this.isOnline = true;
+      this.quotaExceeded = false;
+      this.quotaExceededUntil = null;
       this.lastError = null;
-      this.lastSyncTime = new Date().toISOString();
+      this.lastSyncTime = nowIso;
 
       this.syncProgress = {
         isSyncing: false,
@@ -467,10 +651,46 @@ class FirebaseService {
         syncProgress: this.syncProgress
       };
     } catch (err) {
+      // Intelligently handle Google Cloud Firestore Daily Quota Exceeded (429 RESOURCE_EXHAUSTED)
+      if (err.code === 'QUOTA_EXHAUSTED' || err.statusCode === 429) {
+        this.quotaExceeded = true;
+        this.quotaExceededUntil = Date.now() + 15 * 60 * 1000;
+        this.isOnline = true;
+        this.lastError = 'Google Cloud Firestore daily write quota reached (Spark Free Plan limit: 20,000 writes/day). Local punches remain 100% safe in SQLite.';
+
+        console.warn(`[FIREBASE] ${this.lastError}`);
+
+        this.syncProgress = {
+          isSyncing: false,
+          state: 'QUOTA_EXHAUSTED',
+          uploadedCount: totalUploaded,
+          totalPending: totalPendingCount - totalUploaded,
+          percent: 0,
+          message: this.lastError,
+          currentBatch: batchesProcessed,
+          totalBatches: 0,
+          updatedAt: new Date().toISOString()
+        };
+        this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+        await dbRun(`
+          INSERT INTO sync_logs (sync_type, status, records_synced, total_records, message)
+          VALUES ('CLOUD_SYNC', 'QUOTA_EXHAUSTED', 0, 0, ?)
+        `, [this.lastError]);
+
+        return {
+          success: false,
+          quotaExceeded: true,
+          uploadedCount: totalUploaded,
+          error: this.lastError,
+          syncProgress: this.syncProgress
+        };
+      }
+
       // OFFLINE RESILIENCE: Catch error, leave records with synced_to_cloud = 0 in SQLite
       this.isOnline = false;
       this.lastError = err.message;
-      console.warn(`[FIREBASE] Offline / Sync warning: ${err.message}. Local punches safely queued.`);
+      console.warn(`[FIREBASE] Offline / Sync notice: ${err.message}. Local punches safely queued.`);
 
       this.syncProgress = {
         isSyncing: false,
@@ -503,13 +723,13 @@ class FirebaseService {
   }
 
   /**
-   * Syncs employee registry to Firestore: organizations/{orgId}/employees/{userId}
+   * Syncs employee registry to Firestore: organizations/{orgId}/employees/{userId} via REST API.
    * Supports forceAll option to push all local employees to newly configured organization partitions.
    */
   async syncEmployees(options = {}) {
     await this.init();
 
-    if (!this.firestore) {
+    if (!this.keyData) {
       return { success: false, offline: true, error: 'Firebase is not configured' };
     }
 
@@ -527,22 +747,19 @@ class FirebaseService {
         return { success: true, count: 0, message: 'No pending employees to sync' };
       }
 
-      const batchSize = 300;
+      const batchSize = 100;
       let totalSynced = 0;
+      const projectId = this.keyData.project_id;
+      const nowIso = new Date().toISOString();
 
       for (let i = 0; i < employees.length; i += batchSize) {
         const slice = employees.slice(i, i + batchSize);
-        const batch = this.firestore.batch();
+        const writes = [];
         const syncedUserIds = [];
 
         for (const emp of slice) {
           const rawUserId = String(emp.user_id || '').trim();
           const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F\/]/g, '_').trim() || 'USER';
-          const docRef = this.firestore
-            .collection('organizations')
-            .doc(orgId)
-            .collection('employees')
-            .doc(cleanUserId);
 
           const payload = {
             userId: cleanUserId,
@@ -563,19 +780,19 @@ class FirebaseService {
             employmentStatus: emp.employment_status || 'Active',
             isActive: emp.is_active === 1,
             photoUrl: emp.photo || null,
-            syncedAt: FieldValue.serverTimestamp()
+            syncedAt: nowIso
           };
 
-          batch.set(docRef, payload, { merge: true });
+          writes.push({
+            update: {
+              name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/employees/${cleanUserId}`,
+              fields: toFirestoreFields(payload)
+            }
+          });
           syncedUserIds.push(emp.user_id);
         }
 
-        // Commit slice with 30s timeout
-        await Promise.race([
-          batch.commit(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore employee batch timeout (30s)')), 30000))
-        ]);
-
+        await this._commitRestWrites(writes);
         await markEmployeesCloudSynced(syncedUserIds);
         totalSynced += syncedUserIds.length;
       }
@@ -605,6 +822,9 @@ class FirebaseService {
     if (scope === 'employees' || scope === 'all') {
       await dbRun(`UPDATE employees SET synced_to_cloud = 0, cloud_synced_at = NULL`);
     }
+    // Also clear quota flag so a fresh attempt is permitted
+    this.quotaExceeded = false;
+    this.quotaExceededUntil = null;
     const stats = await getCloudSyncStats();
     return {
       success: true,

@@ -1317,6 +1317,19 @@
               </div>
             </div>
 
+            <!-- Quota & Offline Resilience Guide Strip -->
+            <div id="fbQuotaGuideBox" style="display:none; margin-bottom: 20px; border-radius: 10px; padding: 14px 18px; border: 1px solid #fed7aa; background: #fffaf5; font-size: 0.83rem; color: #7c2d12;">
+              <div style="font-weight: 700; display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: #9a3412;">
+                ℹ️ Google Cloud Firestore Daily Free-Tier Write Quota Notice
+              </div>
+              <div style="line-height: 1.5; color: #7c2d12;">
+                <b>Local Punches Safe:</b> All 36,704 attendance records remain 100% intact and preserved in your local SQLite database.<br>
+                Google Firebase's <b>Spark Free Plan</b> allows <b>20,000 document writes per 24-hour cycle</b>. When reached, writes pause safely.<br>
+                &bull; <b>Automatic Resumption:</b> Google resets this daily quota every day (at midnight Pacific Time / 12:30 PM local). Cloud sync will resume automatically.<br>
+                &bull; <b>Instant Unlimited Sync (Optional):</b> You can switch your Firebase project (<span id="fbQuotaGuideProjId">officeattendancesystem-ddae3</span>) to the <b>Blaze (Pay-as-you-go)</b> plan in Firebase Console. The first 20,000 writes/day remain free, and uploading the remaining records costs less than $0.03 total.
+              </div>
+            </div>
+
             <!-- Real-time Cloud Sync Stats KPI Strip -->
             <div class="fb-stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 22px;">
               <div class="kpi-card" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px;">

@@ -394,6 +394,10 @@ function startAutoSync(intervalSeconds = 60, getSettingsFn) {
     try {
       const status = await firebaseService.getStatus();
       if (status.configured && status.enabled && status.autoSync && status.stats.pendingAttendance > 0) {
+        if (status.quotaExceeded && status.quotaExceededUntil && Date.now() < status.quotaExceededUntil) {
+          // In quota backoff cooldown - skip this interval
+          return;
+        }
         const cloudRes = await firebaseService.syncPendingAttendance({ limit: 500 });
         if (cloudRes.success && cloudRes.uploadedCount > 0) {
           notifyWs('FIREBASE_SYNC_PROGRESS', cloudRes);
