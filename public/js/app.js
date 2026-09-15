@@ -1240,24 +1240,46 @@ function prepareRecordsForPrint() {
   }
 }
 
+function applyMonthlyBookPrintScope() {
+  if (state.report.scope !== 'monthly_book') {
+    document.body.classList.remove('print-single-emp-active');
+    return;
+  }
+  const jumpSelect = document.getElementById('monthlyBookJumpSelect');
+  const selectedVal = jumpSelect ? jumpSelect.value : 'all';
+  const pages = document.querySelectorAll('.employee-monthly-page');
+
+  if (selectedVal && selectedVal !== 'all') {
+    // Single employee selected in Jump to Employee dropdown -> print ONLY that selected employee
+    document.body.classList.add('print-single-emp-active');
+    pages.forEach(p => {
+      const match = (p.id === selectedVal) ||
+                    (p.dataset.userId && (`emp-page-${p.dataset.userId}` === selectedVal || p.dataset.userId === selectedVal));
+      if (match) {
+        p.classList.add('print-selected-page');
+        p.classList.remove('print-hidden');
+        p.style.display = '';
+      } else {
+        p.classList.remove('print-selected-page');
+        p.classList.add('print-hidden');
+        p.style.display = 'none';
+      }
+    });
+  } else {
+    // "View All Staff" selected -> print all employee pages
+    document.body.classList.remove('print-single-emp-active');
+    pages.forEach(p => {
+      p.classList.remove('print-selected-page');
+      p.classList.remove('print-hidden');
+      p.style.display = '';
+    });
+  }
+}
+window.applyMonthlyBookPrintScope = applyMonthlyBookPrintScope;
+
 function triggerPrintDialog() {
   if (state.report.scope === 'monthly_book') {
-    if (state.printOptions?.bookScope === 'selected') {
-      const jumpSelect = document.getElementById('monthlyBookJumpSelect');
-      const selectedUid = jumpSelect ? jumpSelect.value : 'all';
-      if (selectedUid && selectedUid !== 'all') {
-        document.querySelectorAll('.employee-monthly-page').forEach(p => {
-          const match = p.id === `empPage_${selectedUid}` || p.dataset.userId === String(selectedUid);
-          p.style.display = match ? '' : 'none';
-        });
-      } else {
-        document.querySelectorAll('.employee-monthly-page').forEach(p => p.style.display = '');
-      }
-    } else {
-      document.querySelectorAll('.employee-monthly-page').forEach(p => p.style.display = '');
-      const jumpSelect = document.getElementById('monthlyBookJumpSelect');
-      if (jumpSelect) jumpSelect.value = 'all';
-    }
+    applyMonthlyBookPrintScope();
   }
   prepareReportForPrint();
   applyAllPrintOptions();
@@ -1299,7 +1321,14 @@ function openPrintOptionsModal() {
   if (mS2S) mS2S.value = opts.sig2Sub || 'Head of Department';
   if (mS3T) mS3T.value = opts.sig3Title || 'Authorized Approval';
   if (mS3S) mS3S.value = opts.sig3Sub || 'Director / General Manager';
-  if (mBookScope) mBookScope.value = opts.bookScope || 'all';
+  const jumpSelect = document.getElementById('monthlyBookJumpSelect');
+  if (mBookScope) {
+    if (jumpSelect && jumpSelect.value && jumpSelect.value !== 'all') {
+      mBookScope.value = 'selected';
+    } else {
+      mBookScope.value = opts.bookScope || 'all';
+    }
+  }
 
   const modal = document.getElementById('printOptionsModal');
   if (modal) {
@@ -1359,6 +1388,19 @@ function savePrintOptionsFromModal() {
   state.reportPageSize = state.printOptions.pageSize;
   savePrintOptions();
   applyAllPrintOptions();
+
+  // If in Monthly Book view, keep Jump to Employee select in sync
+  const jumpSelect = document.getElementById('monthlyBookJumpSelect');
+  if (jumpSelect && state.report.scope === 'monthly_book') {
+    if (state.printOptions.bookScope === 'all' && jumpSelect.value !== 'all') {
+      jumpSelect.value = 'all';
+      jumpSelect.dispatchEvent(new Event('change'));
+    } else if (state.printOptions.bookScope === 'selected' && jumpSelect.value === 'all' && jumpSelect.options.length > 1) {
+      jumpSelect.selectedIndex = 1;
+      jumpSelect.dispatchEvent(new Event('change'));
+    }
+  }
+
   closePrintOptionsModal();
   showToast('Print & PDF options saved successfully', 'success');
 }
@@ -1853,18 +1895,7 @@ async function initReports() {
   // Ensure print layout and classes are active even if user hits Ctrl+P natively
   window.addEventListener('beforeprint', () => {
     if (state.report.scope === 'monthly_book') {
-      if (state.printOptions?.bookScope === 'selected') {
-        const jumpSelect = document.getElementById('monthlyBookJumpSelect');
-        const selectedUid = jumpSelect ? jumpSelect.value : 'all';
-        if (selectedUid && selectedUid !== 'all') {
-          document.querySelectorAll('.employee-monthly-page').forEach(p => {
-            const match = p.id === `empPage_${selectedUid}` || p.dataset.userId === String(selectedUid);
-            p.style.display = match ? '' : 'none';
-          });
-        }
-      } else {
-        document.querySelectorAll('.employee-monthly-page').forEach(p => p.style.display = '');
-      }
+      applyMonthlyBookPrintScope();
     }
     if (state.currentTab === 'tab-records') {
       prepareRecordsForPrint();
@@ -1872,6 +1903,26 @@ async function initReports() {
       prepareReportForPrint();
     }
     applyAllPrintOptions();
+  });
+
+  window.addEventListener('afterprint', () => {
+    document.body.classList.remove('print-single-emp-active');
+    if (state.report.scope === 'monthly_book') {
+      const jumpSelect = document.getElementById('monthlyBookJumpSelect');
+      const selectedVal = jumpSelect ? jumpSelect.value : 'all';
+      const pages = document.querySelectorAll('.employee-monthly-page');
+      pages.forEach(p => {
+        p.classList.remove('print-selected-page');
+        p.classList.remove('print-hidden');
+        if (selectedVal === 'all') {
+          p.style.display = '';
+        } else {
+          const match = (p.id === selectedVal) ||
+                        (p.dataset.userId && (`emp-page-${p.dataset.userId}` === selectedVal || p.dataset.userId === selectedVal));
+          p.style.display = match ? '' : 'none';
+        }
+      });
+    }
   });
 
   document.getElementById('btnPrintReport')?.addEventListener('click', triggerPrintDialog);
@@ -2215,12 +2266,44 @@ function renderMonthlyBookReport(data) {
       }).join('');
     jumpSelect.onchange = (e) => {
       const val = e.target.value;
+      const printBtnText = document.getElementById('btnMonthlyBookPrintText');
+      const pages = document.querySelectorAll('.employee-monthly-page');
+
       if (val === 'all') {
-        document.querySelectorAll('.employee-monthly-page').forEach(p => p.style.display = '');
-      } else {
-        document.querySelectorAll('.employee-monthly-page').forEach(p => {
-          p.style.display = (p.id === val) ? '' : 'none';
+        document.body.classList.remove('print-single-emp-active');
+        pages.forEach(p => {
+          p.classList.remove('print-selected-page');
+          p.classList.remove('print-hidden');
+          p.style.display = '';
         });
+        if (printBtnText) printBtnText.textContent = 'Print Book (All Pages)';
+        if (state.printOptions) state.printOptions.bookScope = 'all';
+      } else {
+        document.body.classList.add('print-single-emp-active');
+        pages.forEach(p => {
+          const match = (p.id === val) ||
+                        (p.dataset.userId && (`emp-page-${p.dataset.userId}` === val || p.dataset.userId === val));
+          if (match) {
+            p.classList.add('print-selected-page');
+            p.classList.remove('print-hidden');
+            p.style.display = '';
+          } else {
+            p.classList.remove('print-selected-page');
+            p.classList.add('print-hidden');
+            p.style.display = 'none';
+          }
+        });
+        const selectedOption = jumpSelect.options[jumpSelect.selectedIndex];
+        let rawName = 'Selected Staff';
+        if (selectedOption) {
+          const text = selectedOption.text;
+          const parts = text.split(' - ');
+          if (parts.length > 1) {
+            rawName = parts[1].split(' •')[0].trim();
+          }
+        }
+        if (printBtnText) printBtnText.textContent = `Print Page (${rawName})`;
+        if (state.printOptions) state.printOptions.bookScope = 'selected';
         const target = document.getElementById(val);
         if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
@@ -2326,7 +2409,7 @@ function renderMonthlyBookReport(data) {
     }).join('');
 
     return `
-      <div class="employee-monthly-page" id="emp-page-${emp.user_id}">
+      <div class="employee-monthly-page" id="emp-page-${emp.user_id}" data-user-id="${emp.user_id}">
         <!-- 1. Compact Organization Header -->
         <div class="emp-page-header">
           <div class="emp-page-org">

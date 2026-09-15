@@ -2183,6 +2183,26 @@ body {
     break-after: auto !important;
   }
 
+  /* When printing only the selected employee from Jump to Employee */
+  .employee-monthly-page.print-hidden,
+  .employee-monthly-page[style*="display: none"],
+  body.print-single-emp-active .employee-monthly-page:not(.print-selected-page) {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  body.print-single-emp-active .employee-monthly-page.print-selected-page {
+    display: block !important;
+    visibility: visible !important;
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
   .emp-page-header {
     display: flex !important;
     justify-content: space-between !important;
