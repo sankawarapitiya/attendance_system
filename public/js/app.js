@@ -3718,7 +3718,49 @@ async function initEmployees() {
   // Modal handlers
   document.getElementById('btnModalClose')?.addEventListener('click', closeEmployeeModal);
   document.getElementById('btnModalCancel')?.addEventListener('click', closeEmployeeModal);
-  document.querySelector('.modal-backdrop')?.addEventListener('click', closeEmployeeModal);
+  document.getElementById('employeeModal')?.querySelector('.modal-backdrop')?.addEventListener('click', closeEmployeeModal);
+
+  // Delete Employee Confirmation Modal Handlers
+  document.getElementById('btnDeleteModalClose')?.addEventListener('click', closeDeleteEmployeeModal);
+  document.getElementById('btnCancelDeleteEmp')?.addEventListener('click', closeDeleteEmployeeModal);
+  document.getElementById('deleteEmployeeModal')?.querySelector('.modal-backdrop')?.addEventListener('click', closeDeleteEmployeeModal);
+
+  document.getElementById('btnConfirmDeleteEmp')?.addEventListener('click', async () => {
+    if (!currentDeleteEmp) return;
+    const userId = currentDeleteEmp.user_id;
+    const deleteFromDevice = document.getElementById('checkDeleteFromDevice')?.checked !== false;
+    const deleteAttendance = document.getElementById('checkDeleteAttendance')?.checked === true;
+
+    const btn = document.getElementById('btnConfirmDeleteEmp');
+    const btnText = document.getElementById('btnConfirmDeleteEmpText');
+    if (btn) btn.disabled = true;
+    if (btnText) btnText.textContent = 'Deleting...';
+
+    try {
+      showToast(`Deleting employee ${userId}...`, 'info');
+      const res = await fetch(`/api/employees/${userId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deleteFromDevice, deleteAttendance })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message || `Employee ${userId} deleted successfully`, 'success');
+        closeDeleteEmployeeModal();
+        closeEmployeeModal();
+        await loadEmployees();
+        await loadDashboardStats();
+        await populateReportEmployeeDropdown();
+      } else {
+        showToast(data.error || 'Failed to delete employee', 'error');
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+      if (btnText) btnText.textContent = 'Delete Employee';
+    }
+  });
 
   document.getElementById('employeeForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -4237,12 +4279,15 @@ function renderEmployeesTable() {
         case 'actions':
           return `
             <td data-col="actions" style="text-align: center;">
-              <div style="display: flex; gap: 6px; align-items: center; justify-content: center;">
+              <div style="display: flex; gap: 4px; align-items: center; justify-content: center;">
                 <button type="button" class="btn btn-sm btn-outline btn-edit-emp" data-emp='${JSON.stringify(emp).replace(/'/g, "&apos;")}'>
                   Edit
                 </button>
                 <button type="button" class="btn btn-sm btn-outline btn-sync-single" data-userid="${emp.user_id}" data-name="${escapeHtml(emp.name || '')}" data-role="${escapeHtml(emp.role || 'Staff')}" title="Sync this user to SpeedFace device">
                   Sync
+                </button>
+                <button type="button" class="btn btn-sm btn-outline btn-delete-emp" data-userid="${emp.user_id}" data-name="${escapeHtml(emp.name || '')}" data-dept="${escapeHtml(emp.department || '')}" data-role="${escapeHtml(emp.role || '')}" title="Delete this employee" style="color: #ef4444; border-color: #fca5a5;">
+                  Delete
                 </button>
               </div>
             </td>
@@ -4323,6 +4368,9 @@ function renderEmployeesTable() {
                     </button>
                     <button type="button" class="btn btn-sm btn-primary btn-dossier-sync" data-userid="${emp.user_id}" data-name="${escapeHtml(emp.name || '')}" data-role="${escapeHtml(emp.role || 'Staff')}">
                       🔄 Sync to Device
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline btn-delete-emp" data-userid="${emp.user_id}" data-name="${escapeHtml(emp.name || '')}" data-dept="${escapeHtml(emp.department || '')}" data-role="${escapeHtml(emp.role || '')}" style="color: #ef4444; border-color: #fca5a5;" title="Delete this employee">
+                      🗑️ Delete Employee
                     </button>
                   </div>
                 </div>
@@ -4458,6 +4506,18 @@ function attachEmployeeRowListeners() {
       loadReportData();
     });
   });
+
+  // Delete employee button listener
+  document.querySelectorAll('.btn-delete-emp').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const userId = btn.getAttribute('data-userid');
+      const name = btn.getAttribute('data-name');
+      const dept = btn.getAttribute('data-dept');
+      const role = btn.getAttribute('data-role');
+      openDeleteEmployeeModal({ user_id: userId, name, department: dept, role });
+    });
+  });
 }
 
 async function loadEmployees() {
@@ -4575,11 +4635,63 @@ async function openEmployeeModal(emp) {
   }
 
   document.getElementById('modalTitle').textContent = `Edit User ${emp.user_id} (${emp.name || 'Unassigned'})`;
+
+  // Show Delete button in modal footer for existing employees
+  const modalDeleteBtn = document.getElementById('btnModalDeleteEmployee');
+  if (modalDeleteBtn) {
+    modalDeleteBtn.style.display = 'inline-flex';
+    modalDeleteBtn.onclick = () => {
+      closeEmployeeModal();
+      openDeleteEmployeeModal(emp);
+    };
+  }
+
   document.getElementById('employeeModal').classList.add('active');
 }
 
 function closeEmployeeModal() {
-  document.getElementById('employeeModal').classList.remove('active');
+  const modal = document.getElementById('employeeModal');
+  if (modal) {
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+  }
+}
+
+// Global reference for employee being deleted
+let currentDeleteEmp = null;
+
+function openDeleteEmployeeModal(emp) {
+  if (!emp) return;
+  currentDeleteEmp = emp;
+  const nameEl = document.getElementById('deleteEmpNameDisplay');
+  const idEl = document.getElementById('deleteEmpIdDisplay');
+  const deptEl = document.getElementById('deleteEmpDeptDisplay');
+  const roleEl = document.getElementById('deleteEmpRoleDisplay');
+
+  if (nameEl) nameEl.textContent = emp.name || 'Unnamed Employee';
+  if (idEl) idEl.textContent = emp.user_id;
+  if (deptEl) deptEl.textContent = emp.department || 'General';
+  if (roleEl) roleEl.textContent = emp.role || 'Staff';
+
+  const checkDev = document.getElementById('checkDeleteFromDevice');
+  const checkAtt = document.getElementById('checkDeleteAttendance');
+  if (checkDev) checkDev.checked = true;
+  if (checkAtt) checkAtt.checked = false;
+
+  const modal = document.getElementById('deleteEmployeeModal');
+  if (modal) {
+    modal.classList.add('active');
+    modal.style.display = 'flex';
+  }
+}
+
+function closeDeleteEmployeeModal() {
+  const modal = document.getElementById('deleteEmployeeModal');
+  if (modal) {
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+  }
+  currentDeleteEmp = null;
 }
 
 // 5. Device Control & Diagnostics

@@ -1581,6 +1581,100 @@ router.post('/employees', async (req, res) => {
   }
 });
 
+// DELETE /api/employees/:id (and REST API aliases /v1/users/:id, /users/:id)
+router.delete(['/employees/:id', '/v1/users/:id', '/users/:id'], async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const deleteFromDevice = req.body?.deleteFromDevice !== false && req.query?.deleteFromDevice !== 'false';
+    const deleteAttendance = req.body?.deleteAttendance === true || req.query?.deleteAttendance === 'true';
+
+    // 1. Verify employee exists in database
+    const emp = await dbGet(`SELECT user_id, name, employee_service_id, department, role FROM employees WHERE user_id = ?`, [userId]);
+    if (!emp) {
+      return res.status(404).json({ success: false, error: `Employee with User ID ${userId} not found` });
+    }
+
+    // 2. Optionally purge historical attendance punch records
+    let recordsDeleted = 0;
+    if (deleteAttendance) {
+      const attResult = await dbRun(`DELETE FROM attendance_records WHERE user_id = ?`, [userId]);
+      recordsDeleted = attResult.changes || 0;
+    }
+
+    // 3. Delete from employees registry
+    await dbRun(`DELETE FROM employees WHERE user_id = ?`, [userId]);
+
+    // 4. Optionally delete user from SpeedFace biometric terminal (Direct TCP + ADMS Queue)
+    let deviceDeleted = false;
+    let deviceError = null;
+
+    if (deleteFromDevice) {
+      // Direct TCP command
+      try {
+        const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
+        const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
+        const ip = ipSetting ? ipSetting.value : '192.168.10.15';
+        const port = portSetting ? parseInt(portSetting.value, 10) : 4370;
+
+        const client = new SpeedFaceClient(ip, port, 5000);
+        await client.deleteUser(userId);
+        deviceDeleted = true;
+      } catch (dErr) {
+        console.warn(`[EMPLOYEE] Direct TCP delete for user ${userId} notice:`, dErr.message);
+        deviceError = dErr.message;
+      }
+
+      // ADMS command queue
+      try {
+        const admsDevices = getConnectedAdmsDevices();
+        const cmdDelete = `DATA DELETE USERINFO PIN=${userId}`;
+        if (admsDevices && admsDevices.length > 0) {
+          for (const dev of admsDevices) {
+            queueDeviceCommand(dev.sn, cmdDelete);
+            queueDeviceCommand(dev.sn, `DATA DELETE BIOPHOTO PIN=${userId}`);
+          }
+        } else {
+          queueDeviceCommand('DEFAULT', cmdDelete);
+        }
+      } catch (aErr) {
+        console.warn(`[EMPLOYEE] ADMS delete command notice:`, aErr.message);
+      }
+    }
+
+    // 5. Audit log in sync_logs
+    try {
+      await dbRun(`
+        INSERT INTO sync_logs (sync_type, status, records_count, message)
+        VALUES ('DELETE_USER', 'SUCCESS', ?, ?)
+      `, [recordsDeleted, `Deleted employee ${emp.name || ''} (ID: ${userId})${deleteFromDevice ? ' [Device: ' + (deviceDeleted ? 'Deleted' : 'Notice: ' + deviceError) + ']' : ''}`]);
+    } catch (lErr) {}
+
+    let message = `Employee ${emp.name || userId} deleted from database.`;
+    if (deleteFromDevice) {
+      if (deviceDeleted) {
+        message = `Employee ${emp.name || userId} deleted from database and SpeedFace terminal!`;
+      } else if (deviceError) {
+        message = `Employee ${emp.name || userId} deleted from database (Device notice: ${deviceError}).`;
+      }
+    }
+    if (deleteAttendance && recordsDeleted > 0) {
+      message += ` Purged ${recordsDeleted} punch records.`;
+    }
+
+    res.json({
+      success: true,
+      user_id: userId,
+      name: emp.name,
+      deviceDeleted,
+      deviceError,
+      recordsDeleted,
+      message
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Bulk assign shift to employees
 router.post('/employees/assign-shift', async (req, res) => {
   try {

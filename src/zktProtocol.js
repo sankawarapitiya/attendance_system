@@ -351,6 +351,62 @@ class SpeedFaceClient {
   }
 
   /**
+   * Deletes a user and their enrolled biometrics from the SpeedFace terminal.
+   */
+  async deleteUser(userId) {
+    const zk = this.createInstance();
+    try {
+      await zk.createSocket();
+      let userUid = null;
+
+      try {
+        const allUsers = await zk.getUsers();
+        const existing = allUsers.data.find(u => String(u.userId) === String(userId) || String(u.uid) === String(userId));
+        if (existing) {
+          userUid = existing.uid;
+        }
+      } catch (e) {
+        console.warn(`[ZK] Could not fetch user list for delete: ${e.message}`);
+      }
+
+      if (userUid === null || isNaN(userUid)) {
+        const parsed = parseInt(userId, 10);
+        userUid = (!isNaN(parsed) && parsed >= 0 && parsed <= 65535) ? parsed : 0;
+      }
+      const safeUid = (userUid & 0xFFFF);
+
+      // 1. Delete user from terminal (CMD_DELETE_USER: 18)
+      try {
+        const buf = Buffer.alloc(2);
+        buf.writeUInt16LE(safeUid, 0);
+        await zk.zklibTcp.executeCmd(COMMANDS.CMD_DELETE_USER, buf);
+      } catch (cmdErr) {
+        // Fallback: try 72-byte buffer with userId
+        const buf72 = Buffer.alloc(72, 0);
+        buf72.writeUInt16LE(safeUid, 0);
+        buf72.write(String(userId).slice(0, 24), 48, 'ascii');
+        await zk.zklibTcp.executeCmd(COMMANDS.CMD_DELETE_USER, buf72);
+      }
+
+      // 2. Delete user biometric templates if any (CMD_DELETE_USERTEMP: 19)
+      try {
+        const tempBuf = Buffer.alloc(3);
+        tempBuf.writeUInt16LE(safeUid, 0);
+        tempBuf.writeUInt8(0xFF, 2); // all fingers / face templates
+        await zk.zklibTcp.executeCmd(COMMANDS.CMD_DELETE_USERTEMP, tempBuf);
+      } catch (tErr) {}
+
+      await zk.zklibTcp.executeCmd(COMMANDS.CMD_REFRESHDATA, '');
+      await zk.disconnect();
+
+      return { success: true, userId, uid: safeUid };
+    } catch (err) {
+      try { await zk.disconnect(); } catch (e) {}
+      throw err;
+    }
+  }
+
+  /**
    * Uploads user photo / face template over TCP port 4370.
    */
   async uploadUserPhoto(userId, photoBuffer) {

@@ -3504,6 +3504,18 @@ body {
   border-top: 1px solid #f1f5f9;
 }
 
+.btn-delete-emp {
+  color: #ef4444 !important;
+  border-color: #fca5a5 !important;
+  transition: all 0.15s ease;
+}
+
+.btn-delete-emp:hover {
+  background: #fef2f2 !important;
+  border-color: #ef4444 !important;
+  color: #b91c1c !important;
+}
+
 /* Numbered Pagination Buttons */
 .pagination-pages {
   display: inline-flex;
