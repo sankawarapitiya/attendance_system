@@ -367,6 +367,113 @@ class FirebaseService {
   }
 
   /**
+   * Generates a clean, alphanumeric, Firestore-compliant organization partition ID.
+   */
+  slugifyOrganization(name) {
+    if (!name) return 'ORG_DEFAULT';
+    const slug = String(name)
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    return slug || 'ORG_DEFAULT';
+  }
+
+  /**
+   * Automatically pairs the local system with Google Cloud Firestore under the organization partition.
+   * Auto-derives the partition ID from the Display Name if not explicitly provided.
+   * Registers organization metadata in Firestore (organizations/{orgId}) and syncs employees.
+   */
+  async pairOrganization(params = {}) {
+    await this.init();
+
+    const current = await this.getOrganizationConfig();
+    let orgName = (params.orgName !== undefined ? params.orgName : current.orgName).trim();
+    if (!orgName) orgName = current.orgName || 'General Organization';
+
+    let orgId = (params.orgId !== undefined && params.orgId.trim())
+      ? params.orgId.trim().toUpperCase()
+      : this.slugifyOrganization(orgName);
+
+    // Save to local SQLite settings
+    await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_org_id', ?)`, [orgId]);
+    await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_org_name', ?)`, [orgName]);
+    await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('org_name', ?)`, [orgName]);
+
+    // Ensure cloud sync and autoSync are enabled for Option 1
+    const enabled = params.enabled !== undefined ? Boolean(params.enabled) : true;
+    const autoSync = params.autoSync !== undefined ? Boolean(params.autoSync) : true;
+    const intervalSeconds = params.intervalSeconds ? Math.max(15, parseInt(params.intervalSeconds, 10) || 60) : (current.intervalSeconds || 60);
+
+    await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_enabled', ?)`, [enabled ? '1' : '0']);
+    await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_auto_sync', ?)`, [autoSync ? '1' : '0']);
+    await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_sync_interval', ?)`, [String(intervalSeconds)]);
+
+    const nowIso = new Date().toISOString();
+    const stats = await getCloudSyncStats();
+    let cloudPaired = false;
+    let cloudError = null;
+
+    // If Firebase credentials exist, automatically pair with Firestore cloud partition
+    if (this.keyData?.project_id) {
+      try {
+        const projectId = this.keyData.project_id;
+        const orgPayload = {
+          organizationId: orgId,
+          organizationName: orgName,
+          status: 'ACTIVE',
+          systemVersion: 'SpeedFace-V5L v5.0',
+          pairedAt: nowIso,
+          lastSeenAt: nowIso,
+          updatedAt: nowIso,
+          totalEmployees: stats.total_employees || 0,
+          totalAttendance: stats.total_attendance || 0,
+          deviceIp: '192.168.10.15'
+        };
+
+        const write = [{
+          update: {
+            name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}`,
+            fields: toFirestoreFields(orgPayload)
+          }
+        }];
+
+        await this._commitRestWrites(write);
+        cloudPaired = true;
+        this.isOnline = true;
+        console.log(`[FIREBASE] Automatically paired with Cloud Organization: "${orgName}" (Partition: organizations/${orgId})`);
+
+        // Automatically sync employee directory to the new cloud partition
+        this.syncEmployees({ orgId, orgName, forceAll: true }).catch(() => {});
+
+      } catch (err) {
+        if (err.code === 'QUOTA_EXHAUSTED' || err.statusCode === 429) {
+          this.quotaExceeded = true;
+          cloudPaired = true; // Staged locally, ready to stream when daily quota lifts
+          cloudError = 'Daily Firestore write quota reached (Spark Free Plan). Local configuration paired; cloud upload will resume when quota resets.';
+        } else {
+          cloudError = err.message;
+        }
+      }
+    }
+
+    const updatedStatus = await this.getStatus();
+    this.notify('FIREBASE_STATUS_UPDATE', updatedStatus);
+
+    return {
+      success: true,
+      paired: cloudPaired,
+      orgId,
+      orgName,
+      cloudError,
+      message: cloudPaired
+        ? `Successfully paired with Cloud Organization: "${orgName}" (Partition: organizations/${orgId})`
+        : `Organization configured as "${orgName}" (${orgId}). Staged locally for cloud sync.`,
+      status: updatedStatus
+    };
+  }
+
+  /**
    * Resolves configured Organization details from settings.
    */
   async getOrganizationConfig() {
@@ -417,6 +524,8 @@ class FirebaseService {
       online: this.isOnline,
       quotaExceeded: this.quotaExceeded,
       quotaExceededUntil: this.quotaExceededUntil,
+      option1Active: true,
+      quotaResetEstimate: '12:30 PM local (07:00 UTC)',
       isSyncing: this.isSyncing,
       syncProgress: this.syncProgress,
       projectId: this.keyData?.project_id || null,

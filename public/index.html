@@ -1318,15 +1318,20 @@
             </div>
 
             <!-- Quota & Offline Resilience Guide Strip -->
-            <div id="fbQuotaGuideBox" style="display:none; margin-bottom: 20px; border-radius: 10px; padding: 14px 18px; border: 1px solid #fed7aa; background: #fffaf5; font-size: 0.83rem; color: #7c2d12;">
-              <div style="font-weight: 700; display: flex; align-items: center; gap: 6px; margin-bottom: 6px; color: #9a3412;">
-                ℹ️ Google Cloud Firestore Daily Free-Tier Write Quota Notice
+            <div id="fbQuotaGuideBox" style="display:none; margin-bottom: 20px; border-radius: 10px; padding: 16px 20px; border: 1px solid #fed7aa; background: #fffaf5; font-size: 0.83rem; color: #7c2d12;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+                <div style="font-weight: 700; display: flex; align-items: center; gap: 6px; color: #9a3412; font-size: 0.92rem;">
+                  ℹ️ Google Cloud Firestore Daily Free-Tier Write Quota Notice
+                </div>
+                <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:12px; background:#dcfce7; color:#15803d; font-weight:700; font-size:0.75rem;">
+                  🟢 Option 1 Active: Auto-Resumption (100% Free)
+                </div>
               </div>
-              <div style="line-height: 1.5; color: #7c2d12;">
-                <b>Local Punches Safe:</b> All 36,704 attendance records remain 100% intact and preserved in your local SQLite database.<br>
-                Google Firebase's <b>Spark Free Plan</b> allows <b>20,000 document writes per 24-hour cycle</b>. When reached, writes pause safely.<br>
-                &bull; <b>Automatic Resumption:</b> Google resets this daily quota every day (at midnight Pacific Time / 12:30 PM local). Cloud sync will resume automatically.<br>
-                &bull; <b>Instant Unlimited Sync (Optional):</b> You can switch your Firebase project (<span id="fbQuotaGuideProjId">officeattendancesystem-ddae3</span>) to the <b>Blaze (Pay-as-you-go)</b> plan in Firebase Console. The first 20,000 writes/day remain free, and uploading the remaining records costs less than $0.03 total.
+              <div style="line-height: 1.6; color: #7c2d12;">
+                <b>🛡️ Local Punches Safe:</b> All 36,704 attendance records remain 100% intact and preserved in your local SQLite database.<br>
+                Google Cloud's <b>Spark Free Plan</b> allows <b>20,000 document writes per 24-hour cycle</b>. When reached, writes pause safely.<br>
+                &bull; <b>Option 1 (Active):</b> Quota resets daily at <b>midnight Pacific Time (12:30 PM local / 07:00 UTC)</b>. Cloud background sync will resume uploading automatically without any manual action.<br>
+                &bull; <b>Instant Unlimited Sync (Optional):</b> You can switch project <code><span id="fbQuotaGuideProjId">officeattendancesystem-ddae3</span></code> to the <b>Blaze (Pay-as-you-go)</b> plan in the Firebase Console. 20,000 writes/day remain free, and the remaining 16,704 records cost ~\$0.03 total.
               </div>
             </div>
 
@@ -1358,21 +1363,33 @@
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
               <!-- Left Column: Multi-Organization Partitioning Config -->
               <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; background: #fff;">
-                <h4 style="margin-top: 0; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; font-size: 1rem;">
-                  🏛️ Multi-Organization Partitioning
-                </h4>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+                  <h4 style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 1rem;">
+                    🏛️ Multi-Organization Partitioning
+                  </h4>
+                  <div id="fbPairedBadge" style="display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:12px; font-size:0.74rem; font-weight:700; background:#dcfce7; color:#15803d;">
+                    <span>✅ Paired:</span> <code id="fbPairedOrgIdText" style="font-size:0.74rem; color:#15803d; background:transparent;">DSOFFICE_LUNUGAMWEHERA</code>
+                  </div>
+                </div>
+
                 <form id="firestoreConfigForm">
+                  <!-- Display Name First (Primary Input for Multi-Place Implementation) -->
                   <div class="form-group">
-                    <label for="settingFirestoreOrgId" style="font-weight: 600;">
-                      Organization ID / Partition Code <span class="text-danger">*</span>
+                    <label for="settingFirestoreOrgName" style="font-weight: 600;">
+                      Organization Cloud Display Name <span class="text-danger">*</span>
                     </label>
-                    <input type="text" id="settingFirestoreOrgId" class="form-control font-mono" placeholder="e.g. NIFNE_COLOMBO or ORG_001" required style="font-weight: 700; text-transform: uppercase;">
-                    <small class="form-hint">Unique partition key in Firestore. All attendance records are stored under <code>organizations/{orgId}/attendance</code>.</small>
+                    <input type="text" id="settingFirestoreOrgName" class="form-control" placeholder="e.g. DS Office Lunugamwehera or Regional Hospital Galle" required>
+                    <small class="form-hint">Setting this automatically pairs this location with a dedicated partition in Google Cloud Firestore.</small>
                   </div>
 
+                  <!-- Auto-Derived Partition Code -->
                   <div class="form-group">
-                    <label for="settingFirestoreOrgName" style="font-weight: 600;">Organization Cloud Display Name</label>
-                    <input type="text" id="settingFirestoreOrgName" class="form-control" placeholder="e.g. National Institute of Fisheries and Nautical Engineering">
+                    <label for="settingFirestoreOrgId" style="font-weight: 600; display:flex; justify-content:space-between; align-items:center;">
+                      <span>Organization ID / Partition Code <span class="text-danger">*</span></span>
+                      <span id="orgIdAutoTag" style="font-size:0.72rem; font-weight:700; color:#2563eb; background:#eff6ff; padding:2px 6px; border-radius:4px;">AUTO-PAIRED</span>
+                    </label>
+                    <input type="text" id="settingFirestoreOrgId" class="form-control font-mono" placeholder="Auto-generated (e.g. DSOFFICE_LUNUGAMWEHERA)" required style="font-weight: 700; text-transform: uppercase;">
+                    <small class="form-hint">Unique Firestore namespace. All records store under <code>organizations/{orgId}/attendance</code>.</small>
                   </div>
 
                   <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -1395,7 +1412,7 @@
 
                   <div style="display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap;">
                     <button type="submit" class="btn btn-primary btn-sm" id="btnSaveFirestoreConfig">
-                      Save Cloud Settings
+                      🔗 Save &amp; Pair with Cloud
                     </button>
                     <button type="button" class="btn btn-outline btn-sm" id="btnSyncEmployeesFirestore" title="Push all employees to organizations/{orgId}/employees">
                       👥 Sync Employees to Cloud

@@ -7125,18 +7125,64 @@ function fallbackCopyText(text, successMsg) {
 // ============================================================================
 
 function initFirebaseSync() {
-  // 1. Config Form Submit
+  const orgNameInput = document.getElementById('settingFirestoreOrgName');
+  const orgIdInput = document.getElementById('settingFirestoreOrgId');
+  const autoTag = document.getElementById('orgIdAutoTag');
+
+  function slugifyOrg(name) {
+    if (!name) return '';
+    return name
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  }
+
+  let isManualOrgId = false;
+  orgIdInput?.addEventListener('input', () => {
+    isManualOrgId = Boolean(orgIdInput.value.trim());
+    if (autoTag) {
+      autoTag.textContent = isManualOrgId ? 'CUSTOM CODE' : 'AUTO-PAIRED';
+      autoTag.style.background = isManualOrgId ? '#fef3c7' : '#eff6ff';
+      autoTag.style.color = isManualOrgId ? '#92400e' : '#2563eb';
+    }
+  });
+
+  // When user types or changes the Organization Display Name, auto-generate partition code
+  orgNameInput?.addEventListener('input', () => {
+    if (!isManualOrgId || !orgIdInput.value) {
+      orgIdInput.value = slugifyOrg(orgNameInput.value);
+      if (autoTag) {
+        autoTag.textContent = 'AUTO-PAIRED';
+        autoTag.style.background = '#eff6ff';
+        autoTag.style.color = '#2563eb';
+      }
+    }
+  });
+
+  // 1. Config Form Submit - Auto-Pair with Cloud
   const configForm = document.getElementById('firestoreConfigForm');
+  const btnSave = document.getElementById('btnSaveFirestoreConfig');
   configForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const orgId = document.getElementById('settingFirestoreOrgId')?.value || '';
-    const orgName = document.getElementById('settingFirestoreOrgName')?.value || '';
+    const orgName = orgNameInput?.value.trim() || '';
+    let orgId = orgIdInput?.value.trim().toUpperCase() || '';
+    if (!orgId && orgName) {
+      orgId = slugifyOrg(orgName);
+      if (orgIdInput) orgIdInput.value = orgId;
+    }
     const intervalSeconds = document.getElementById('settingFirestoreInterval')?.value || '60';
     const autoSync = document.getElementById('settingFirestoreAutoSync')?.checked;
     const enabled = document.getElementById('settingFirestoreEnabled')?.checked;
 
+    const origSaveText = btnSave ? btnSave.innerHTML : '';
+    if (btnSave) {
+      btnSave.disabled = true;
+      btnSave.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Pairing with Cloud...`;
+    }
+
     try {
-      showToast('Saving Firebase configuration...', 'info');
+      showToast(`Pairing location "${orgName}" with Cloud Partition "organizations/${orgId}"...`, 'info', 3000);
       const res = await fetch('/api/firebase/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -7144,13 +7190,18 @@ function initFirebaseSync() {
       });
       const data = await res.json();
       if (data.success) {
-        showToast('Firebase cloud sync settings saved!', 'success');
+        showToast(`🏛️ Successfully paired with Cloud Organization: "${data.orgName}" (Partition: organizations/${data.orgId})!`, 'success', 6000);
         updateFirebaseStatusUI(data.status);
       } else {
-        showToast(data.error || 'Failed to save Firebase config', 'error');
+        showToast(data.error || 'Failed to pair with cloud', 'error');
       }
     } catch (err) {
       showToast(err.message, 'error');
+    } finally {
+      if (btnSave) {
+        btnSave.disabled = false;
+        btnSave.innerHTML = origSaveText;
+      }
     }
   });
 
@@ -7587,6 +7638,33 @@ function updateFirebaseStatusUI(status) {
     } else {
       quotaGuide.style.display = 'none';
     }
+  }
+
+  // Update Paired Partition Badge
+  const pairedText = document.getElementById('fbPairedOrgIdText');
+  if (pairedText && status.orgId) pairedText.textContent = status.orgId;
+
+  // Populate form fields if not currently focused by user
+  const orgNameEl = document.getElementById('settingFirestoreOrgName');
+  const orgIdEl = document.getElementById('settingFirestoreOrgId');
+  const autoSyncEl = document.getElementById('settingFirestoreAutoSync');
+  const enabledEl = document.getElementById('settingFirestoreEnabled');
+  const intervalEl = document.getElementById('settingFirestoreInterval');
+
+  if (orgNameEl && document.activeElement !== orgNameEl && status.orgName) {
+    orgNameEl.value = status.orgName;
+  }
+  if (orgIdEl && document.activeElement !== orgIdEl && status.orgId) {
+    orgIdEl.value = status.orgId;
+  }
+  if (autoSyncEl && status.autoSync !== undefined) {
+    autoSyncEl.checked = Boolean(status.autoSync);
+  }
+  if (enabledEl && status.enabled !== undefined) {
+    enabledEl.checked = Boolean(status.enabled);
+  }
+  if (intervalEl && status.intervalSeconds !== undefined && document.activeElement !== intervalEl) {
+    intervalEl.value = status.intervalSeconds;
   }
 
   // Hook header pill click to navigate to Firebase section

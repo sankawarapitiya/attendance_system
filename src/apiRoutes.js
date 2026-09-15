@@ -2550,35 +2550,21 @@ router.post('/firebase/upload-key', async (req, res) => {
   }
 });
 
-// 4. Update Organization & Cloud Sync Config
+// 4. Update Organization & Automatically Pair with Cloud
 router.post('/firebase/config', async (req, res) => {
   try {
-    const { orgId, orgName, enabled, autoSync, intervalSeconds } = req.body;
+    const result = await firebaseService.pairOrganization(req.body);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
-    if (orgId !== undefined) {
-      const cleanOrgId = String(orgId).trim().toUpperCase();
-      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_org_id', ?)`, [cleanOrgId]);
-    }
-    if (orgName !== undefined) {
-      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_org_name', ?)`, [String(orgName).trim()]);
-    }
-    if (enabled !== undefined) {
-      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_enabled', ?)`, [enabled ? '1' : '0']);
-    }
-    if (autoSync !== undefined) {
-      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_auto_sync', ?)`, [autoSync ? '1' : '0']);
-    }
-    if (intervalSeconds !== undefined) {
-      const sec = Math.max(15, parseInt(intervalSeconds, 10) || 60);
-      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_sync_interval', ?)`, [String(sec)]);
-    }
-
-    const updatedStatus = await firebaseService.getStatus();
-    res.json({
-      success: true,
-      message: 'Cloud sync configuration updated successfully!',
-      status: updatedStatus
-    });
+// 4b. Explicit Pair Organization Endpoint
+router.post('/firebase/pair-organization', async (req, res) => {
+  try {
+    const result = await firebaseService.pairOrganization(req.body);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
