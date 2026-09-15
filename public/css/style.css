@@ -44,6 +44,10 @@ body {
 .app-layout {
   display: flex;
   min-height: 100vh;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  position: relative;
 }
 
 /* Sidebar */
@@ -57,6 +61,16 @@ body {
   position: sticky;
   top: 0;
   height: 100vh;
+  z-index: 100;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
+.mobile-menu-btn {
+  display: none;
 }
 
 .brand {
@@ -222,10 +236,14 @@ body {
 
 /* Main Content */
 .main-content {
-  flex-grow: 1;
-  padding: 28px 36px;
+  flex: 1 1 0%;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  padding: 24px 32px;
   overflow-y: auto;
-  max-width: calc(100vw - 260px);
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 .topbar {
@@ -233,6 +251,15 @@ body {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 24px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
 .page-title h1 {
@@ -610,6 +637,30 @@ body {
 /* Data Tables */
 .table-responsive {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f8fafc;
+}
+
+.table-responsive::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+
+.table-responsive::-webkit-scrollbar-track {
+  background: #f8fafc;
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .data-table {
@@ -3319,6 +3370,52 @@ body {
   transform: rotate(90deg);
 }
 
+/* Sticky Columns for Viewing Area Horizontal Scroll */
+#employeesTable th.col-sticky-expand,
+#employeesTable td.col-sticky-expand {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  width: 44px;
+  min-width: 44px;
+  max-width: 44px;
+  background: var(--bg-card, #ffffff);
+  text-align: center;
+}
+
+#employeesTable thead th.col-sticky-expand {
+  background: #f8fafc;
+  z-index: 15;
+}
+
+#employeesTable tbody tr:hover td.col-sticky-expand {
+  background: #f1f5f9;
+}
+
+#employeesTable th.col-sticky-name,
+#employeesTable td.col-sticky-name {
+  position: sticky;
+  left: var(--sticky-name-left, 44px);
+  z-index: 5;
+  min-width: 190px;
+  background: var(--bg-card, #ffffff);
+  box-shadow: 3px 0 6px -2px rgba(0, 0, 0, 0.08);
+}
+
+#employeesTable thead th.col-sticky-name {
+  background: #f8fafc;
+  z-index: 15;
+}
+
+#employeesTable tbody tr:hover td.col-sticky-name {
+  background: #f1f5f9;
+}
+
+#employeesTable th,
+#employeesTable td {
+  white-space: nowrap;
+}
+
 /* Expandable Full Dossier Row */
 .emp-dossier-row {
   background: #f8fafc !important;
@@ -3331,12 +3428,17 @@ body {
 
 .emp-dossier-wrapper {
   padding: 16px 20px;
+  position: sticky;
+  left: 0;
+  width: 100%;
+  max-width: calc(100vw - 300px);
+  box-sizing: border-box;
   animation: fadeIn 0.15s ease-in;
 }
 
 .emp-dossier-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -3346,6 +3448,7 @@ body {
   border-radius: 8px;
   padding: 14px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  min-width: 0;
 }
 
 .emp-dossier-card h4 {
@@ -3373,13 +3476,15 @@ body {
 .emp-dossier-item {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .emp-dossier-label {
   color: #64748b;
   font-weight: 500;
+  font-size: 0.78rem;
 }
 
 .emp-dossier-val {
@@ -3387,6 +3492,7 @@ body {
   color: #0f172a;
   text-align: right;
   word-break: break-word;
+  max-width: 100%;
 }
 
 .emp-dossier-actions {
@@ -3439,4 +3545,309 @@ body {
   padding: 0 4px;
   color: #94a3b8;
   font-size: 0.85rem;
+}
+
+/* ============================================================
+   RESPONSIVE LAYOUT & VIEWING AREA BREAKPOINTS
+   ============================================================ */
+
+/* 1. Large Monitors / Laptops (<= 1366px) */
+@media (max-width: 1366px) {
+  .emp-dossier-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* 2. Standard Laptops & Tablets Landscape (<= 1200px) */
+@media (max-width: 1200px) {
+  .main-content {
+    padding: 20px 24px;
+  }
+}
+
+/* 3. Tablets & Small Screens (<= 992px) - Off-Canvas Sidebar Drawer */
+@media (max-width: 992px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100%;
+    z-index: 1200;
+    transform: translateX(-100%);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    backdrop-filter: blur(2px);
+    z-index: 1150;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+
+  .sidebar-backdrop.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobile-menu-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-main);
+    cursor: pointer;
+  }
+
+  .mobile-menu-btn:hover {
+    background: #f1f5f9;
+  }
+
+  .main-content {
+    padding: 16px;
+    max-width: 100vw;
+    width: 100%;
+  }
+
+  .topbar {
+    margin-bottom: 16px;
+  }
+
+  .page-title h1 {
+    font-size: 1.35rem;
+  }
+
+  .emp-dossier-wrapper {
+    max-width: calc(100vw - 32px);
+    padding: 14px 12px;
+  }
+
+  #empColumnsMenu,
+  #reportColumnsMenu {
+    max-width: calc(100vw - 32px);
+    right: 0;
+  }
+}
+
+/* 4. Small Tablets & Phones (<= 768px) */
+@media (max-width: 768px) {
+  .main-content {
+    padding: 12px 10px;
+  }
+
+  .page-title h1 {
+    font-size: 1.2rem;
+  }
+
+  .page-title .subtitle {
+    font-size: 0.8rem;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .card-header {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .card-header-actions {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .quick-dates {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+  }
+
+  /* Employee Toolbar Mobile Layout */
+  .emp-toolbar {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .emp-search-row {
+    gap: 8px;
+  }
+
+  .emp-search-input-wrap {
+    min-width: 100%;
+    order: 1;
+  }
+
+  #btnToggleEmpAdvancedFilter {
+    order: 2;
+    flex: 1;
+    justify-content: center;
+  }
+
+  .emp-search-row > div:nth-child(3) {
+    order: 3;
+  }
+
+  #empResultSummary {
+    order: 4;
+    width: 100%;
+    margin-left: 0;
+    text-align: left;
+    font-size: 0.8rem;
+    padding-top: 2px;
+  }
+
+  .emp-filter-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .emp-filter-actions-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .emp-filter-actions-bar div {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .emp-filter-actions-bar button {
+    flex: 1;
+    justify-content: center;
+  }
+
+  /* Dossier 1-Column Stacking */
+  .emp-dossier-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .emp-dossier-wrapper {
+    max-width: 100vw;
+    padding: 10px 8px;
+  }
+
+  /* Pagination Stacking */
+  .pagination-bar {
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+    padding: 10px 12px;
+  }
+
+  .pagination-controls {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  /* Modals on Mobile */
+  .modal-content {
+    width: calc(100vw - 20px);
+    max-width: calc(100vw - 20px);
+    max-height: calc(100vh - 20px);
+    margin: 10px;
+    border-radius: var(--radius-md);
+  }
+
+  .modal-header {
+    padding: 12px 14px;
+  }
+
+  .modal-body {
+    padding: 14px;
+  }
+
+  .modal-footer {
+    padding: 12px 14px;
+    flex-wrap: wrap;
+  }
+
+  .modal-footer button {
+    flex: 1 1 auto;
+  }
+
+  /* Form Rows Single Column */
+  .form-row {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  /* Form Controls iOS Auto-Zoom Prevention */
+  input[type="text"],
+  input[type="date"],
+  input[type="month"],
+  input[type="number"],
+  input[type="email"],
+  select {
+    font-size: 14px !important;
+  }
+}
+
+/* 5. Extra-Small Mobile Screens (<= 480px) */
+@media (max-width: 480px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .topbar-actions .sync-btn-text {
+    display: none;
+  }
+
+  .emp-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .emp-dossier-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .emp-dossier-actions button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  #btnEmpFirstPage,
+  #btnEmpLastPage {
+    display: none;
+  }
+
+  .pagination-num-btn {
+    padding: 3px 6px;
+    min-width: 28px;
+    font-size: 0.75rem;
+  }
 }

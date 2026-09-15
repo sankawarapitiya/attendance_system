@@ -163,6 +163,9 @@
       </div>
     </aside>
 
+    <!-- Mobile Navigation Drawer Backdrop -->
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
     <!-- Main Content Area -->
     <main class="main-content">
       <!-- Production Connection Alert Banner -->
@@ -178,9 +181,14 @@
 
       <!-- Top Header -->
       <header class="topbar">
-        <div class="page-title">
-          <h1 id="headerTitle">Attendance Dashboard</h1>
-          <p class="subtitle" id="headerSubtitle">Real-time attendance monitoring for SpeedFace-V5L</p>
+        <div class="topbar-left">
+          <button class="btn-icon mobile-menu-btn" id="btnToggleMobileSidebar" aria-label="Toggle Navigation Menu" title="Open Navigation Menu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+          <div class="page-title">
+            <h1 id="headerTitle">Attendance Dashboard</h1>
+            <p class="subtitle" id="headerSubtitle">Real-time attendance monitoring for SpeedFace-V5L</p>
+          </div>
         </div>
         <div class="topbar-actions">
           <span class="live-pill">
@@ -188,7 +196,7 @@
           </span>
           <button class="btn btn-primary" id="btnSyncHeader">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-            Sync Machine
+            <span class="sync-btn-text">Sync Machine</span>
           </button>
         </div>
       </header>

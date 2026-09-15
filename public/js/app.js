@@ -286,6 +286,22 @@ function initNavigation() {
     });
   });
 
+  // Mobile Navigation Drawer Toggle & Backdrop
+  const mobileToggle = document.getElementById('btnToggleMobileSidebar');
+  const sidebar = document.querySelector('.sidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+
+  mobileToggle?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    sidebar?.classList.toggle('open');
+    backdrop?.classList.toggle('active');
+  });
+
+  backdrop?.addEventListener('click', () => {
+    sidebar?.classList.remove('open');
+    backdrop?.classList.remove('active');
+  });
+
   document.getElementById('btnViewAllLogs')?.addEventListener('click', () => {
     switchTab('tab-records');
   });
@@ -296,6 +312,10 @@ function initNavigation() {
 
 function switchTab(tabId) {
   state.currentTab = tabId;
+
+  // Auto-close mobile sidebar drawer upon selecting a tab
+  document.querySelector('.sidebar')?.classList.remove('open');
+  document.getElementById('sidebarBackdrop')?.classList.remove('active');
 
   document.querySelectorAll('.nav-item').forEach((b) => b.classList.remove('active'));
   document.querySelector(`[data-tab="${tabId}"]`)?.classList.add('active');
@@ -4046,15 +4066,24 @@ function renderEmployeesTable() {
   const activeCols = EMPLOYEE_COLUMNS_DEF.filter(c => cols[c.key] !== false);
   const visibleColCount = activeCols.length;
 
+  // Set sticky offset property for table
+  const hasExpand = activeCols.some(c => c.key === 'expand');
+  const empTable = document.getElementById('employeesTable');
+  if (empTable) {
+    empTable.style.setProperty('--sticky-name-left', hasExpand ? '44px' : '0px');
+  }
+
   // Render Table Headers
   if (headRow) {
     headRow.innerHTML = activeCols.map(c => {
       let align = 'left';
-      if (c.key === 'expand') align = 'center';
+      let stickyClass = '';
+      if (c.key === 'expand') { align = 'center'; stickyClass = 'col-sticky-expand'; }
+      if (c.key === 'name') { stickyClass = 'col-sticky-name'; }
       if (c.key === 'actions') align = 'center';
       if (c.key === 'gender') align = 'center';
       if (c.key === 'status') align = 'center';
-      return `<th data-col="${c.key}" style="text-align:${align};">${escapeHtml(c.label)}</th>`;
+      return `<th data-col="${c.key}" class="${stickyClass}" style="text-align:${align};">${escapeHtml(c.label)}</th>`;
     }).join('');
   }
 
@@ -4128,21 +4157,21 @@ function renderEmployeesTable() {
       switch (c.key) {
         case 'expand':
           return `
-            <td style="text-align: center; width: 44px;">
+            <td class="col-sticky-expand" data-col="expand" style="text-align: center; width: 44px;">
               <button type="button" class="emp-expand-btn ${isExpanded ? 'expanded' : ''}" data-userid="${emp.user_id}" title="${isExpanded ? 'Collapse Dossier' : 'Expand Full Dossier'}">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
               </button>
             </td>
           `;
         case 'user_id':
-          return `<td class="font-mono"><strong>${emp.user_id}</strong></td>`;
+          return `<td data-col="user_id" class="font-mono"><strong>${emp.user_id}</strong></td>`;
         case 'service_id':
-          return `<td class="font-mono" style="font-weight:600; color:#2563eb;">${escapeHtml(emp.employee_service_id || '-')}</td>`;
+          return `<td data-col="service_id" class="font-mono" style="font-weight:600; color:#2563eb;">${escapeHtml(emp.employee_service_id || '-')}</td>`;
         case 'nic':
-          return `<td class="font-mono text-muted" style="font-size:0.85rem;">${escapeHtml(emp.nic || '-')}</td>`;
+          return `<td data-col="nic" class="font-mono text-muted" style="font-size:0.85rem;">${escapeHtml(emp.nic || '-')}</td>`;
         case 'name':
           return `
-            <td>
+            <td class="col-sticky-name" data-col="name">
               <div class="table-user-cell">
                 ${avatarHtml}
                 <div>
@@ -4153,43 +4182,43 @@ function renderEmployeesTable() {
             </td>
           `;
         case 'gender':
-          return `<td style="text-align: center;">${genderBadge}</td>`;
+          return `<td data-col="gender" style="text-align: center;">${genderBadge}</td>`;
         case 'department':
-          return `<td><span class="cell-primary">${escapeHtml(emp.department || 'General')}</span></td>`;
+          return `<td data-col="department"><span class="cell-primary">${escapeHtml(emp.department || 'General')}</span></td>`;
         case 'role':
-          return `<td><span class="cell-primary">${escapeHtml(emp.role || 'Staff')}</span></td>`;
+          return `<td data-col="role"><span class="cell-primary">${escapeHtml(emp.role || 'Staff')}</span></td>`;
         case 'employment_status':
-          return `<td>${statusBadge}</td>`;
+          return `<td data-col="employment_status">${statusBadge}</td>`;
         case 'appointment_date':
-          return `<td class="font-mono text-muted" style="font-size:0.85rem;">${escapeHtml(emp.appointment_date || '-')}</td>`;
+          return `<td data-col="appointment_date" class="font-mono text-muted" style="font-size:0.85rem;">${escapeHtml(emp.appointment_date || '-')}</td>`;
         case 'birthday':
           return `
-            <td>
+            <td data-col="birthday">
               <div class="font-mono" style="font-size:0.85rem;">${escapeHtml(emp.birthday || '-')}</div>
               ${age ? `<div class="cell-sub text-muted">${age} yrs</div>` : ''}
             </td>
           `;
         case 'phone':
           return `
-            <td class="font-mono">
+            <td data-col="phone" class="font-mono">
               ${emp.phone ? `<a href="tel:${escapeHtml(emp.phone)}" style="color:inherit; text-decoration:none;">${escapeHtml(emp.phone)}</a>` : '<span class="text-muted">-</span>'}
             </td>
           `;
         case 'email':
           return `
-            <td>
+            <td data-col="email">
               ${emp.email ? `<a href="mailto:${escapeHtml(emp.email)}" style="color:#2563eb; text-decoration:none;">${escapeHtml(emp.email)}</a>` : '<span class="text-muted">-</span>'}
             </td>
           `;
         case 'card_no':
           return `
-            <td class="font-mono">
+            <td data-col="card_no" class="font-mono">
               ${emp.card_no && String(emp.card_no).trim() !== '' && String(emp.card_no).trim() !== '0' ? `<span class="badge-tag">💳 ${escapeHtml(emp.card_no)}</span>` : '<span class="text-muted">-</span>'}
             </td>
           `;
         case 'shift':
           return `
-            <td>
+            <td data-col="shift">
               <span class="badge-shift-pill" title="${emp.shift_start || ''} - ${emp.shift_end || ''}">
                 <span class="badge-shift-dot" style="background: ${emp.shift_color || '#2563eb'};"></span>
                 ${escapeHtml(emp.shift_name || 'General Shift')}
@@ -4198,16 +4227,16 @@ function renderEmployeesTable() {
           `;
         case 'punches':
           return `
-            <td>
+            <td data-col="punches">
               <div class="cell-primary"><span class="badge-tag">${emp.total_punches || 0} punches</span></div>
               <div class="cell-sub text-muted" style="font-family:monospace; font-size:0.75rem;">${emp.last_seen ? emp.last_seen.slice(0, 16) : 'Never'}</div>
             </td>
           `;
         case 'status':
-          return `<td style="text-align: center;">${activeBadge}</td>`;
+          return `<td data-col="status" style="text-align: center;">${activeBadge}</td>`;
         case 'actions':
           return `
-            <td style="text-align: center;">
+            <td data-col="actions" style="text-align: center;">
               <div style="display: flex; gap: 6px; align-items: center; justify-content: center;">
                 <button type="button" class="btn btn-sm btn-outline btn-edit-emp" data-emp='${JSON.stringify(emp).replace(/'/g, "&apos;")}'>
                   Edit
