@@ -2599,7 +2599,19 @@ router.post('/firebase/sync-now', async (req, res) => {
 // 6. Sync Employee Directory
 router.post('/firebase/sync-employees', async (req, res) => {
   try {
-    const result = await firebaseService.syncEmployees();
+    const forceAll = req.body?.forceAll === true;
+    const result = await firebaseService.syncEmployees({ forceAll });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 7. Reset Cloud Sync Status (Allows re-uploading all records to configured Organization partition)
+router.post('/firebase/reset-sync', async (req, res) => {
+  try {
+    const scope = req.body?.scope || 'all';
+    const result = await firebaseService.resetCloudSync(scope);
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

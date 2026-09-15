@@ -5432,12 +5432,20 @@ function handleWebSocketMessage(msg) {
     loadLiveFeed();
     loadTodayPreview();
     if (state.currentTab === 'tab-records') loadRecords();
+  } else if (msg.type === 'CLOUD_SYNC_STATUS') {
+    if (typeof updateCloudSyncProgressUI === 'function') {
+      updateCloudSyncProgressUI(msg.data);
+    }
+    if (msg.data?.state === 'COMPLETED' && msg.data?.uploadedCount > 0) {
+      showToast(msg.data.message || `Uploaded ${msg.data.uploadedCount} punch record(s) to Firestore!`, 'success');
+      loadFirebaseStatus();
+    }
   } else if (msg.type === 'FIREBASE_SYNC_PROGRESS') {
     if (msg.data && msg.data.uploadedCount > 0) {
       showToast(`Uploaded ${msg.data.uploadedCount} punch record(s) to Firebase Firestore!`, 'success');
     }
     loadFirebaseStatus();
-  } else if (msg.type === 'FIREBASE_STATUS') {
+  } else if (msg.type === 'FIREBASE_STATUS' || msg.type === 'FIREBASE_STATUS_UPDATE') {
     loadFirebaseStatus();
   } else if (msg.type === 'DEVICE_STATUS') {
     const dev = msg.data;
@@ -7206,7 +7214,11 @@ function initFirebaseSync() {
     btnSyncEmp.disabled = true;
     btnSyncEmp.innerHTML = '👥 Uploading...';
     try {
-      const res = await fetch('/api/firebase/sync-employees', { method: 'POST' });
+      const res = await fetch('/api/firebase/sync-employees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ forceAll: true })
+      });
       const data = await res.json();
       if (data.success) {
         showToast(`Synced ${data.count || 0} employees to cloud directory!`, 'success');
@@ -7219,6 +7231,36 @@ function initFirebaseSync() {
     } finally {
       btnSyncEmp.disabled = false;
       btnSyncEmp.innerHTML = origHtml;
+    }
+  });
+
+  // 4b. Re-Queue All Records Button
+  const btnResetSync = document.getElementById('btnResetCloudSync');
+  btnResetSync?.addEventListener('click', async () => {
+    if (!confirm('This will mark all local attendance and employee records as pending upload so they can be re-uploaded to the active organization partition in Firestore. Continue?')) {
+      return;
+    }
+    const origHtml = btnResetSync.innerHTML;
+    btnResetSync.disabled = true;
+    btnResetSync.innerHTML = '🔄 Queuing...';
+    try {
+      const res = await fetch('/api/firebase/reset-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: 'all' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('All records marked as pending and queued for cloud upload!', 'success');
+      } else {
+        showToast(data.error || 'Failed to re-queue records', 'error');
+      }
+      await loadFirebaseStatus();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      btnResetSync.disabled = false;
+      btnResetSync.innerHTML = origHtml;
     }
   });
 
@@ -7332,6 +7374,141 @@ async function loadFirebaseStatus() {
   }
 }
 
+function updateCloudSyncProgressUI(prog) {
+  if (!prog) return;
+
+  const headerPill = document.getElementById('headerCloudSyncPill');
+  const headerDot = document.getElementById('headerCloudSyncDot');
+  const headerText = document.getElementById('headerCloudSyncText');
+
+  const banner = document.getElementById('fbLiveSyncBanner');
+  const bannerIcon = document.getElementById('fbLiveSyncIcon');
+  const bannerTitle = document.getElementById('fbLiveSyncTitle');
+  const bannerSubtitle = document.getElementById('fbLiveSyncSubtitle');
+  const bannerPercent = document.getElementById('fbLiveSyncPercentBadge');
+  const bannerState = document.getElementById('fbLiveSyncStatePill');
+  const progressWrap = document.getElementById('fbLiveProgressBarWrap');
+  const progressBar = document.getElementById('fbLiveProgressBar');
+  const progressDetails = document.getElementById('fbLiveProgressDetails');
+  const progressRatio = document.getElementById('fbLiveProgressRatio');
+  const badge = document.getElementById('fbStatusBadge');
+
+  if (prog.isSyncing) {
+    // Header Pill
+    if (headerPill) {
+      headerPill.style.background = '#eff6ff';
+      headerPill.style.borderColor = '#3b82f6';
+      headerPill.style.color = '#1d4ed8';
+    }
+    if (headerDot) {
+      headerDot.style.background = '#2563eb';
+      headerDot.style.animation = 'pulse 1.2s infinite';
+    }
+    if (headerText) {
+      headerText.innerHTML = `☁️ Syncing Now (${Number(prog.uploadedCount || 0).toLocaleString()} uploaded)`;
+    }
+
+    // Badge
+    if (badge) {
+      badge.innerHTML = `<span class="spin" style="width:10px;height:10px;border:2px solid #1e40af;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Syncing...`;
+      badge.style.background = '#eff6ff';
+      badge.style.color = '#1e40af';
+    }
+
+    // Banner
+    if (banner) {
+      banner.style.background = '#eff6ff';
+      banner.style.borderColor = '#93c5fd';
+    }
+    if (bannerIcon) {
+      bannerIcon.innerHTML = `<span class="spin" style="width:20px;height:20px;border:2.5px solid #2563eb;border-top-color:transparent;border-radius:50%;display:inline-block;"></span>`;
+      bannerIcon.style.background = '#dbeafe';
+    }
+    if (bannerTitle) {
+      bannerTitle.innerHTML = `Cloud Sync Engine Active <span style="font-size:0.75rem; font-weight:700; color:#2563eb; background:#dbeafe; padding:2px 8px; border-radius:12px;">UPLOADING</span>`;
+    }
+    if (bannerSubtitle) {
+      bannerSubtitle.textContent = prog.message || 'Actively uploading attendance punch batches to Firestore...';
+    }
+    if (bannerState) {
+      bannerState.textContent = 'SYNCING NOW';
+      bannerState.style.background = '#dbeafe';
+      bannerState.style.color = '#1d4ed8';
+    }
+    if (progressWrap) progressWrap.style.display = 'block';
+    const pct = prog.percent || 0;
+    if (progressBar) progressBar.style.width = `${pct}%`;
+    if (bannerPercent) {
+      bannerPercent.style.display = 'inline-block';
+      bannerPercent.textContent = `${pct}%`;
+    }
+    if (progressDetails) {
+      progressDetails.textContent = `Batch ${prog.currentBatch || 1} of ${prog.totalBatches || 1}`;
+    }
+    if (progressRatio) {
+      progressRatio.textContent = `${Number(prog.uploadedCount || 0).toLocaleString()} punches uploaded`;
+    }
+  } else if (prog.state === 'COMPLETED') {
+    if (headerPill) {
+      headerPill.style.background = '#f0fdf4';
+      headerPill.style.borderColor = '#86efac';
+      headerPill.style.color = '#166534';
+    }
+    if (headerDot) {
+      headerDot.style.background = '#16a34a';
+      headerDot.style.animation = 'none';
+    }
+    if (headerText) headerText.textContent = '☁️ Cloud: Synced';
+
+    if (banner) {
+      banner.style.background = '#f0fdf4';
+      banner.style.borderColor = '#bbf7d0';
+    }
+    if (bannerIcon) {
+      bannerIcon.innerHTML = '✅';
+      bannerIcon.style.background = '#dcfce7';
+    }
+    if (bannerTitle) bannerTitle.textContent = 'Cloud Synchronization: Complete';
+    if (bannerSubtitle) bannerSubtitle.textContent = prog.message || 'All local records successfully uploaded!';
+    if (bannerState) {
+      bannerState.textContent = 'IN SYNC';
+      bannerState.style.background = '#dcfce7';
+      bannerState.style.color = '#15803d';
+    }
+    if (progressWrap) progressWrap.style.display = 'none';
+    if (bannerPercent) bannerPercent.style.display = 'none';
+  } else if (prog.state === 'OFFLINE') {
+    if (headerPill) {
+      headerPill.style.background = '#fee2e2';
+      headerPill.style.borderColor = '#fca5a5';
+      headerPill.style.color = '#991b1b';
+    }
+    if (headerDot) {
+      headerDot.style.background = '#dc2626';
+      headerDot.style.animation = 'none';
+    }
+    if (headerText) headerText.textContent = '☁️ Cloud: Offline';
+
+    if (banner) {
+      banner.style.background = '#fff1f2';
+      banner.style.borderColor = '#fecdd3';
+    }
+    if (bannerIcon) {
+      bannerIcon.innerHTML = '⚠️';
+      bannerIcon.style.background = '#fee2e2';
+    }
+    if (bannerTitle) bannerTitle.textContent = 'Cloud Sync Paused (Offline Mode)';
+    if (bannerSubtitle) bannerSubtitle.textContent = prog.message || 'Network disconnected. Punches safely queued locally.';
+    if (bannerState) {
+      bannerState.textContent = 'OFFLINE';
+      bannerState.style.background = '#fee2e2';
+      bannerState.style.color = '#991b1b';
+    }
+    if (progressWrap) progressWrap.style.display = 'none';
+    if (bannerPercent) bannerPercent.style.display = 'none';
+  }
+}
+
 function updateFirebaseStatusUI(status) {
   if (!status) return;
 
@@ -7347,25 +7524,234 @@ function updateFirebaseStatusUI(status) {
   const pendingKpi = document.getElementById('fbPendingKpiCard');
   const pendingSubtext = document.getElementById('fbPendingSubtext');
 
-  // Badge Status
-  if (badge) {
-    if (!status.configured) {
+  // Header Pill Elements
+  const headerPill = document.getElementById('headerCloudSyncPill');
+  const headerDot = document.getElementById('headerCloudSyncDot');
+  const headerText = document.getElementById('headerCloudSyncText');
+
+  // Live Banner Elements
+  const banner = document.getElementById('fbLiveSyncBanner');
+  const bannerIcon = document.getElementById('fbLiveSyncIcon');
+  const bannerTitle = document.getElementById('fbLiveSyncTitle');
+  const bannerSubtitle = document.getElementById('fbLiveSyncSubtitle');
+  const bannerPercent = document.getElementById('fbLiveSyncPercentBadge');
+  const bannerState = document.getElementById('fbLiveSyncStatePill');
+  const progressWrap = document.getElementById('fbLiveProgressBarWrap');
+  const progressBar = document.getElementById('fbLiveProgressBar');
+  const progressDetails = document.getElementById('fbLiveProgressDetails');
+  const progressRatio = document.getElementById('fbLiveProgressRatio');
+
+  const stats = status.stats || {};
+  const pendingCount = Number(stats.pendingAttendance || 0);
+  const prog = status.syncProgress || {};
+  const isSyncing = Boolean(status.isSyncing || prog.isSyncing);
+
+  // Hook header pill click to navigate to Firebase section
+  if (headerPill && !headerPill.dataset.hasListener) {
+    headerPill.dataset.hasListener = 'true';
+    headerPill.addEventListener('click', () => {
+      if (typeof switchTab === 'function') switchTab('tab-device');
+      const el = document.getElementById('firebaseSyncCard');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  // Visual State Determination: SYNCING, NOT CONFIGURED, OFFLINE, QUEUED, or IN SYNC
+  if (isSyncing) {
+    // 1. SYNCING ACTIVE
+    if (headerPill) {
+      headerPill.style.background = '#eff6ff';
+      headerPill.style.borderColor = '#3b82f6';
+      headerPill.style.color = '#1d4ed8';
+    }
+    if (headerDot) {
+      headerDot.style.background = '#2563eb';
+      headerDot.style.animation = 'pulse 1.2s infinite';
+    }
+    if (headerText) headerText.innerHTML = `☁️ Syncing Now (${Number(prog.uploadedCount || 0).toLocaleString()} uploaded)`;
+
+    if (badge) {
+      badge.innerHTML = `<span class="spin" style="width:10px;height:10px;border:2px solid #1e40af;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Syncing Now...`;
+      badge.style.background = '#eff6ff';
+      badge.style.color = '#1e40af';
+    }
+
+    if (banner) {
+      banner.style.background = '#eff6ff';
+      banner.style.borderColor = '#93c5fd';
+    }
+    if (bannerIcon) {
+      bannerIcon.innerHTML = `<span class="spin" style="width:20px;height:20px;border:2.5px solid #2563eb;border-top-color:transparent;border-radius:50%;display:inline-block;"></span>`;
+      bannerIcon.style.background = '#dbeafe';
+    }
+    if (bannerTitle) {
+      bannerTitle.innerHTML = `Cloud Sync Engine Active <span style="font-size:0.75rem; font-weight:700; color:#2563eb; background:#dbeafe; padding:2px 8px; border-radius:12px;">UPLOADING</span>`;
+    }
+    if (bannerSubtitle) {
+      bannerSubtitle.textContent = prog.message || `Uploading pending punches to partition "${status.orgId}" in Firestore...`;
+    }
+    if (bannerState) {
+      bannerState.textContent = 'SYNCING NOW';
+      bannerState.style.background = '#dbeafe';
+      bannerState.style.color = '#1d4ed8';
+    }
+    if (progressWrap) progressWrap.style.display = 'block';
+    const pct = prog.percent || 0;
+    if (progressBar) progressBar.style.width = `${pct}%`;
+    if (bannerPercent) {
+      bannerPercent.style.display = 'inline-block';
+      bannerPercent.textContent = `${pct}%`;
+    }
+    if (progressDetails) progressDetails.textContent = `Target Partition: organizations/${status.orgId}/attendance`;
+    if (progressRatio) progressRatio.textContent = `${Number(prog.uploadedCount || 0).toLocaleString()} / ${Number(pendingCount).toLocaleString()} records`;
+
+  } else if (!status.configured) {
+    // 2. NO SERVICE ACCOUNT KEY
+    if (headerPill) {
+      headerPill.style.background = '#fef3c7';
+      headerPill.style.borderColor = '#fde68a';
+      headerPill.style.color = '#92400e';
+    }
+    if (headerDot) {
+      headerDot.style.background = '#d97706';
+      headerDot.style.animation = 'none';
+    }
+    if (headerText) headerText.textContent = 'Cloud: No Key';
+
+    if (badge) {
       badge.textContent = '🟡 No Key Installed';
       badge.style.background = '#fef3c7';
       badge.style.color = '#92400e';
-    } else if (status.isSyncing) {
-      badge.textContent = '🔄 Syncing to Cloud...';
-      badge.style.background = '#eff6ff';
-      badge.style.color = '#1e40af';
-    } else if (status.online) {
-      badge.textContent = '🟢 Connected to Cloud';
-      badge.style.background = '#dcfce7';
-      badge.style.color = '#15803d';
-    } else {
+    }
+
+    if (banner) {
+      banner.style.background = '#fffbeb';
+      banner.style.borderColor = '#fde68a';
+    }
+    if (bannerIcon) {
+      bannerIcon.innerHTML = '🔑';
+      bannerIcon.style.background = '#fef3c7';
+    }
+    if (bannerTitle) bannerTitle.textContent = 'Firebase Cloud Sync: Not Initialized';
+    if (bannerSubtitle) bannerSubtitle.textContent = 'Upload or paste your Firebase Service Account JSON key below to connect to Firestore.';
+    if (bannerState) {
+      bannerState.textContent = 'KEY REQUIRED';
+      bannerState.style.background = '#fef3c7';
+      bannerState.style.color = '#92400e';
+    }
+    if (progressWrap) progressWrap.style.display = 'none';
+    if (bannerPercent) bannerPercent.style.display = 'none';
+
+  } else if (!status.online) {
+    // 3. OFFLINE / DISCONNECTED
+    if (headerPill) {
+      headerPill.style.background = '#fee2e2';
+      headerPill.style.borderColor = '#fca5a5';
+      headerPill.style.color = '#991b1b';
+    }
+    if (headerDot) {
+      headerDot.style.background = '#dc2626';
+      headerDot.style.animation = 'none';
+    }
+    if (headerText) headerText.textContent = `Cloud: Offline (${pendingCount.toLocaleString()} queued)`;
+
+    if (badge) {
       badge.textContent = '🔴 Offline (Local Queue Active)';
       badge.style.background = '#fee2e2';
       badge.style.color = '#991b1b';
     }
+
+    if (banner) {
+      banner.style.background = '#fff1f2';
+      banner.style.borderColor = '#fecdd3';
+    }
+    if (bannerIcon) {
+      bannerIcon.innerHTML = '⚠️';
+      bannerIcon.style.background = '#fee2e2';
+    }
+    if (bannerTitle) bannerTitle.textContent = 'Offline-First Protection: Local Storage Active';
+    if (bannerSubtitle) bannerSubtitle.textContent = `Internet / Firestore disconnected (${status.lastError || 'Network unreachable'}). All ${pendingCount.toLocaleString()} records are safely stored locally in SQLite.`;
+    if (bannerState) {
+      bannerState.textContent = 'OFFLINE QUEUE';
+      bannerState.style.background = '#fee2e2';
+      bannerState.style.color = '#991b1b';
+    }
+    if (progressWrap) progressWrap.style.display = 'none';
+    if (bannerPercent) bannerPercent.style.display = 'none';
+
+  } else if (pendingCount > 0) {
+    // 4. ONLINE & PENDING
+    if (headerPill) {
+      headerPill.style.background = '#fffbeb';
+      headerPill.style.borderColor = '#fde68a';
+      headerPill.style.color = '#92400e';
+    }
+    if (headerDot) {
+      headerDot.style.background = '#f59e0b';
+      headerDot.style.animation = 'none';
+    }
+    if (headerText) headerText.textContent = `Cloud: ${pendingCount.toLocaleString()} Queued`;
+
+    if (badge) {
+      badge.textContent = `⏳ ${pendingCount.toLocaleString()} Pending Upload`;
+      badge.style.background = '#fef3c7';
+      badge.style.color = '#92400e';
+    }
+
+    if (banner) {
+      banner.style.background = '#fffbeb';
+      banner.style.borderColor = '#fde68a';
+    }
+    if (bannerIcon) {
+      bannerIcon.innerHTML = '⏳';
+      bannerIcon.style.background = '#fef3c7';
+    }
+    if (bannerTitle) bannerTitle.textContent = `Cloud Sync: ${pendingCount.toLocaleString()} Punches Waiting in Queue`;
+    if (bannerSubtitle) bannerSubtitle.textContent = `Configured for partition "${status.orgId}". Will sync automatically every ${status.intervalSeconds || 60}s or click "Upload Pending Data Now".`;
+    if (bannerState) {
+      bannerState.textContent = 'QUEUED';
+      bannerState.style.background = '#fef3c7';
+      bannerState.style.color = '#92400e';
+    }
+    if (progressWrap) progressWrap.style.display = 'none';
+    if (bannerPercent) bannerPercent.style.display = 'none';
+
+  } else {
+    // 5. FULLY IN SYNC
+    if (headerPill) {
+      headerPill.style.background = '#f0fdf4';
+      headerPill.style.borderColor = '#86efac';
+      headerPill.style.color = '#166534';
+    }
+    if (headerDot) {
+      headerDot.style.background = '#16a34a';
+      headerDot.style.animation = 'none';
+    }
+    if (headerText) headerText.textContent = 'Cloud: Synced & Active';
+
+    if (badge) {
+      badge.textContent = '🟢 Connected & Synced';
+      badge.style.background = '#dcfce7';
+      badge.style.color = '#15803d';
+    }
+
+    if (banner) {
+      banner.style.background = '#f0fdf4';
+      banner.style.borderColor = '#bbf7d0';
+    }
+    if (bannerIcon) {
+      bannerIcon.innerHTML = '✅';
+      bannerIcon.style.background = '#dcfce7';
+    }
+    if (bannerTitle) bannerTitle.textContent = 'Cloud Synchronization: Up to Date';
+    if (bannerSubtitle) bannerSubtitle.textContent = `All local punches are safely backed up in Firestore partition "organizations/${status.orgId}".`;
+    if (bannerState) {
+      bannerState.textContent = 'IN SYNC';
+      bannerState.style.background = '#dcfce7';
+      bannerState.style.color = '#15803d';
+    }
+    if (progressWrap) progressWrap.style.display = 'none';
+    if (bannerPercent) bannerPercent.style.display = 'none';
   }
 
   // Project Badge
@@ -7379,7 +7765,6 @@ function updateFirebaseStatusUI(status) {
   }
 
   // KPIs
-  const stats = status.stats || {};
   if (statTotal) statTotal.textContent = Number(stats.totalAttendance || 0).toLocaleString();
   if (statSynced) statSynced.textContent = Number(stats.syncedAttendance || 0).toLocaleString();
   if (statPending) statPending.textContent = Number(stats.pendingAttendance || 0).toLocaleString();

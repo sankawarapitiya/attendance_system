@@ -12,6 +12,7 @@ const { initDatabase, initBackupScheduler, closeDatabase, dbGet } = require('./s
 const { setupAdmsRoutes, setWebSocketBroadcast } = require('./src/admsServer');
 const { syncFromDevice, startAutoSync, stopAutoSync, setSyncWsBroadcast } = require('./src/syncService');
 const apiRoutes = require('./src/apiRoutes');
+const { firebaseService } = require('./src/firebaseService');
 
 const app = express();
 const server = http.createServer(app);
@@ -217,9 +218,10 @@ function broadcastToClients(messageObj) {
   });
 }
 
-// Hook broadcast into ADMS and Sync Service
+// Hook broadcast into ADMS, Sync Service, and Firebase Cloud Sync
 setWebSocketBroadcast(broadcastToClients);
 setSyncWsBroadcast(broadcastToClients);
+firebaseService.setWsBroadcast(broadcastToClients);
 
 wss.on('connection', (ws, req) => {
   ws.isAlive = true;

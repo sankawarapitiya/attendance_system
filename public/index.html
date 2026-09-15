@@ -191,6 +191,11 @@
           </div>
         </div>
         <div class="topbar-actions">
+          <!-- Real-Time Cloud Sync Status Pill -->
+          <div id="headerCloudSyncPill" title="Firebase Firestore Cloud Sync - Click to view" style="display:inline-flex; align-items:center; gap:7px; padding:6px 14px; border-radius:999px; font-size:0.82rem; font-weight:600; cursor:pointer; background:#f8fafc; color:#475569; border:1px solid #cbd5e1; transition: all 0.2s ease;">
+            <span id="headerCloudSyncDot" style="width:8px; height:8px; border-radius:50%; background:#94a3b8; display:inline-block;"></span>
+            <span id="headerCloudSyncText">Cloud: Standby</span>
+          </div>
           <span class="live-pill">
             <span class="live-dot"></span> LIVE SYNC
           </span>
@@ -1278,6 +1283,40 @@
             </div>
           </div>
           <div class="card-body">
+            <!-- Live Cloud Sync Status Banner with Real-time Progress Bar -->
+            <div id="fbLiveSyncBanner" style="margin-bottom: 20px; border-radius: 12px; padding: 16px 20px; border: 1px solid #e2e8f0; background: #f8fafc; transition: all 0.3s ease;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div id="fbLiveSyncIcon" style="width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; background: #e2e8f0; color: #475569; flex-shrink: 0;">
+                    ☁️
+                  </div>
+                  <div>
+                    <div id="fbLiveSyncTitle" style="font-weight: 700; font-size: 1rem; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                      Cloud Sync: Checking status...
+                    </div>
+                    <div id="fbLiveSyncSubtitle" style="font-size: 0.82rem; color: #64748b; margin-top: 2px;">
+                      Connecting to multi-organization cloud partition...
+                    </div>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span id="fbLiveSyncPercentBadge" class="badge" style="font-size: 0.85rem; padding: 5px 12px; font-weight: 700; background: #dbeafe; color: #1e40af; display: none;">0%</span>
+                  <span id="fbLiveSyncStatePill" class="badge" style="font-size: 0.82rem; padding: 5px 14px; font-weight: 700; background: #f1f5f9; color: #475569;">CHECKING</span>
+                </div>
+              </div>
+
+              <!-- Animated Progress Bar Container -->
+              <div id="fbLiveProgressBarWrap" style="margin-top: 14px; display: none;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: #64748b; font-weight: 600; margin-bottom: 6px;">
+                  <span id="fbLiveProgressDetails">Uploading attendance punches to Firestore...</span>
+                  <span id="fbLiveProgressRatio">0 / 0</span>
+                </div>
+                <div style="height: 10px; background: #e2e8f0; border-radius: 999px; overflow: hidden; position: relative;">
+                  <div id="fbLiveProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6, #2563eb); border-radius: 999px; transition: width 0.3s ease;"></div>
+                </div>
+              </div>
+            </div>
+
             <!-- Real-time Cloud Sync Stats KPI Strip -->
             <div class="fb-stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 22px;">
               <div class="kpi-card" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px;">
@@ -1345,8 +1384,11 @@
                     <button type="submit" class="btn btn-primary btn-sm" id="btnSaveFirestoreConfig">
                       Save Cloud Settings
                     </button>
-                    <button type="button" class="btn btn-outline btn-sm" id="btnSyncEmployeesFirestore" title="Push employee master list to organizations/{orgId}/employees">
+                    <button type="button" class="btn btn-outline btn-sm" id="btnSyncEmployeesFirestore" title="Push all employees to organizations/{orgId}/employees">
                       👥 Sync Employees to Cloud
+                    </button>
+                    <button type="button" class="btn btn-outline btn-sm" id="btnResetCloudSync" title="Queue all records to be uploaded to current organization partition">
+                      🔄 Re-Queue All Records
                     </button>
                   </div>
                 </form>

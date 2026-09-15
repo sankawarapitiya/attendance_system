@@ -5,6 +5,7 @@ const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const {
   dbGet,
   dbRun,
+  dbAll,
   getUnsyncedAttendance,
   markAttendanceCloudSynced,
   getUnsyncedEmployees,
@@ -25,6 +26,30 @@ class FirebaseService {
     this.lastError = null;
     this.lastSyncTime = null;
     this.initPromise = null;
+    this.wsBroadcast = null;
+    this.syncProgress = {
+      isSyncing: false,
+      state: 'IDLE', // 'IDLE', 'STARTING', 'SYNCING', 'COMPLETED', 'OFFLINE', 'ERROR'
+      uploadedCount: 0,
+      totalPending: 0,
+      percent: 0,
+      message: 'Cloud sync engine idle',
+      currentBatch: 0,
+      totalBatches: 0,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  setWsBroadcast(fn) {
+    this.wsBroadcast = fn;
+  }
+
+  notify(type, payload) {
+    if (this.wsBroadcast) {
+      try {
+        this.wsBroadcast({ type, data: payload });
+      } catch (e) {}
+    }
   }
 
   /**
@@ -83,8 +108,8 @@ class FirebaseService {
       private_key_id: serviceAccount.private_key_id
     };
 
-    // Test ping
-    await this.testConnection();
+    // Non-blocking ping test
+    this.testConnection().catch(() => {});
   }
 
   /**
@@ -98,15 +123,25 @@ class FirebaseService {
     try {
       const pingDoc = this.firestore.collection('_system_health').doc('ping');
       const start = Date.now();
-      await pingDoc.set({
-        timestamp: FieldValue.serverTimestamp(),
-        service: 'SpeedFace-V5L Attendance System',
-        testedAt: new Date().toISOString()
-      }, { merge: true });
+      
+      // Fast read-ping verification with 6s timeout guard
+      await Promise.race([
+        pingDoc.get(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore connection timeout (6s)')), 6000))
+      ]);
 
       const latencyMs = Date.now() - start;
       this.isOnline = true;
       this.lastError = null;
+
+      // Background heartbeat write (non-blocking)
+      pingDoc.set({
+        service: 'SpeedFace-V5L Attendance System',
+        testedAt: new Date().toISOString(),
+        status: 'ONLINE'
+      }, { merge: true }).catch(() => {});
+
+      this.notify('FIREBASE_STATUS_UPDATE', { online: true, latencyMs, projectId: this.keyData?.project_id });
 
       return {
         success: true,
@@ -118,6 +153,7 @@ class FirebaseService {
     } catch (err) {
       this.isOnline = false;
       this.lastError = err.message;
+      this.notify('FIREBASE_STATUS_UPDATE', { online: false, error: err.message });
       throw new Error(`Firestore connection test failed: ${err.message}`);
     }
   }
@@ -202,6 +238,11 @@ class FirebaseService {
    * Returns complete real-time status of Firebase Firestore connection & sync stats.
    */
   async getStatus() {
+    if (this.isSyncing && this.syncStartTime && (Date.now() - this.syncStartTime > 120000)) {
+      this.isSyncing = false;
+      this.syncProgress.isSyncing = false;
+      this.syncProgress.state = 'IDLE';
+    }
     const orgConfig = await this.getOrganizationConfig();
     const stats = await getCloudSyncStats();
     const isConfigured = fs.existsSync(DEFAULT_KEY_PATH) && !!this.keyData;
@@ -210,6 +251,7 @@ class FirebaseService {
       configured: isConfigured,
       online: this.isOnline,
       isSyncing: this.isSyncing,
+      syncProgress: this.syncProgress,
       projectId: this.keyData?.project_id || null,
       clientEmail: this.keyData?.client_email || null,
       orgId: orgConfig.orgId,
@@ -244,7 +286,7 @@ class FirebaseService {
    */
   async syncPendingAttendance(options = {}) {
     if (this.isSyncing) {
-      return { success: false, message: 'Sync already in progress' };
+      return { success: false, message: 'Sync already in progress', syncProgress: this.syncProgress };
     }
 
     await this.init();
@@ -260,11 +302,30 @@ class FirebaseService {
 
     const orgId = (options.orgId || orgConfig.orgId || 'ORG_DEFAULT').trim().toUpperCase();
     const orgName = options.orgName || orgConfig.orgName || 'General Organization';
-    const batchSize = Math.min(500, options.limit || 500);
+    // 25 records per batch ensures fast ~1s commit and real-time UI progress updates
+    const batchSize = Math.min(25, Math.max(10, options.limit || 25));
 
     this.isSyncing = true;
+    this.syncStartTime = Date.now();
     let totalUploaded = 0;
     let batchesProcessed = 0;
+
+    const initialStats = await getCloudSyncStats();
+    const totalPendingCount = initialStats.pending_attendance || 0;
+    const totalToUpload = options.limit ? Math.min(options.limit, totalPendingCount) : totalPendingCount;
+
+    this.syncProgress = {
+      isSyncing: true,
+      state: 'SYNCING',
+      uploadedCount: 0,
+      totalPending: totalPendingCount,
+      percent: 0,
+      message: `Starting cloud upload to ${orgId}...`,
+      currentBatch: 0,
+      totalBatches: Math.ceil(totalToUpload / batchSize) || 1,
+      updatedAt: new Date().toISOString()
+    };
+    this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
 
     try {
       while (true) {
@@ -274,25 +335,23 @@ class FirebaseService {
           break; // All pending records have been uploaded
         }
 
-        // 2. Prepare Firestore Batch (max 500 writes per commit)
+        // 2. Prepare Firestore Batch (partitioned under organizations/{orgId})
         const batch = this.firestore.batch();
         const syncedIds = [];
+        const nowIso = new Date().toISOString();
 
         for (const rec of pending) {
-          const cleanUserId = String(rec.user_id).trim();
+          // Sanitize userId to ensure valid Firestore document key (no slashes or binary control chars)
+          const rawUserId = String(rec.user_id || '').trim();
+          const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F-\x9F\/]/g, '_').trim() || 'USER';
           const punchKey = this._formatPunchKey(rec.punch_time);
           const docId = `${orgId}_${cleanUserId}_${punchKey}`;
 
-          // Document reference in: organizations/{orgId}/attendance/{docId}
+          // Document reference strictly in: organizations/{orgId}/attendance/{docId}
           const orgAttRef = this.firestore
             .collection('organizations')
             .doc(orgId)
             .collection('attendance')
-            .doc(docId);
-
-          // Top-level shared collection reference: attendance_records/{docId}
-          const sharedAttRef = this.firestore
-            .collection('attendance_records')
             .doc(docId);
 
           const punchEpoch = Date.parse(rec.punch_time) || Date.now();
@@ -304,6 +363,7 @@ class FirebaseService {
             organizationId: orgId,
             organizationName: orgName,
             userId: cleanUserId,
+            rawUserId: rawUserId,
             employeeName: rec.employee_name || '',
             department: rec.department || 'General',
             role: rec.role || 'Staff',
@@ -323,25 +383,27 @@ class FirebaseService {
             deviceIp: rec.device_ip || '192.168.10.15',
             deviceSn: rec.device_sn || '',
             source: rec.source || 'DIRECT_SYNC',
-            syncedAt: FieldValue.serverTimestamp()
+            syncedAt: nowIso
           };
 
           batch.set(orgAttRef, payload, { merge: true });
-          batch.set(sharedAttRef, payload, { merge: true });
           syncedIds.push(rec.id);
         }
 
-        // Also update the Organization Document
+        // Also update Organization Document
         const orgDocRef = this.firestore.collection('organizations').doc(orgId);
         batch.set(orgDocRef, {
           organizationId: orgId,
           organizationName: orgName,
-          lastSyncAt: FieldValue.serverTimestamp(),
-          updatedAt: new Date().toISOString()
+          lastSyncAt: nowIso,
+          updatedAt: nowIso
         }, { merge: true });
 
-        // 3. Commit to Firestore
-        await batch.commit();
+        // 3. Commit to Firestore with 20s timeout guard
+        await Promise.race([
+          batch.commit(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore commit timeout (20s)')), 20000))
+        ]);
 
         // 4. Mark local SQLite records as synced
         await markAttendanceCloudSynced(syncedIds);
@@ -349,7 +411,21 @@ class FirebaseService {
         totalUploaded += syncedIds.length;
         batchesProcessed++;
 
-        // If batch was smaller than requested, we reached the end
+        const percent = totalToUpload > 0 ? Math.min(100, Math.round((totalUploaded / totalToUpload) * 100)) : 100;
+        this.syncProgress = {
+          isSyncing: true,
+          state: 'SYNCING',
+          uploadedCount: totalUploaded,
+          totalPending: Math.max(0, totalPendingCount - totalUploaded),
+          percent,
+          message: `Uploaded ${totalUploaded} of ${totalToUpload} punches (${percent}%)...`,
+          currentBatch: batchesProcessed,
+          totalBatches: Math.ceil(totalToUpload / batchSize) || 1,
+          updatedAt: new Date().toISOString()
+        };
+        this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+        // If batch was smaller than requested or per-call limit reached, break
         if (pending.length < batchSize || (options.limit && totalUploaded >= options.limit)) {
           break;
         }
@@ -358,6 +434,19 @@ class FirebaseService {
       this.isOnline = true;
       this.lastError = null;
       this.lastSyncTime = new Date().toISOString();
+
+      this.syncProgress = {
+        isSyncing: false,
+        state: 'COMPLETED',
+        uploadedCount: totalUploaded,
+        totalPending: Math.max(0, totalPendingCount - totalUploaded),
+        percent: 100,
+        message: `Cloud sync complete: ${totalUploaded} punches uploaded to Firestore!`,
+        currentBatch: batchesProcessed,
+        totalBatches: batchesProcessed,
+        updatedAt: new Date().toISOString()
+      };
+      this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
 
       // Log success in sync_logs
       if (totalUploaded > 0) {
@@ -374,13 +463,27 @@ class FirebaseService {
         uploadedCount: totalUploaded,
         batchesProcessed,
         remainingPending: remainingStats.pending_attendance || 0,
-        orgId
+        orgId,
+        syncProgress: this.syncProgress
       };
     } catch (err) {
       // OFFLINE RESILIENCE: Catch error, leave records with synced_to_cloud = 0 in SQLite
       this.isOnline = false;
       this.lastError = err.message;
       console.warn(`[FIREBASE] Offline / Sync warning: ${err.message}. Local punches safely queued.`);
+
+      this.syncProgress = {
+        isSyncing: false,
+        state: 'OFFLINE',
+        uploadedCount: totalUploaded,
+        totalPending: totalPendingCount - totalUploaded,
+        percent: 0,
+        message: `Cloud sync paused (${err.message}). Local punches safe.`,
+        currentBatch: batchesProcessed,
+        totalBatches: 0,
+        updatedAt: new Date().toISOString()
+      };
+      this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
 
       await dbRun(`
         INSERT INTO sync_logs (sync_type, status, records_synced, total_records, message)
@@ -391,7 +494,8 @@ class FirebaseService {
         success: false,
         offline: true,
         uploadedCount: totalUploaded,
-        error: err.message
+        error: err.message,
+        syncProgress: this.syncProgress
       };
     } finally {
       this.isSyncing = false;
@@ -400,6 +504,7 @@ class FirebaseService {
 
   /**
    * Syncs employee registry to Firestore: organizations/{orgId}/employees/{userId}
+   * Supports forceAll option to push all local employees to newly configured organization partitions.
    */
   async syncEmployees(options = {}) {
     await this.init();
@@ -411,55 +516,73 @@ class FirebaseService {
     const orgConfig = await this.getOrganizationConfig();
     const orgId = (options.orgId || orgConfig.orgId || 'ORG_DEFAULT').trim().toUpperCase();
     const orgName = options.orgName || orgConfig.orgName || 'General Organization';
+    const forceAll = options.forceAll === true;
 
     try {
-      const employees = await getUnsyncedEmployees(400);
+      const employees = forceAll
+        ? await dbAll(`SELECT * FROM employees ORDER BY user_id ASC`)
+        : await getUnsyncedEmployees(400);
+
       if (!employees || employees.length === 0) {
         return { success: true, count: 0, message: 'No pending employees to sync' };
       }
 
-      const batch = this.firestore.batch();
-      const syncedUserIds = [];
+      const batchSize = 300;
+      let totalSynced = 0;
 
-      for (const emp of employees) {
-        const userId = String(emp.user_id).trim();
-        const docRef = this.firestore
-          .collection('organizations')
-          .doc(orgId)
-          .collection('employees')
-          .doc(userId);
+      for (let i = 0; i < employees.length; i += batchSize) {
+        const slice = employees.slice(i, i + batchSize);
+        const batch = this.firestore.batch();
+        const syncedUserIds = [];
 
-        const payload = {
-          userId,
-          organizationId: orgId,
-          organizationName: orgName,
-          name: emp.name || '',
-          department: emp.department || 'General',
-          role: emp.role || 'Staff',
-          employeeServiceId: emp.employee_service_id || '',
-          cardNo: emp.card_no || '',
-          email: emp.email || '',
-          phone: emp.phone || '',
-          nic: emp.nic || '',
-          gender: emp.gender || '',
-          birthday: emp.birthday || '',
-          appointmentDate: emp.appointment_date || '',
-          employmentStatus: emp.employment_status || 'Active',
-          isActive: emp.is_active === 1,
-          photoUrl: emp.photo || null,
-          syncedAt: FieldValue.serverTimestamp()
-        };
+        for (const emp of slice) {
+          const rawUserId = String(emp.user_id || '').trim();
+          const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F\/]/g, '_').trim() || 'USER';
+          const docRef = this.firestore
+            .collection('organizations')
+            .doc(orgId)
+            .collection('employees')
+            .doc(cleanUserId);
 
-        batch.set(docRef, payload, { merge: true });
-        syncedUserIds.push(userId);
+          const payload = {
+            userId: cleanUserId,
+            rawUserId: rawUserId,
+            organizationId: orgId,
+            organizationName: orgName,
+            name: emp.name || '',
+            department: emp.department || 'General',
+            role: emp.role || 'Staff',
+            employeeServiceId: emp.employee_service_id || '',
+            cardNo: emp.card_no || '',
+            email: emp.email || '',
+            phone: emp.phone || '',
+            nic: emp.nic || '',
+            gender: emp.gender || '',
+            birthday: emp.birthday || '',
+            appointmentDate: emp.appointment_date || '',
+            employmentStatus: emp.employment_status || 'Active',
+            isActive: emp.is_active === 1,
+            photoUrl: emp.photo || null,
+            syncedAt: FieldValue.serverTimestamp()
+          };
+
+          batch.set(docRef, payload, { merge: true });
+          syncedUserIds.push(emp.user_id);
+        }
+
+        // Commit slice with 30s timeout
+        await Promise.race([
+          batch.commit(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore employee batch timeout (30s)')), 30000))
+        ]);
+
+        await markEmployeesCloudSynced(syncedUserIds);
+        totalSynced += syncedUserIds.length;
       }
-
-      await batch.commit();
-      await markEmployeesCloudSynced(syncedUserIds);
 
       return {
         success: true,
-        count: syncedUserIds.length,
+        count: totalSynced,
         orgId
       };
     } catch (err) {
@@ -469,6 +592,25 @@ class FirebaseService {
         error: err.message
       };
     }
+  }
+
+  /**
+   * Resets cloud sync flags in local SQLite database so all records can be re-synced.
+   * Useful when switching organization partitions or re-populating Firestore.
+   */
+  async resetCloudSync(scope = 'all') {
+    if (scope === 'attendance' || scope === 'all') {
+      await dbRun(`UPDATE attendance_records SET synced_to_cloud = 0, cloud_synced_at = NULL`);
+    }
+    if (scope === 'employees' || scope === 'all') {
+      await dbRun(`UPDATE employees SET synced_to_cloud = 0, cloud_synced_at = NULL`);
+    }
+    const stats = await getCloudSyncStats();
+    return {
+      success: true,
+      message: `Reset cloud sync status for ${scope}. Records queued for cloud upload.`,
+      stats
+    };
   }
 }
 
