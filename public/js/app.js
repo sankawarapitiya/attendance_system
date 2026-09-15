@@ -17,6 +17,51 @@ const DEFAULT_PRINT_OPTIONS = {
   bookScope: 'all'          // 'all' | 'selected'
 };
 
+// Default Employee Registry Columns Definition
+const EMPLOYEE_COLUMNS_DEF = [
+  { key: 'expand', label: 'Dossier', default: true, required: true },
+  { key: 'user_id', label: 'FingerPrint ID', default: true },
+  { key: 'service_id', label: 'Service ID', default: true },
+  { key: 'nic', label: 'NIC Number', default: true },
+  { key: 'name', label: 'Full Name & Photo', default: true },
+  { key: 'gender', label: 'Gender', default: true },
+  { key: 'department', label: 'Department', default: true },
+  { key: 'role', label: 'Role / Designation', default: true },
+  { key: 'employment_status', label: 'Employment Status', default: true },
+  { key: 'appointment_date', label: 'Appointment Date', default: false },
+  { key: 'birthday', label: 'Birthday & Age', default: false },
+  { key: 'phone', label: 'Mobile / Phone', default: true },
+  { key: 'email', label: 'Email Address', default: false },
+  { key: 'card_no', label: 'RFID / Card No', default: false },
+  { key: 'shift', label: 'Assigned Shift', default: true },
+  { key: 'punches', label: 'Punches & Last Seen', default: true },
+  { key: 'status', label: 'Active Status', default: true },
+  { key: 'actions', label: 'Actions', default: true, required: true }
+];
+
+function getSavedEmpColumns() {
+  try {
+    const raw = localStorage.getItem('speedface_emp_columns_v1');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const res = {};
+      EMPLOYEE_COLUMNS_DEF.forEach(c => {
+        res[c.key] = c.required ? true : (parsed[c.key] !== undefined ? Boolean(parsed[c.key]) : c.default);
+      });
+      return res;
+    }
+  } catch (e) {}
+  const def = {};
+  EMPLOYEE_COLUMNS_DEF.forEach(c => { def[c.key] = c.default; });
+  return def;
+}
+
+function saveEmpColumns(cols) {
+  try {
+    localStorage.setItem('speedface_emp_columns_v1', JSON.stringify(cols));
+  } catch (e) {}
+}
+
 // Default Report Table Columns Definition (Top Level Constant)
 const REPORT_COLUMNS_DEF = {
   daily: [
@@ -149,6 +194,24 @@ const state = {
     columns: {}
   },
   employeesFilter: 'all',
+  empRegistry: {
+    rawList: [],
+    filteredList: [],
+    searchQuery: '',
+    statusFilter: 'all',
+    deptFilter: 'all',
+    roleFilter: 'all',
+    statusTypeFilter: 'all',
+    shiftFilter: 'all',
+    genderFilter: 'all',
+    cardFilter: 'all',
+    activityFilter: 'all',
+    sortBy: 'user_id_asc',
+    currentPage: 1,
+    pageSize: 25,
+    expandedRows: new Set(),
+    columns: getSavedEmpColumns()
+  },
   records: {
     page: 1,
     limit: 50,
@@ -3418,16 +3481,165 @@ async function initEmployees() {
 
   function updateEmpFilterUI(filter) {
     state.employeesFilter = filter;
+    state.empRegistry.statusFilter = filter;
+    state.empRegistry.currentPage = 1;
     [filterAll, filterActive, filterInactive].forEach(btn => btn?.classList.remove('active'));
     if (filter === 'all' && filterAll) filterAll.classList.add('active');
     if (filter === 'active' && filterActive) filterActive.classList.add('active');
     if (filter === 'inactive' && filterInactive) filterInactive.classList.add('active');
-    loadEmployees();
+    applyEmployeeFilters();
+    renderEmployeesTable();
   }
 
   filterAll?.addEventListener('click', () => updateEmpFilterUI('all'));
   filterActive?.addEventListener('click', () => updateEmpFilterUI('active'));
   filterInactive?.addEventListener('click', () => updateEmpFilterUI('inactive'));
+
+  // Live Debounced Search Input
+  let empSearchTimeout = null;
+  document.getElementById('empSearchInput')?.addEventListener('input', (e) => {
+    clearTimeout(empSearchTimeout);
+    empSearchTimeout = setTimeout(() => {
+      state.empRegistry.searchQuery = e.target.value.trim();
+      state.empRegistry.currentPage = 1;
+      applyEmployeeFilters();
+      renderEmployeesTable();
+    }, 200);
+  });
+
+  // Toggle Advanced Filters Drawer
+  document.getElementById('btnToggleEmpAdvancedFilter')?.addEventListener('click', () => {
+    const panel = document.getElementById('empAdvancedFilterPanel');
+    if (!panel) return;
+    const isHidden = panel.style.display === 'none' || !panel.style.display;
+    panel.style.display = isHidden ? 'flex' : 'none';
+  });
+
+  // Advanced Filter Change Listeners
+  const bindFilterSelect = (id, key) => {
+    document.getElementById(id)?.addEventListener('change', (e) => {
+      state.empRegistry[key] = e.target.value;
+      state.empRegistry.currentPage = 1;
+      applyEmployeeFilters();
+      renderEmployeesTable();
+    });
+  };
+
+  bindFilterSelect('filterEmpDept', 'deptFilter');
+  bindFilterSelect('filterEmpRole', 'roleFilter');
+  bindFilterSelect('filterEmpStatusType', 'statusTypeFilter');
+  bindFilterSelect('filterEmpShift', 'shiftFilter');
+  bindFilterSelect('filterEmpGender', 'genderFilter');
+  bindFilterSelect('filterEmpCard', 'cardFilter');
+  bindFilterSelect('filterEmpActivity', 'activityFilter');
+  bindFilterSelect('filterEmpSort', 'sortBy');
+
+  // Reset Filters
+  document.getElementById('btnResetEmpFilters')?.addEventListener('click', () => {
+    const searchInput = document.getElementById('empSearchInput');
+    if (searchInput) searchInput.value = '';
+    state.empRegistry.searchQuery = '';
+    state.empRegistry.statusFilter = 'all';
+    state.empRegistry.deptFilter = 'all';
+    state.empRegistry.roleFilter = 'all';
+    state.empRegistry.statusTypeFilter = 'all';
+    state.empRegistry.shiftFilter = 'all';
+    state.empRegistry.genderFilter = 'all';
+    state.empRegistry.cardFilter = 'all';
+    state.empRegistry.activityFilter = 'all';
+    state.empRegistry.sortBy = 'user_id_asc';
+    state.empRegistry.currentPage = 1;
+
+    const resetVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    resetVal('filterEmpDept', 'all');
+    resetVal('filterEmpRole', 'all');
+    resetVal('filterEmpStatusType', 'all');
+    resetVal('filterEmpShift', 'all');
+    resetVal('filterEmpGender', 'all');
+    resetVal('filterEmpCard', 'all');
+    resetVal('filterEmpActivity', 'all');
+    resetVal('filterEmpSort', 'user_id_asc');
+
+    [filterAll, filterActive, filterInactive].forEach(btn => btn?.classList.remove('active'));
+    if (filterAll) filterAll.classList.add('active');
+
+    applyEmployeeFilters();
+    renderEmployeesTable();
+    showToast('Employee filters reset', 'info');
+  });
+
+  // Apply Button inside Drawer
+  document.getElementById('btnApplyEmpFilters')?.addEventListener('click', () => {
+    state.empRegistry.currentPage = 1;
+    applyEmployeeFilters();
+    renderEmployeesTable();
+    showToast('Filters applied', 'success');
+  });
+
+  // Page Size Selector
+  document.getElementById('empPageSizeSelect')?.addEventListener('change', (e) => {
+    state.empRegistry.pageSize = e.target.value;
+    state.empRegistry.currentPage = 1;
+    renderEmployeesTable();
+  });
+
+  // Expand / Collapse All Rows Toggle
+  document.getElementById('btnToggleExpandAll')?.addEventListener('click', () => {
+    const pageItems = getEmpPageItems();
+    const allExpanded = pageItems.length > 0 && pageItems.every(emp => state.empRegistry.expandedRows.has(emp.user_id));
+    if (allExpanded) {
+      pageItems.forEach(emp => state.empRegistry.expandedRows.delete(emp.user_id));
+      const lbl = document.getElementById('btnToggleExpandAllText');
+      if (lbl) lbl.textContent = 'Expand All';
+    } else {
+      pageItems.forEach(emp => state.empRegistry.expandedRows.add(emp.user_id));
+      const lbl = document.getElementById('btnToggleExpandAllText');
+      if (lbl) lbl.textContent = 'Collapse All';
+    }
+    renderEmployeesTable();
+  });
+
+  // Pagination Navigation Buttons
+  document.getElementById('btnEmpFirstPage')?.addEventListener('click', () => {
+    if (state.empRegistry.currentPage > 1) {
+      state.empRegistry.currentPage = 1;
+      renderEmployeesTable();
+    }
+  });
+
+  document.getElementById('btnEmpPrevPage')?.addEventListener('click', () => {
+    if (state.empRegistry.currentPage > 1) {
+      state.empRegistry.currentPage--;
+      renderEmployeesTable();
+    }
+  });
+
+  document.getElementById('btnEmpNextPage')?.addEventListener('click', () => {
+    const totalPages = Math.max(1, Math.ceil(state.empRegistry.filteredList.length / getEmpPageSizeNum()));
+    if (state.empRegistry.currentPage < totalPages) {
+      state.empRegistry.currentPage++;
+      renderEmployeesTable();
+    }
+  });
+
+  document.getElementById('btnEmpLastPage')?.addEventListener('click', () => {
+    const totalPages = Math.max(1, Math.ceil(state.empRegistry.filteredList.length / getEmpPageSizeNum()));
+    if (state.empRegistry.currentPage < totalPages) {
+      state.empRegistry.currentPage = totalPages;
+      renderEmployeesTable();
+    }
+  });
+
+  // Auto-close Column Selector menu on click outside
+  document.addEventListener('click', (e) => {
+    const menu = document.getElementById('empColumnsMenu');
+    const toggleBtn = document.getElementById('btnEmpColumnsToggle');
+    if (menu && menu.style.display === 'block') {
+      if (!menu.contains(e.target) && !toggleBtn?.contains(e.target)) {
+        menu.style.display = 'none';
+      }
+    }
+  });
 
   // Photo Upload Handlers
   const photoInput = document.getElementById('modalPhotoInput');
@@ -3534,16 +3746,705 @@ async function initEmployees() {
   });
 }
 
+// Calculate age from birthday string (e.g. '1976.03.18' or '1976-03-18')
+function calculateAge(birthdayStr) {
+  if (!birthdayStr) return null;
+  const clean = String(birthdayStr).trim().replace(/[.\/]/g, '-');
+  const d = new Date(clean);
+  if (isNaN(d.getTime())) return null;
+  const diffMs = Date.now() - d.getTime();
+  const ageDate = new Date(diffMs);
+  const age = Math.abs(ageDate.getUTCFullYear() - 1970);
+  return (age > 0 && age < 120) ? age : null;
+}
+
+function getEmpPageSizeNum() {
+  const size = state.empRegistry.pageSize;
+  if (size === 'all') return Math.max(1, (state.empRegistry.filteredList || []).length);
+  return parseInt(size, 10) || 25;
+}
+
+function getEmpPageItems() {
+  const list = state.empRegistry.filteredList || [];
+  if (state.empRegistry.pageSize === 'all') return list;
+  const size = getEmpPageSizeNum();
+  const start = (state.empRegistry.currentPage - 1) * size;
+  return list.slice(start, start + size);
+}
+
+function renderEmpColumnSelector() {
+  const container = document.getElementById('empColumnsList');
+  if (!container) return;
+  const cols = state.empRegistry.columns || {};
+
+  container.innerHTML = EMPLOYEE_COLUMNS_DEF.map(c => {
+    const isChecked = cols[c.key] !== false;
+    const isRequired = Boolean(c.required);
+    return `
+      <label style="display: flex; align-items: center; justify-content: space-between; font-size: 0.82rem; color: #334155; cursor: ${isRequired ? 'not-allowed' : 'pointer'}; padding: 4px 6px; border-radius: 4px; transition: background 0.1s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+        <span style="display: flex; align-items: center; gap: 8px;">
+          <input type="checkbox" class="emp-col-chk" data-col="${c.key}" ${isChecked ? 'checked' : ''} ${isRequired ? 'disabled' : ''} style="cursor: pointer; accent-color: #2563eb;">
+          <span style="${isRequired ? 'font-weight: 600; color: #1e293b;' : ''}">${escapeHtml(c.label)}</span>
+        </span>
+        ${isRequired ? '<span style="font-size: 0.68rem; background: #e2e8f0; color: #475569; padding: 1px 4px; border-radius: 4px; font-weight: 600;">Fixed</span>' : ''}
+      </label>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.emp-col-chk:not([disabled])').forEach(chk => {
+    chk.addEventListener('change', (e) => {
+      const colKey = e.target.getAttribute('data-col');
+      state.empRegistry.columns[colKey] = e.target.checked;
+      saveEmpColumns(state.empRegistry.columns);
+      updateEmpColumnsBadge();
+      renderEmployeesTable();
+    });
+  });
+
+  updateEmpColumnsBadge();
+}
+
+function updateEmpColumnsBadge() {
+  const badge = document.getElementById('empColumnsCountBadge');
+  if (!badge) return;
+  const cols = state.empRegistry.columns || {};
+  let count = 0;
+  EMPLOYEE_COLUMNS_DEF.forEach(c => {
+    if (cols[c.key] !== false) count++;
+  });
+  badge.textContent = count;
+}
+
+function executeSelectAllEmpColumns() {
+  EMPLOYEE_COLUMNS_DEF.forEach(c => {
+    state.empRegistry.columns[c.key] = true;
+  });
+  saveEmpColumns(state.empRegistry.columns);
+  updateEmpColumnsBadge();
+  renderEmpColumnSelector();
+  renderEmployeesTable();
+}
+window.executeSelectAllEmpColumns = executeSelectAllEmpColumns;
+
+function executeResetEmpColumns() {
+  const def = {};
+  EMPLOYEE_COLUMNS_DEF.forEach(c => { def[c.key] = c.default; });
+  state.empRegistry.columns = def;
+  saveEmpColumns(state.empRegistry.columns);
+  updateEmpColumnsBadge();
+  renderEmpColumnSelector();
+  renderEmployeesTable();
+}
+window.executeResetEmpColumns = executeResetEmpColumns;
+
+function applyEmployeeFilters() {
+  const reg = state.empRegistry;
+  let list = [...(reg.rawList || [])];
+
+  // 1. Status Filter (All, Active, Inactive)
+  if (reg.statusFilter === 'active') {
+    list = list.filter(e => e.is_active !== 0);
+  } else if (reg.statusFilter === 'inactive') {
+    list = list.filter(e => e.is_active === 0);
+  }
+
+  // 2. Search Query (debounced across multiple fields)
+  if (reg.searchQuery) {
+    const q = reg.searchQuery.toLowerCase().trim();
+    list = list.filter(e => {
+      return (
+        String(e.user_id || '').toLowerCase().includes(q) ||
+        String(e.employee_service_id || '').toLowerCase().includes(q) ||
+        String(e.nic || '').toLowerCase().includes(q) ||
+        String(e.name || '').toLowerCase().includes(q) ||
+        String(e.first_name || '').toLowerCase().includes(q) ||
+        String(e.last_name || '').toLowerCase().includes(q) ||
+        String(e.department || '').toLowerCase().includes(q) ||
+        String(e.role || '').toLowerCase().includes(q) ||
+        String(e.phone || '').toLowerCase().includes(q) ||
+        String(e.email || '').toLowerCase().includes(q) ||
+        String(e.card_no || '').toLowerCase().includes(q)
+      );
+    });
+  }
+
+  // 3. Department
+  if (reg.deptFilter && reg.deptFilter !== 'all') {
+    list = list.filter(e => String(e.department || '').toLowerCase() === reg.deptFilter.toLowerCase());
+  }
+
+  // 4. Role
+  if (reg.roleFilter && reg.roleFilter !== 'all') {
+    list = list.filter(e => String(e.role || '').toLowerCase() === reg.roleFilter.toLowerCase());
+  }
+
+  // 5. Employment Status Type
+  if (reg.statusTypeFilter && reg.statusTypeFilter !== 'all') {
+    list = list.filter(e => String(e.employment_status || '').toLowerCase() === reg.statusTypeFilter.toLowerCase());
+  }
+
+  // 6. Assigned Shift
+  if (reg.shiftFilter && reg.shiftFilter !== 'all') {
+    list = list.filter(e => String(e.shift_id || 1) === String(reg.shiftFilter));
+  }
+
+  // 7. Gender
+  if (reg.genderFilter && reg.genderFilter !== 'all') {
+    list = list.filter(e => String(e.gender || '').toLowerCase() === reg.genderFilter.toLowerCase());
+  }
+
+  // 8. RFID Card
+  if (reg.cardFilter === 'has_card') {
+    list = list.filter(e => e.card_no && String(e.card_no).trim() !== '' && String(e.card_no).trim() !== '0');
+  } else if (reg.cardFilter === 'no_card') {
+    list = list.filter(e => !e.card_no || String(e.card_no).trim() === '' || String(e.card_no).trim() === '0');
+  }
+
+  // 9. Activity
+  if (reg.activityFilter === 'has_punches') {
+    list = list.filter(e => (e.total_punches || 0) > 0);
+  } else if (reg.activityFilter === 'no_punches') {
+    list = list.filter(e => (e.total_punches || 0) === 0);
+  }
+
+  // 10. Sort By
+  const sort = reg.sortBy || 'user_id_asc';
+  list.sort((a, b) => {
+    switch (sort) {
+      case 'user_id_asc':
+        return (parseInt(a.user_id, 10) || 0) - (parseInt(b.user_id, 10) || 0) || String(a.user_id).localeCompare(String(b.user_id));
+      case 'user_id_desc':
+        return (parseInt(b.user_id, 10) || 0) - (parseInt(a.user_id, 10) || 0) || String(b.user_id).localeCompare(String(a.user_id));
+      case 'name_asc':
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      case 'name_desc':
+        return String(b.name || '').localeCompare(String(a.name || ''));
+      case 'service_id_asc':
+        return String(a.employee_service_id || '').localeCompare(String(b.employee_service_id || ''));
+      case 'punches_desc':
+        return (b.total_punches || 0) - (a.total_punches || 0);
+      case 'punches_asc':
+        return (a.total_punches || 0) - (b.total_punches || 0);
+      case 'last_seen_desc':
+        return String(b.last_seen || '').localeCompare(String(a.last_seen || ''));
+      case 'appointment_desc':
+        return String(b.appointment_date || '').localeCompare(String(a.appointment_date || ''));
+      default:
+        return (parseInt(a.user_id, 10) || 0) - (parseInt(b.user_id, 10) || 0);
+    }
+  });
+
+  reg.filteredList = list;
+
+  // Active filter count calculation
+  let activeFilterCount = 0;
+  if (reg.statusFilter !== 'all') activeFilterCount++;
+  if (reg.searchQuery) activeFilterCount++;
+  if (reg.deptFilter !== 'all') activeFilterCount++;
+  if (reg.roleFilter !== 'all') activeFilterCount++;
+  if (reg.statusTypeFilter !== 'all') activeFilterCount++;
+  if (reg.shiftFilter !== 'all') activeFilterCount++;
+  if (reg.genderFilter !== 'all') activeFilterCount++;
+  if (reg.cardFilter !== 'all') activeFilterCount++;
+  if (reg.activityFilter !== 'all') activeFilterCount++;
+
+  const badge = document.getElementById('empActiveFiltersBadge');
+  if (badge) {
+    if (activeFilterCount > 0) {
+      badge.textContent = activeFilterCount;
+      badge.style.display = 'inline-block';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  const filterText = document.getElementById('empActiveFiltersText');
+  if (filterText) {
+    filterText.textContent = activeFilterCount > 0 ? `${activeFilterCount} filter(s) currently active` : 'No active filters';
+  }
+
+  const summary = document.getElementById('empResultSummary');
+  if (summary) {
+    const totalRaw = (reg.rawList || []).length;
+    if (list.length === totalRaw) {
+      summary.textContent = `Showing all ${totalRaw} employees`;
+    } else {
+      summary.textContent = `Showing ${list.length} of ${totalRaw} employees (Filtered)`;
+    }
+  }
+}
+
+function updateEmpPaginationUI(startIdx, endIdx, total, curPage, totalPages) {
+  const info = document.getElementById('empPaginationInfo');
+  if (info) {
+    const rawTotal = (state.empRegistry.rawList || []).length;
+    if (total === 0) {
+      info.textContent = 'Showing 0 of 0 employees';
+    } else if (total === rawTotal) {
+      info.textContent = `Showing ${startIdx + 1} to ${endIdx} of ${total} employees (Page ${curPage} of ${totalPages})`;
+    } else {
+      info.textContent = `Showing ${startIdx + 1} to ${endIdx} of ${total} employees (Filtered from ${rawTotal} total)`;
+    }
+  }
+
+  const btnFirst = document.getElementById('btnEmpFirstPage');
+  const btnPrev = document.getElementById('btnEmpPrevPage');
+  const btnNext = document.getElementById('btnEmpNextPage');
+  const btnLast = document.getElementById('btnEmpLastPage');
+
+  if (btnFirst) btnFirst.disabled = (curPage <= 1);
+  if (btnPrev) btnPrev.disabled = (curPage <= 1);
+  if (btnNext) btnNext.disabled = (curPage >= totalPages);
+  if (btnLast) btnLast.disabled = (curPage >= totalPages);
+
+  const pagesWrap = document.getElementById('empPaginationPages');
+  if (pagesWrap) {
+    if (totalPages <= 1) {
+      pagesWrap.innerHTML = '';
+      return;
+    }
+
+    const pages = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (curPage > 3) pages.push('...');
+      const start = Math.max(2, curPage - 1);
+      const end = Math.min(totalPages - 1, curPage + 1);
+      for (let i = start; i <= end; i++) {
+        if (!pages.includes(i)) pages.push(i);
+      }
+      if (curPage < totalPages - 2) pages.push('...');
+      if (!pages.includes(totalPages)) pages.push(totalPages);
+    }
+
+    pagesWrap.innerHTML = pages.map(p => {
+      if (p === '...') return `<span class="pagination-ellipsis">&hellip;</span>`;
+      const isActive = p === curPage;
+      return `<button type="button" class="pagination-num-btn ${isActive ? 'active' : ''}" data-page="${p}">${p}</button>`;
+    }).join('');
+
+    pagesWrap.querySelectorAll('.pagination-num-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        const pageNum = parseInt(b.getAttribute('data-page'), 10);
+        if (pageNum && pageNum !== state.empRegistry.currentPage) {
+          state.empRegistry.currentPage = pageNum;
+          renderEmployeesTable();
+        }
+      });
+    });
+  }
+}
+
+function renderEmployeesTable() {
+  const tbody = document.getElementById('employeesTableBody');
+  const headRow = document.getElementById('employeesTableHeadRow');
+  if (!tbody) return;
+
+  const cols = state.empRegistry.columns || {};
+  const activeCols = EMPLOYEE_COLUMNS_DEF.filter(c => cols[c.key] !== false);
+  const visibleColCount = activeCols.length;
+
+  // Render Table Headers
+  if (headRow) {
+    headRow.innerHTML = activeCols.map(c => {
+      let align = 'left';
+      if (c.key === 'expand') align = 'center';
+      if (c.key === 'actions') align = 'center';
+      if (c.key === 'gender') align = 'center';
+      if (c.key === 'status') align = 'center';
+      return `<th data-col="${c.key}" style="text-align:${align};">${escapeHtml(c.label)}</th>`;
+    }).join('');
+  }
+
+  const list = state.empRegistry.filteredList || [];
+  const total = list.length;
+  const pageSize = getEmpPageSizeNum();
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  // Keep currentPage in valid bounds
+  if (state.empRegistry.currentPage > totalPages) {
+    state.empRegistry.currentPage = totalPages;
+  }
+  if (state.empRegistry.currentPage < 1) {
+    state.empRegistry.currentPage = 1;
+  }
+  const curPage = state.empRegistry.currentPage;
+  const pageItems = getEmpPageItems();
+
+  // Update Expand All button text
+  const expandBtnText = document.getElementById('btnToggleExpandAllText');
+  if (expandBtnText) {
+    const allExpanded = pageItems.length > 0 && pageItems.every(emp => state.empRegistry.expandedRows.has(emp.user_id));
+    expandBtnText.textContent = allExpanded ? 'Collapse All' : 'Expand All';
+  }
+
+  // If no records found
+  if (pageItems.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="${visibleColCount}" class="text-center py-5">
+          <div style="font-size: 1.1rem; font-weight: 600; color: #475569; margin-bottom: 6px;">No employees matching criteria</div>
+          <div class="text-muted" style="font-size: 0.85rem; margin-bottom: 12px;">Try adjusting your search query or reset the filters.</div>
+          <button type="button" class="btn btn-sm btn-outline" onclick="document.getElementById('btnResetEmpFilters')?.click()">Reset All Filters</button>
+        </td>
+      </tr>
+    `;
+    updateEmpPaginationUI(0, 0, 0, 1, 1);
+    return;
+  }
+
+  // Render Rows
+  const rowsHtml = [];
+  pageItems.forEach((emp) => {
+    const isExpanded = state.empRegistry.expandedRows.has(emp.user_id);
+    const isActive = emp.is_active !== 0;
+    const displayName = [emp.title, emp.name].filter(Boolean).join(' ') || 'Unassigned';
+    const age = calculateAge(emp.birthday);
+
+    const avatarHtml = emp.photo
+      ? `<img src="${emp.photo}" class="table-avatar-img" alt="Photo" onerror="this.outerHTML='<span class=\\'table-avatar-initial\\'>${String(emp.user_id).slice(-2)}</span>'">`
+      : `<span class="table-avatar-initial">${String(emp.user_id).slice(-2)}</span>`;
+
+    const genderBadge = emp.gender === 'Male'
+      ? `<span class="badge-tag" style="background:#eff6ff;color:#2563eb;font-weight:600;">Male ♂</span>`
+      : (emp.gender === 'Female' ? `<span class="badge-tag" style="background:#fdf2f8;color:#db2777;font-weight:600;">Female ♀</span>` : '<span class="text-muted">-</span>');
+
+    const statusBadge = emp.employment_status === 'Permanent'
+      ? `<span class="badge-on-time" style="font-size:0.75rem;">Permanent</span>`
+      : (emp.employment_status ? `<span class="badge-tag" style="font-size:0.75rem;">${escapeHtml(emp.employment_status)}</span>` : '<span class="text-muted">-</span>');
+
+    const activeBadge = isActive
+      ? `<button class="btn-toggle-active" data-userid="${emp.user_id}" data-name="${escapeHtml(emp.name || '')}" data-newstatus="0" style="border:1px solid #bbf7d0; background:#f0fdf4; color:#16a34a; font-weight:700; font-size:0.75rem; padding:3px 8px; border-radius:12px; cursor:pointer; display:inline-flex; align-items:center; gap:4px; transition:all 0.15s;" title="Click to mark Inactive">
+          <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#22c55e;"></span> Active
+        </button>`
+      : `<button class="btn-toggle-active" data-userid="${emp.user_id}" data-name="${escapeHtml(emp.name || '')}" data-newstatus="1" style="border:1px solid #e2e8f0; background:#f8fafc; color:#64748b; font-weight:700; font-size:0.75rem; padding:3px 8px; border-radius:12px; cursor:pointer; display:inline-flex; align-items:center; gap:4px; transition:all 0.15s;" title="Click to mark Active">
+          <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#94a3b8;"></span> Inactive
+        </button>`;
+
+    // Build cells according to activeCols
+    const cellsHtml = activeCols.map(c => {
+      switch (c.key) {
+        case 'expand':
+          return `
+            <td style="text-align: center; width: 44px;">
+              <button type="button" class="emp-expand-btn ${isExpanded ? 'expanded' : ''}" data-userid="${emp.user_id}" title="${isExpanded ? 'Collapse Dossier' : 'Expand Full Dossier'}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+              </button>
+            </td>
+          `;
+        case 'user_id':
+          return `<td class="font-mono"><strong>${emp.user_id}</strong></td>`;
+        case 'service_id':
+          return `<td class="font-mono" style="font-weight:600; color:#2563eb;">${escapeHtml(emp.employee_service_id || '-')}</td>`;
+        case 'nic':
+          return `<td class="font-mono text-muted" style="font-size:0.85rem;">${escapeHtml(emp.nic || '-')}</td>`;
+        case 'name':
+          return `
+            <td>
+              <div class="table-user-cell">
+                ${avatarHtml}
+                <div>
+                  <div class="cell-primary">${escapeHtml(displayName)}</div>
+                  ${emp.department || emp.role ? `<div class="cell-sub">${escapeHtml(emp.department || 'General')} • ${escapeHtml(emp.role || 'Staff')}</div>` : ''}
+                </div>
+              </div>
+            </td>
+          `;
+        case 'gender':
+          return `<td style="text-align: center;">${genderBadge}</td>`;
+        case 'department':
+          return `<td><span class="cell-primary">${escapeHtml(emp.department || 'General')}</span></td>`;
+        case 'role':
+          return `<td><span class="cell-primary">${escapeHtml(emp.role || 'Staff')}</span></td>`;
+        case 'employment_status':
+          return `<td>${statusBadge}</td>`;
+        case 'appointment_date':
+          return `<td class="font-mono text-muted" style="font-size:0.85rem;">${escapeHtml(emp.appointment_date || '-')}</td>`;
+        case 'birthday':
+          return `
+            <td>
+              <div class="font-mono" style="font-size:0.85rem;">${escapeHtml(emp.birthday || '-')}</div>
+              ${age ? `<div class="cell-sub text-muted">${age} yrs</div>` : ''}
+            </td>
+          `;
+        case 'phone':
+          return `
+            <td class="font-mono">
+              ${emp.phone ? `<a href="tel:${escapeHtml(emp.phone)}" style="color:inherit; text-decoration:none;">${escapeHtml(emp.phone)}</a>` : '<span class="text-muted">-</span>'}
+            </td>
+          `;
+        case 'email':
+          return `
+            <td>
+              ${emp.email ? `<a href="mailto:${escapeHtml(emp.email)}" style="color:#2563eb; text-decoration:none;">${escapeHtml(emp.email)}</a>` : '<span class="text-muted">-</span>'}
+            </td>
+          `;
+        case 'card_no':
+          return `
+            <td class="font-mono">
+              ${emp.card_no && String(emp.card_no).trim() !== '' && String(emp.card_no).trim() !== '0' ? `<span class="badge-tag">💳 ${escapeHtml(emp.card_no)}</span>` : '<span class="text-muted">-</span>'}
+            </td>
+          `;
+        case 'shift':
+          return `
+            <td>
+              <span class="badge-shift-pill" title="${emp.shift_start || ''} - ${emp.shift_end || ''}">
+                <span class="badge-shift-dot" style="background: ${emp.shift_color || '#2563eb'};"></span>
+                ${escapeHtml(emp.shift_name || 'General Shift')}
+              </span>
+            </td>
+          `;
+        case 'punches':
+          return `
+            <td>
+              <div class="cell-primary"><span class="badge-tag">${emp.total_punches || 0} punches</span></div>
+              <div class="cell-sub text-muted" style="font-family:monospace; font-size:0.75rem;">${emp.last_seen ? emp.last_seen.slice(0, 16) : 'Never'}</div>
+            </td>
+          `;
+        case 'status':
+          return `<td style="text-align: center;">${activeBadge}</td>`;
+        case 'actions':
+          return `
+            <td style="text-align: center;">
+              <div style="display: flex; gap: 6px; align-items: center; justify-content: center;">
+                <button type="button" class="btn btn-sm btn-outline btn-edit-emp" data-emp='${JSON.stringify(emp).replace(/'/g, "&apos;")}'>
+                  Edit
+                </button>
+                <button type="button" class="btn btn-sm btn-outline btn-sync-single" data-userid="${emp.user_id}" data-name="${escapeHtml(emp.name || '')}" data-role="${escapeHtml(emp.role || 'Staff')}" title="Sync this user to SpeedFace device">
+                  Sync
+                </button>
+              </div>
+            </td>
+          `;
+        default:
+          return `<td>-</td>`;
+      }
+    }).join('');
+
+    rowsHtml.push(`
+      <tr class="emp-table-row ${isExpanded ? 'emp-row-expanded' : ''}" style="${!isActive ? 'opacity: 0.7; background: #fafafa;' : ''}">
+        ${cellsHtml}
+      </tr>
+    `);
+
+    // If expanded, insert the Full Employee Dossier child row
+    if (isExpanded) {
+      rowsHtml.push(`
+        <tr class="emp-dossier-row" id="dossier_${emp.user_id}">
+          <td colspan="${visibleColCount}">
+            <div class="emp-dossier-wrapper">
+              <div class="emp-dossier-grid">
+                <!-- 1. Personal & Identity Card -->
+                <div class="emp-dossier-card">
+                  <h4>👤 Personal &amp; Identity</h4>
+                  <div class="emp-dossier-list">
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Full Name:</span><span class="emp-dossier-val">${escapeHtml(displayName)}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">First / Last Name:</span><span class="emp-dossier-val">${escapeHtml(emp.first_name || '-')} ${escapeHtml(emp.last_name || '')}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">NIC / Identity:</span><span class="emp-dossier-val font-mono">${escapeHtml(emp.nic || '-')}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Gender:</span><span class="emp-dossier-val">${emp.gender || '-'}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Birthday / Age:</span><span class="emp-dossier-val font-mono">${emp.birthday || '-'}${age ? ` (${age} yrs)` : ''}</span></div>
+                  </div>
+                </div>
+
+                <!-- 2. Employment & Service Card -->
+                <div class="emp-dossier-card">
+                  <h4>🏢 Employment &amp; Service</h4>
+                  <div class="emp-dossier-list">
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Service ID:</span><span class="emp-dossier-val font-mono" style="color:#2563eb;">${escapeHtml(emp.employee_service_id || '-')}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Department:</span><span class="emp-dossier-val">${escapeHtml(emp.department || 'General')}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Designation / Role:</span><span class="emp-dossier-val">${escapeHtml(emp.role || 'Staff')}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Employment Status:</span><span class="emp-dossier-val">${escapeHtml(emp.employment_status || 'Permanent')}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Appointment Date:</span><span class="emp-dossier-val font-mono">${escapeHtml(emp.appointment_date || '-')}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Order Rank:</span><span class="emp-dossier-val font-mono">${escapeHtml(emp.order_by_id || '-')}</span></div>
+                  </div>
+                </div>
+
+                <!-- 3. Terminal & Biometrics Card -->
+                <div class="emp-dossier-card">
+                  <h4>⚡ Biometrics &amp; Shift</h4>
+                  <div class="emp-dossier-list">
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Fingerprint User ID:</span><span class="emp-dossier-val font-mono"><strong>${emp.user_id}</strong></span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Assigned Shift:</span><span class="emp-dossier-val">${escapeHtml(emp.shift_name || 'General Shift')}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Shift Hours:</span><span class="emp-dossier-val font-mono">${emp.shift_start || '08:30'} - ${emp.shift_end || '16:30'}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">RFID Badge No:</span><span class="emp-dossier-val font-mono">${emp.card_no || 'None'}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Total Punches:</span><span class="emp-dossier-val"><span class="badge-tag">${emp.total_punches || 0}</span></span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Last Punch:</span><span class="emp-dossier-val font-mono" style="font-size:0.78rem;">${emp.last_seen || 'Never'}</span></div>
+                  </div>
+                </div>
+
+                <!-- 4. Contact & Quick Actions Card -->
+                <div class="emp-dossier-card">
+                  <h4>📞 Contact &amp; Actions</h4>
+                  <div class="emp-dossier-list">
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Mobile / Phone:</span><span class="emp-dossier-val font-mono">${emp.phone ? `<a href="tel:${escapeHtml(emp.phone)}">${escapeHtml(emp.phone)}</a>` : '-'}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Email:</span><span class="emp-dossier-val">${emp.email ? `<a href="mailto:${escapeHtml(emp.email)}">${escapeHtml(emp.email)}</a>` : '-'}</span></div>
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Active Status:</span><span class="emp-dossier-val">${isActive ? '🟢 Active' : '⚪ Inactive'}</span></div>
+                  </div>
+                  <div class="emp-dossier-actions">
+                    <button type="button" class="btn btn-sm btn-outline btn-dossier-logs" data-userid="${emp.user_id}" title="View Attendance Logs for User ${emp.user_id}">
+                      📋 View Logs
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline btn-dossier-report" data-userid="${emp.user_id}" title="Generate Individual Timesheet Report">
+                      📊 Timesheet
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline btn-dossier-edit" data-emp='${JSON.stringify(emp).replace(/'/g, "&apos;")}'>
+                      ✏️ Edit Details
+                    </button>
+                    <button type="button" class="btn btn-sm btn-primary btn-dossier-sync" data-userid="${emp.user_id}" data-name="${escapeHtml(emp.name || '')}" data-role="${escapeHtml(emp.role || 'Staff')}">
+                      🔄 Sync to Device
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      `);
+    }
+  });
+
+  tbody.innerHTML = rowsHtml.join('');
+
+  // Update Pagination Controls
+  const startIdx = state.empRegistry.pageSize === 'all' ? 0 : (curPage - 1) * pageSize;
+  const endIdx = state.empRegistry.pageSize === 'all' ? total : Math.min(startIdx + pageSize, total);
+  updateEmpPaginationUI(startIdx, endIdx, total, curPage, totalPages);
+
+  // Attach event listeners to rows and buttons
+  attachEmployeeRowListeners();
+}
+
+function attachEmployeeRowListeners() {
+  // Expand button listener
+  document.querySelectorAll('.emp-expand-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const userId = btn.getAttribute('data-userid');
+      if (state.empRegistry.expandedRows.has(userId)) {
+        state.empRegistry.expandedRows.delete(userId);
+      } else {
+        state.empRegistry.expandedRows.add(userId);
+      }
+      renderEmployeesTable();
+    });
+  });
+
+  // Edit employee button listener
+  document.querySelectorAll('.btn-edit-emp, .btn-dossier-edit').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const emp = JSON.parse(btn.getAttribute('data-emp'));
+      openEmployeeModal(emp);
+    });
+  });
+
+  // Active toggle button listener
+  document.querySelectorAll('.btn-toggle-active').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const userId = btn.getAttribute('data-userid');
+      const name = btn.getAttribute('data-name');
+      const newStatus = btn.getAttribute('data-newstatus');
+      const statusLabel = newStatus === '1' ? 'Active' : 'Inactive';
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+
+      try {
+        const res = await fetch(`/api/employees/${userId}/toggle-active`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`User ${userId} (${name || 'Employee'}) marked as ${statusLabel}`, 'success');
+          await loadEmployees();
+          await populateReportEmployeeDropdown();
+        } else {
+          showToast(data.error || 'Failed to update status', 'error');
+          btn.disabled = false;
+          btn.style.opacity = '1';
+        }
+      } catch (err) {
+        showToast(err.message, 'error');
+        btn.disabled = false;
+        btn.style.opacity = '1';
+      }
+    });
+  });
+
+  // Single sync button listener
+  document.querySelectorAll('.btn-sync-single, .btn-dossier-sync').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const userId = btn.getAttribute('data-userid');
+      const name = btn.getAttribute('data-name');
+      const role = btn.getAttribute('data-role');
+
+      showToast(`Syncing User ${userId} (${name || 'Employee'}) to SpeedFace...`, 'info');
+      try {
+        const res = await fetch('/api/employees', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, name, role, syncToDevice: true })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(data.message, 'success');
+        } else {
+          showToast(data.error || 'Sync failed', 'error');
+        }
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  });
+
+  // Dossier shortcut: Jump to attendance records for this user
+  document.querySelectorAll('.btn-dossier-logs').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const uid = btn.getAttribute('data-userid');
+      switchTab('tab-records');
+      const searchInput = document.getElementById('recordSearchInput');
+      if (searchInput) {
+        searchInput.value = uid;
+        state.records.search = uid;
+        state.records.page = 1;
+        loadRecords();
+      }
+    });
+  });
+
+  // Dossier shortcut: Jump to report timesheet for this user
+  document.querySelectorAll('.btn-dossier-report').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const uid = btn.getAttribute('data-userid');
+      switchTab('tab-reports');
+      const scopeSingle = document.getElementById('reportScopeSingle');
+      const empSelect = document.getElementById('reportEmployeeSelect');
+      if (scopeSingle) scopeSingle.checked = true;
+      state.report.scope = 'single';
+      state.report.userId = uid;
+      if (empSelect) empSelect.value = uid;
+      loadReportData();
+    });
+  });
+}
+
 async function loadEmployees() {
   const tbody = document.getElementById('employeesTableBody');
-  tbody.innerHTML = `<tr><td colspan="11" class="text-center py-4">Loading employees...</td></tr>`;
+  if (!state.empRegistry.rawList || state.empRegistry.rawList.length === 0) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="18" class="text-center py-4">Loading employee list...</td></tr>`;
+  }
 
   try {
-    const res = await fetch(`/api/employees?status=${state.employeesFilter || 'all'}`);
+    const res = await fetch('/api/employees?status=all');
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
 
-    // Update status count chips
+    state.empRegistry.rawList = data.employees || [];
+
+    // Update status count chips in card header
     if (data.counts) {
       const elAll = document.getElementById('empCountAll');
       const elAct = document.getElementById('empCountActive');
@@ -3553,140 +4454,41 @@ async function loadEmployees() {
       if (elInact) elInact.textContent = data.counts.inactive ?? 0;
     }
 
-    if (!data.employees || data.employees.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="11" class="text-center py-4 text-muted">No employees found.</td></tr>`;
-      return;
+    // Dynamically populate department dropdown
+    const deptSelect = document.getElementById('filterEmpDept');
+    if (deptSelect) {
+      const currentDept = deptSelect.value;
+      const depts = Array.from(new Set(state.empRegistry.rawList.map(e => (e.department || '').trim()).filter(Boolean))).sort();
+      deptSelect.innerHTML = '<option value="all">All Departments</option>' +
+        depts.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+      if (currentDept && depts.includes(currentDept)) deptSelect.value = currentDept;
     }
 
-    tbody.innerHTML = data.employees.map((emp) => {
-      const avatarHtml = emp.photo
-        ? `<img src="${emp.photo}" class="table-avatar-img" alt="Photo" onerror="this.outerHTML='<span class=\\'table-avatar-initial\\'>${String(emp.user_id).slice(-2)}</span>'">`
-        : `<span class="table-avatar-initial">${String(emp.user_id).slice(-2)}</span>`;
+    // Dynamically populate roles dropdown
+    const roleSelect = document.getElementById('filterEmpRole');
+    if (roleSelect) {
+      const currentRole = roleSelect.value;
+      const roles = Array.from(new Set(state.empRegistry.rawList.map(e => (e.role || '').trim()).filter(Boolean))).sort();
+      roleSelect.innerHTML = '<option value="all">All Roles</option>' +
+        roles.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('');
+      if (currentRole && roles.includes(currentRole)) roleSelect.value = currentRole;
+    }
 
-      const genderBadge = emp.gender === 'Male'
-        ? `<span class="badge-tag" style="background:#eff6ff;color:#2563eb;font-weight:600;">Male ♂</span>`
-        : (emp.gender === 'Female' ? `<span class="badge-tag" style="background:#fdf2f8;color:#db2777;font-weight:600;">Female ♀</span>` : '<span class="text-muted">-</span>');
+    // Dynamically populate shifts dropdown
+    const shiftSelect = document.getElementById('filterEmpShift');
+    if (shiftSelect && state.shifts && state.shifts.length > 0) {
+      const currentShift = shiftSelect.value;
+      shiftSelect.innerHTML = '<option value="all">All Shifts</option>' +
+        state.shifts.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+      if (currentShift) shiftSelect.value = currentShift;
+    }
 
-      const statusBadge = emp.employment_status === 'Permanent'
-        ? `<span class="badge-on-time" style="font-size:0.75rem;">Permanent</span>`
-        : (emp.employment_status ? `<span class="badge-tag" style="font-size:0.75rem;">${escapeHtml(emp.employment_status)}</span>` : '<span class="text-muted">-</span>');
-
-      const isActive = emp.is_active !== 0;
-      const activeBadge = isActive
-        ? `<button class="btn-toggle-active" data-userid="${emp.user_id}" data-name="${escapeHtml(emp.name || '')}" data-newstatus="0" style="border:1px solid #bbf7d0; background:#f0fdf4; color:#16a34a; font-weight:700; font-size:0.75rem; padding:3px 8px; border-radius:12px; cursor:pointer; display:inline-flex; align-items:center; gap:4px; transition:all 0.15s;" title="Click to mark Inactive">
-            <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#22c55e;"></span> Active
-          </button>`
-        : `<button class="btn-toggle-active" data-userid="${emp.user_id}" data-name="${escapeHtml(emp.name || '')}" data-newstatus="1" style="border:1px solid #e2e8f0; background:#f8fafc; color:#64748b; font-weight:700; font-size:0.75rem; padding:3px 8px; border-radius:12px; cursor:pointer; display:inline-flex; align-items:center; gap:4px; transition:all 0.15s;" title="Click to mark Active">
-            <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:#94a3b8;"></span> Inactive
-          </button>`;
-
-      const displayName = [emp.title, emp.name].filter(Boolean).join(' ') || 'Unassigned';
-
-      return `
-        <tr style="${!isActive ? 'opacity: 0.65; background: #fafafa;' : ''}">
-          <td class="font-mono"><strong>${emp.user_id}</strong></td>
-          <td class="font-mono" style="font-weight:600; color:#2563eb;">${escapeHtml(emp.employee_service_id || '-')}</td>
-          <td class="font-mono text-muted" style="font-size:0.85rem;">${escapeHtml(emp.nic || '-')}</td>
-          <td>
-            <div class="table-user-cell">
-              ${avatarHtml}
-              <div>
-                <strong>${escapeHtml(displayName)}</strong>
-                ${emp.department ? `<div class="text-xs text-muted">${escapeHtml(emp.department)} • ${escapeHtml(emp.role || 'Staff')}</div>` : ''}
-              </div>
-            </div>
-          </td>
-          <td>${genderBadge}</td>
-          <td>${statusBadge}</td>
-          <td>${activeBadge}</td>
-          <td class="font-mono">${escapeHtml(emp.phone || '-')}</td>
-          <td>
-            <span class="badge-shift-pill" title="${emp.shift_start || ''} - ${emp.shift_end || ''}">
-              <span class="badge-shift-dot" style="background: ${emp.shift_color || '#2563eb'};"></span>
-              ${escapeHtml(emp.shift_name || 'General Shift')}
-            </span>
-          </td>
-          <td><span class="badge-tag">${emp.total_punches || 0} punches</span></td>
-          <td>
-            <div style="display: flex; gap: 6px; align-items: center;">
-              <button class="btn btn-sm btn-outline btn-edit-emp" data-emp='${JSON.stringify(emp).replace(/'/g, "&apos;")}'>
-                Edit Details
-              </button>
-              <button class="btn btn-sm btn-outline btn-sync-single" data-userid="${emp.user_id}" data-name="${escapeHtml(emp.name || '')}" data-role="${escapeHtml(emp.role || 'Staff')}" title="Sync this user to SpeedFace device">
-                Sync
-              </button>
-            </div>
-          </td>
-        </tr>
-      `;
-    }).join('');
-
-    // Attach edit button listeners
-    document.querySelectorAll('.btn-edit-emp').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const emp = JSON.parse(btn.getAttribute('data-emp'));
-        openEmployeeModal(emp);
-      });
-    });
-
-    // Attach active toggle button listeners
-    document.querySelectorAll('.btn-toggle-active').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const userId = btn.getAttribute('data-userid');
-        const name = btn.getAttribute('data-name');
-        const newStatus = btn.getAttribute('data-newstatus');
-        const statusLabel = newStatus === '1' ? 'Active' : 'Inactive';
-        btn.disabled = true;
-        btn.style.opacity = '0.5';
-
-        try {
-          const res = await fetch(`/api/employees/${userId}/toggle-active`, { method: 'POST' });
-          const data = await res.json();
-          if (data.success) {
-            showToast(`User ${userId} (${name || 'Employee'}) marked as ${statusLabel}`, 'success');
-            await loadEmployees();
-            await populateReportEmployeeDropdown();
-          } else {
-            showToast(data.error || 'Failed to update status', 'error');
-            btn.disabled = false;
-            btn.style.opacity = '1';
-          }
-        } catch (err) {
-          showToast(err.message, 'error');
-          btn.disabled = false;
-          btn.style.opacity = '1';
-        }
-      });
-    });
-
-    // Attach single sync button listeners
-    document.querySelectorAll('.btn-sync-single').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const userId = btn.getAttribute('data-userid');
-        const name = btn.getAttribute('data-name');
-        const role = btn.getAttribute('data-role');
-
-        showToast(`Syncing User ${userId} (${name || 'Employee'}) to SpeedFace...`, 'info');
-        try {
-          const res = await fetch('/api/employees', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: userId, name, role, syncToDevice: true })
-          });
-          const data = await res.json();
-          if (data.success) {
-            showToast(data.message, 'success');
-          } else {
-            showToast(data.error || 'Sync failed', 'error');
-          }
-        } catch (err) {
-          showToast(err.message, 'error');
-        }
-      });
-    });
+    // Apply filters and render table
+    applyEmployeeFilters();
+    renderEmployeesTable();
+    renderEmpColumnSelector();
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="11" class="text-center py-4 text-danger">Error: ${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="18" class="text-center py-4 text-danger">Error loading employees: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 

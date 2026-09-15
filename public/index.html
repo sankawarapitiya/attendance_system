@@ -65,6 +65,34 @@
         window.executeSetMatrixLayout(layout);
       }
     };
+    window.toggleEmpColumnsMenu = function(e) {
+      if (e) {
+        if (e.stopPropagation) e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      }
+      const menu = document.getElementById('empColumnsMenu');
+      if (menu) {
+        const isOpen = menu.style.display === 'block';
+        menu.style.display = isOpen ? 'none' : 'block';
+        if (!isOpen && typeof renderEmpColumnSelector === 'function') {
+          renderEmpColumnSelector();
+        }
+      }
+    };
+    window.closeEmpColumnsMenu = function() {
+      const menu = document.getElementById('empColumnsMenu');
+      if (menu) menu.style.display = 'none';
+    };
+    window.selectAllEmpColumns = function() {
+      if (typeof window.executeSelectAllEmpColumns === 'function') {
+        window.executeSelectAllEmpColumns();
+      }
+    };
+    window.resetEmpColumns = function() {
+      if (typeof window.executeResetEmpColumns === 'function') {
+        window.executeResetEmpColumns();
+      }
+    };
   </script>
 </head>
 <body>
@@ -782,63 +810,207 @@
       <!-- TAB 3: EMPLOYEES DIRECTORY -->
       <section class="tab-content" id="tab-employees">
         <div class="card">
-          <div class="card-header">
+          <div class="card-header" style="flex-wrap: wrap; gap: 12px;">
             <div class="card-title-group">
-              <h3>Enrolled Employees & User Mapping</h3>
-              <p class="subtitle">Assign names and departments to User IDs from your SpeedFace device</p>
+              <h3>Enrolled Employees &amp; User Mapping</h3>
+              <p class="subtitle">Complete employee registry, shift assignments, biometrics, and terminal mapping</p>
             </div>
             <div class="card-header-actions" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <!-- Quick Status Chips -->
               <div class="quick-dates" style="display:inline-flex; gap: 4px;">
                 <button class="btn-chip active" id="filterEmpStatusAll">All (<span id="empCountAll">-</span>)</button>
                 <button class="btn-chip" id="filterEmpStatusActive">🟢 Active (<span id="empCountActive">-</span>)</button>
                 <button class="btn-chip" id="filterEmpStatusInactive">⚪ Inactive (<span id="empCountInactive">-</span>)</button>
               </div>
-              <button class="btn btn-primary" id="btnPushAllToDevice" title="Push all employee names and roles to the SpeedFace terminal">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+
+              <!-- Column Selector Dropdown -->
+              <div class="dropdown" style="position: relative; display: inline-block;">
+                <button class="btn btn-outline btn-sm" id="btnEmpColumnsToggle" onclick="window.toggleEmpColumnsMenu(event)" title="Choose visible columns">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>
+                  Columns <span id="empColumnsCountBadge" style="font-size:0.75rem; background:#e2e8f0; padding:1px 5px; border-radius:10px; margin-left:2px;">13</span> ▾
+                </button>
+                <div id="empColumnsMenu" class="dropdown-menu" style="display: none; position: absolute; right: 0; top: calc(100% + 4px); background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15), 0 8px 10px -6px rgba(0,0,0,0.1); width: 280px; z-index: 1050; padding: 12px; max-height: 460px; overflow-y: auto;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid #e2e8f0;">
+                    <strong style="font-size: 0.85rem; color: #1e293b;">Visible Columns</strong>
+                    <div style="display: flex; gap: 4px;">
+                      <button type="button" class="btn btn-sm btn-outline" style="font-size: 0.72rem; padding: 2px 6px;" onclick="window.selectAllEmpColumns()">All</button>
+                      <button type="button" class="btn btn-sm btn-outline" style="font-size: 0.72rem; padding: 2px 6px;" onclick="window.resetEmpColumns()">Reset</button>
+                    </div>
+                  </div>
+                  <div id="empColumnsList" style="display: flex; flex-direction: column; gap: 6px;">
+                    <!-- Checkboxes rendered dynamically by renderEmpColumnSelector() -->
+                  </div>
+                </div>
+              </div>
+
+              <!-- Expand/Collapse All Rows Toggle -->
+              <button class="btn btn-outline btn-sm" id="btnToggleExpandAll" title="Expand or collapse full details for all employees on this page">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                <span id="btnToggleExpandAllText">Expand All</span>
+              </button>
+
+              <button class="btn btn-primary btn-sm" id="btnPushAllToDevice" title="Push all employee names and roles to the SpeedFace terminal">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 Sync with Device
               </button>
-              <button class="btn btn-outline" id="btnOpenBulkShiftModal" title="Bulk assign shift to employees">
+              <button class="btn btn-outline btn-sm" id="btnOpenBulkShiftModal" title="Bulk assign shift to employees">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                 Assign Shift
               </button>
-              <button class="btn btn-primary" id="btnUploadEmployees" title="Upload employee directory from CSV or Excel file">
+              <button class="btn btn-primary btn-sm" id="btnUploadEmployees" title="Upload employee directory from CSV or Excel file">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                Upload CSV / Excel
+                Upload
               </button>
-              <button class="btn btn-success" id="btnExportEmployeesExcel">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                Export Excel (.xlsx)
+              <button class="btn btn-success btn-sm" id="btnExportEmployeesExcel">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                Excel
               </button>
-              <button class="btn btn-outline" id="btnExportEmployeesCsv" title="Export as CSV">
+              <button class="btn btn-outline btn-sm" id="btnExportEmployeesCsv" title="Export as CSV">
                 CSV
               </button>
-              <button class="btn btn-outline" id="btnSyncUsers" title="Pull users enrolled on the terminal into database">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                Pull from Device
+              <button class="btn btn-outline btn-sm" id="btnSyncUsers" title="Pull users enrolled on the terminal into database">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                Pull
               </button>
             </div>
           </div>
-          <div class="card-body table-responsive">
-            <table class="data-table">
+
+          <!-- Quick Search & Advanced Filter Toolbar -->
+          <div class="emp-toolbar">
+            <div class="emp-search-row">
+              <div class="emp-search-input-wrap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input type="text" id="empSearchInput" class="emp-search-input" placeholder="Search by Name, User ID, Service ID, NIC, Phone, RFID..." autocomplete="off">
+              </div>
+
+              <!-- Advanced Filter Toggle Button -->
+              <button class="btn btn-outline btn-sm" id="btnToggleEmpAdvancedFilter">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+                Filters <span id="empActiveFiltersBadge" style="display:none; font-size:0.75rem; background:#2563eb; color:#fff; padding:1px 6px; border-radius:10px; font-weight:700; margin-left:2px;">0</span>
+              </button>
+
+              <!-- Page Size Selector -->
+              <div style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; color: #475569;">
+                <span>Show:</span>
+                <select id="empPageSizeSelect" style="padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; font-size: 0.82rem; font-weight: 600;">
+                  <option value="10">10</option>
+                  <option value="25" selected>25</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                  <option value="all">All</option>
+                </select>
+              </div>
+
+              <!-- Filter Result Summary -->
+              <div id="empResultSummary" style="font-size: 0.84rem; color: #64748b; font-weight: 500; margin-left: auto;">
+                Showing 0 of 0 employees
+              </div>
+            </div>
+
+            <!-- Collapsible Advanced Filter Drawer -->
+            <div id="empAdvancedFilterPanel" class="emp-filter-drawer" style="display: none;">
+              <div class="emp-filter-grid">
+                <div class="emp-filter-item">
+                  <label for="filterEmpDept">Department</label>
+                  <select id="filterEmpDept">
+                    <option value="all">All Departments</option>
+                  </select>
+                </div>
+                <div class="emp-filter-item">
+                  <label for="filterEmpRole">Role / Designation</label>
+                  <select id="filterEmpRole">
+                    <option value="all">All Roles</option>
+                  </select>
+                </div>
+                <div class="emp-filter-item">
+                  <label for="filterEmpStatusType">Employment</label>
+                  <select id="filterEmpStatusType">
+                    <option value="all">All Statuses</option>
+                    <option value="Permanent">Permanent</option>
+                    <option value="Temperory">Temporary</option>
+                    <option value="Contract">Contract</option>
+                    <option value="Trainee">Trainee</option>
+                  </select>
+                </div>
+                <div class="emp-filter-item">
+                  <label for="filterEmpShift">Assigned Shift</label>
+                  <select id="filterEmpShift">
+                    <option value="all">All Shifts</option>
+                  </select>
+                </div>
+                <div class="emp-filter-item">
+                  <label for="filterEmpGender">Gender</label>
+                  <select id="filterEmpGender">
+                    <option value="all">All Genders</option>
+                    <option value="Male">Male ♂</option>
+                    <option value="Female">Female ♀</option>
+                  </select>
+                </div>
+                <div class="emp-filter-item">
+                  <label for="filterEmpCard">RFID Card</label>
+                  <select id="filterEmpCard">
+                    <option value="all">All</option>
+                    <option value="has_card">Has RFID Card</option>
+                    <option value="no_card">No Card Assigned</option>
+                  </select>
+                </div>
+                <div class="emp-filter-item">
+                  <label for="filterEmpActivity">Attendance Activity</label>
+                  <select id="filterEmpActivity">
+                    <option value="all">All Activity</option>
+                    <option value="has_punches">Has Punches (&gt;0)</option>
+                    <option value="no_punches">Never Punched (0)</option>
+                  </select>
+                </div>
+                <div class="emp-filter-item">
+                  <label for="filterEmpSort">Sort By</label>
+                  <select id="filterEmpSort">
+                    <option value="user_id_asc">User ID (1, 2, 3...)</option>
+                    <option value="user_id_desc">User ID (High to Low)</option>
+                    <option value="name_asc">Employee Name (A - Z)</option>
+                    <option value="name_desc">Employee Name (Z - A)</option>
+                    <option value="service_id_asc">Service ID (A - Z)</option>
+                    <option value="punches_desc">Total Punches (Highest)</option>
+                    <option value="punches_asc">Total Punches (Lowest)</option>
+                    <option value="last_seen_desc">Last Seen (Recent First)</option>
+                    <option value="appointment_desc">Appointment Date (Newest)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="emp-filter-actions-bar">
+                <span id="empActiveFiltersText" style="font-size: 0.8rem; color: #64748b;">No active filters</span>
+                <div style="display: flex; gap: 8px;">
+                  <button type="button" class="btn btn-sm btn-outline" id="btnResetEmpFilters">Reset Filters</button>
+                  <button type="button" class="btn btn-sm btn-primary" id="btnApplyEmpFilters">Apply</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Table Container -->
+          <div class="card-body table-responsive" style="padding: 0;">
+            <table class="data-table" id="employeesTable">
               <thead>
-                <tr>
-                  <th>FingerPrint ID</th>
-                  <th>Service ID</th>
-                  <th>NIC</th>
-                  <th>Full Name</th>
-                  <th>Gender</th>
-                  <th>Employment</th>
-                  <th>Active</th>
-                  <th>Mobile / Phone</th>
-                  <th>Assigned Shift</th>
-                  <th>Total Punches</th>
-                  <th>Actions</th>
+                <tr id="employeesTableHeadRow">
+                  <!-- Headers rendered dynamically with data-col -->
                 </tr>
               </thead>
               <tbody id="employeesTableBody">
-                <tr><td colspan="11" class="text-center py-4">Loading employee list...</td></tr>
+                <tr><td colspan="18" class="text-center py-4">Loading employee list...</td></tr>
               </tbody>
             </table>
+          </div>
+
+          <!-- Pagination Bar -->
+          <div class="pagination-bar" id="empPaginationBar">
+            <div class="pagination-info" id="empPaginationInfo">Showing 0 of 0 employees</div>
+            <div class="pagination-controls" id="empPaginationControls">
+              <button class="btn btn-sm btn-outline" id="btnEmpFirstPage" title="First Page">&laquo; First</button>
+              <button class="btn btn-sm btn-outline" id="btnEmpPrevPage" title="Previous Page">&larr; Prev</button>
+              <div class="pagination-pages" id="empPaginationPages"></div>
+              <button class="btn btn-sm btn-outline" id="btnEmpNextPage" title="Next Page">Next &rarr;</button>
+              <button class="btn btn-sm btn-outline" id="btnEmpLastPage" title="Last Page">Last &raquo;</button>
+            </div>
           </div>
         </div>
       </section>

@@ -3150,3 +3150,293 @@ body {
 #tab-api pre::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
+
+/* ============================================================
+   EMPLOYEE REGISTRY ENHANCEMENTS: MULTI-ROW & ADVANCED FILTERS
+   ============================================================ */
+
+#tab-employees .card,
+#tab-employees .card-header {
+  overflow: visible !important;
+}
+
+#empColumnsMenu {
+  z-index: 1050;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Quick Search & Filter Toolbar */
+.emp-toolbar {
+  padding: 14px 20px;
+  background: #f8fafc;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.emp-search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.emp-search-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 240px;
+}
+
+.emp-search-input-wrap svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.emp-search-input {
+  width: 100%;
+  padding: 8px 12px 8px 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  background: #ffffff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.emp-search-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+/* Advanced Filter Drawer */
+.emp-filter-drawer {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 2px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.emp-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.emp-filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.emp-filter-item label {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.emp-filter-item select,
+.emp-filter-item input {
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  background: #ffffff;
+  color: #1e293b;
+}
+
+.emp-filter-item select:focus,
+.emp-filter-item input:focus {
+  outline: none;
+  border-color: #2563eb;
+}
+
+.emp-filter-actions-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px dashed #e2e8f0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Multi-Row Cells in Table */
+.cell-primary {
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.25;
+}
+
+.cell-sub {
+  font-size: 0.78rem;
+  color: #64748b;
+  margin-top: 2px;
+  line-height: 1.2;
+}
+
+.emp-expand-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: #64748b;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+
+.emp-expand-btn:hover {
+  background: #eff6ff;
+  color: #2563eb;
+  border-color: #bfdbfe;
+}
+
+.emp-expand-btn svg {
+  transition: transform 0.2s ease;
+  width: 14px;
+  height: 14px;
+}
+
+.emp-expand-btn.expanded svg {
+  transform: rotate(90deg);
+}
+
+/* Expandable Full Dossier Row */
+.emp-dossier-row {
+  background: #f8fafc !important;
+}
+
+.emp-dossier-row td {
+  padding: 0 !important;
+  border-bottom: 2px solid #cbd5e1 !important;
+}
+
+.emp-dossier-wrapper {
+  padding: 16px 20px;
+  animation: fadeIn 0.15s ease-in;
+}
+
+.emp-dossier-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.emp-dossier-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.emp-dossier-card h4 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #334155;
+  margin-top: 0;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.emp-dossier-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.82rem;
+}
+
+.emp-dossier-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.emp-dossier-label {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.emp-dossier-val {
+  font-weight: 600;
+  color: #0f172a;
+  text-align: right;
+  word-break: break-word;
+}
+
+.emp-dossier-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+}
+
+/* Numbered Pagination Buttons */
+.pagination-pages {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.pagination-num-btn {
+  padding: 4px 9px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 32px;
+  text-align: center;
+}
+
+.pagination-num-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.pagination-num-btn.active {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+}
+
+.pagination-num-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination-ellipsis {
+  padding: 0 4px;
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
