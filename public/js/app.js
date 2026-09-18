@@ -261,6 +261,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initWebSocket();
   loadDeviceControlData();
   updateStopSyncButtonsUI();
+  initApiServiceTab();
 });
 
 // Toast Notifications
@@ -7400,27 +7401,26 @@ async function loadAndRenderApiCatalog() {
   if (!container) return;
 
   if (apiEndpointsList.length === 0) {
-    try {
-      const res = await fetch('/api/v1/docs');
-      const data = await res.json();
-      if (data.endpoints && Array.isArray(data.endpoints)) {
-        apiEndpointsList = data.endpoints;
-        const badgeCount = document.getElementById('apiCatalogBadgeCount');
-        const totalCount = document.getElementById('apiTotalCount');
-        if (badgeCount) badgeCount.textContent = `${apiEndpointsList.length} Endpoints`;
-        if (totalCount) totalCount.textContent = apiEndpointsList.length;
+    if (window.EMBEDDED_API_ENDPOINTS && Array.isArray(window.EMBEDDED_API_ENDPOINTS) && window.EMBEDDED_API_ENDPOINTS.length > 0) {
+      apiEndpointsList = window.EMBEDDED_API_ENDPOINTS;
+    } else {
+      try {
+        const res = await fetch('/api/v1/docs');
+        const data = await res.json();
+        if (data.endpoints && Array.isArray(data.endpoints)) {
+          apiEndpointsList = data.endpoints;
+        }
+      } catch (err) {
+        console.warn('Could not fetch /api/v1/docs dynamically:', err);
       }
-    } catch (err) {
-      console.error('Failed to fetch API docs:', err);
-      container.innerHTML = `
-        <div style="text-align: center; padding: 30px; color: #ef4444;">
-          <strong>Failed to load API catalog:</strong> ${escapeHtml(err.message)}
-          <br><button type="button" class="btn btn-sm btn-outline" onclick="loadAndRenderApiCatalog()" style="margin-top: 10px;">↺ Try Again</button>
-        </div>
-      `;
-      return;
     }
   }
+
+  const total = apiEndpointsList.length || 59;
+  const badgeCount = document.getElementById('apiCatalogBadgeCount');
+  const totalCount = document.getElementById('apiTotalCount');
+  if (badgeCount) badgeCount.textContent = `${total} Endpoints`;
+  if (totalCount) totalCount.textContent = total;
 
   renderApiEndpointsCatalog();
 }
@@ -7431,20 +7431,69 @@ function renderApiEndpointsCatalog() {
   const totalBadge = document.getElementById('apiTotalCount');
   if (!container) return;
 
-  const total = apiEndpointsList.length;
+  const total = apiEndpointsList.length || 59;
   if (totalBadge) totalBadge.textContent = total;
 
-  // Filter endpoints
+  // 1. FAST-PATH: If static endpoint cards already exist in DOM, filter them instantly
+  const domCards = container.querySelectorAll('.api-endpoint-card');
+  if (domCards && domCards.length > 0) {
+    let visible = 0;
+    domCards.forEach(card => {
+      const epMethod = (card.getAttribute('data-method') || '').toUpperCase();
+      const epCat = (card.getAttribute('data-category') || '').toLowerCase();
+      const epSearch = (card.getAttribute('data-search') || '').toLowerCase();
+
+      let show = true;
+      if (apiActiveCategory !== 'all' && epCat !== apiActiveCategory.toLowerCase()) {
+        show = false;
+      }
+      if (apiActiveMethod !== 'all' && epMethod !== apiActiveMethod.toUpperCase()) {
+        show = false;
+      }
+      if (apiSearchQuery && !epSearch.includes(apiSearchQuery)) {
+        show = false;
+      }
+
+      card.style.display = show ? 'block' : 'none';
+      if (show) visible++;
+    });
+
+    if (countBadge) countBadge.textContent = visible;
+
+    let emptyNotice = document.getElementById('apiNoMatchNotice');
+    if (visible === 0) {
+      if (!emptyNotice) {
+        emptyNotice = document.createElement('div');
+        emptyNotice.id = 'apiNoMatchNotice';
+        emptyNotice.innerHTML = `
+          <div style="text-align: center; padding: 48px 20px; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1; margin-top: 10px;">
+            <div style="font-size: 2rem; margin-bottom: 8px;">🔍</div>
+            <div style="font-size: 1rem; font-weight: 700; color: #1e293b;">No matching endpoints found</div>
+            <p style="font-size: 0.85rem; color: #64748b; margin: 4px auto 12px auto; max-width: 420px;">
+              No API endpoints match your current filter or keyword.
+            </p>
+            <button type="button" class="btn btn-sm btn-outline" onclick="window.resetApiCatalogFilters()" style="cursor: pointer;">
+              ↺ Reset All Filters
+            </button>
+          </div>
+        `;
+        container.appendChild(emptyNotice);
+      }
+      emptyNotice.style.display = 'block';
+    } else if (emptyNotice) {
+      emptyNotice.style.display = 'none';
+    }
+    return;
+  }
+
+  // 2. DYNAMIC FALLBACK: If container was empty, generate cards
   const filtered = apiEndpointsList.filter(ep => {
-    // Category filter
     if (apiActiveCategory !== 'all' && (ep.category || '').toLowerCase() !== apiActiveCategory.toLowerCase()) {
       return false;
     }
-    // Method filter
     if (apiActiveMethod !== 'all' && (ep.method || '').toUpperCase() !== apiActiveMethod.toUpperCase()) {
       return false;
     }
-    // Search query filter
     if (apiSearchQuery) {
       const q = apiSearchQuery;
       const matchPath = ep.path && ep.path.toLowerCase().includes(q);
@@ -7470,7 +7519,7 @@ function renderApiEndpointsCatalog() {
         <div style="font-size: 2rem; margin-bottom: 8px;">🔍</div>
         <div style="font-size: 1rem; font-weight: 700; color: #1e293b;">No matching endpoints found</div>
         <p style="font-size: 0.85rem; color: #64748b; margin: 4px auto 12px auto; max-width: 420px;">
-          No API endpoints match your filter "<strong>${escapeHtml(apiSearchQuery || apiActiveCategory || apiActiveMethod)}</strong>".
+          No API endpoints match your current search or category filter.
         </p>
         <button type="button" class="btn btn-sm btn-outline" onclick="window.resetApiCatalogFilters()" style="cursor: pointer;">
           ↺ Reset All Filters
@@ -7480,7 +7529,6 @@ function renderApiEndpointsCatalog() {
     return;
   }
 
-  // Method badge class helper
   const getMethodBadgeClass = (m) => {
     switch ((m || '').toUpperCase()) {
       case 'GET': return 'api-badge-get';

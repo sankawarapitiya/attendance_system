@@ -120,7 +120,9 @@ const API_ENDPOINTS = [
     method: 'POST',
     path: '/api/employees/parse',
     description: 'Parse uploaded employee Excel file and return validation preview',
-    body: 'Multipart form data containing "file"'
+    body: {
+      file: 'file (Multipart form data containing .xlsx or .csv Excel sheet)'
+    }
   },
   {
     id: 'upload-employees',
@@ -456,7 +458,9 @@ const API_ENDPOINTS = [
     method: 'POST',
     path: '/api/holidays/parse',
     description: 'Parse uploaded holidays Excel sheet for preview',
-    body: 'Multipart form data'
+    body: {
+      file: 'file (Multipart form data containing .xlsx or .csv holiday sheet)'
+    }
   },
   {
     id: 'upload-holidays',
