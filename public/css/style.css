@@ -1008,7 +1008,102 @@ body {
   color: var(--text-main);
 }
 
-/* Device & Settings Grid */
+/* =========================================================
+   DEVICE CONTROL FLEX LAYOUT & SCREEN-FIT
+   ========================================================= */
+.device-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.device-nav-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.device-nav-pills .btn-chip {
+  padding: 4px 11px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.18s var(--ease-smooth);
+}
+
+.device-nav-pills .btn-chip:hover {
+  transform: translateY(-1px);
+}
+
+.device-nav-pills .btn-chip.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  box-shadow: 0 2px 6px rgba(29, 78, 216, 0.25);
+}
+
+#btnToggleDeviceFit.active {
+  background: var(--primary-light);
+  color: var(--primary);
+  border-color: var(--primary-border);
+  font-weight: 700;
+}
+
+/* Screen-Fit Flexible Viewport Mode */
+#tab-device.fit-screen {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 105px);
+  max-height: calc(100vh - 105px);
+  overflow: hidden;
+}
+
+#tab-device.fit-screen .device-toolbar {
+  flex-shrink: 0;
+}
+
+#tab-device.fit-screen .device-flex-columns {
+  display: flex;
+  flex: 1 1 0%;
+  min-height: 0;
+  gap: 16px;
+  overflow: hidden;
+}
+
+#tab-device.fit-screen .device-col {
+  flex: 1 1 50%;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  scroll-behavior: smooth;
+}
+
+/* Free / Unrolled Flow Mode */
+#tab-device:not(.fit-screen) .device-flex-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+#tab-device:not(.fit-screen) .device-col {
+  flex: 1 1 480px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Backward compatibility for device-grid */
 .device-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1018,6 +1113,143 @@ body {
 @media (max-width: 900px) {
   .device-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Card Styling in Device Control */
+.device-card {
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: transform 0.2s var(--ease-smooth), box-shadow 0.2s var(--ease-smooth), border-color 0.2s var(--ease-smooth);
+}
+
+.device-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+}
+
+.device-card .card-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #ffffff;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* Scrollable Card Bodies & Long Divs in Device Control */
+.device-scroll-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: 14px 18px;
+}
+
+/* Card-Specific Scroll Heights */
+#cardTerminalStatus .device-scroll-body {
+  max-height: 480px;
+}
+
+#cardConnectionSettings .device-scroll-body {
+  max-height: 460px;
+}
+
+#cardOrgSettings .device-scroll-body {
+  max-height: 480px;
+}
+
+#firebaseSyncCard .device-scroll-body {
+  max-height: 560px;
+}
+
+#cardRecentSyncLogs .device-table-scroll {
+  max-height: 280px;
+  overflow-y: auto;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  position: relative;
+}
+
+#cardRecentSyncLogs .device-table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f8fafc !important;
+  box-shadow: 0 1px 0 var(--border);
+}
+
+#cardSystemHealth .device-scroll-body {
+  max-height: 500px;
+}
+
+#cardDataReset .device-scroll-body {
+  max-height: 320px;
+}
+
+/* Sleek Scrollbars on all Device Control scrollable divs */
+.device-scroll-body::-webkit-scrollbar,
+.device-table-scroll::-webkit-scrollbar,
+.device-col::-webkit-scrollbar,
+.device-info-list::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.device-scroll-body::-webkit-scrollbar-track,
+.device-table-scroll::-webkit-scrollbar-track,
+.device-col::-webkit-scrollbar-track,
+.device-info-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.device-scroll-body::-webkit-scrollbar-thumb,
+.device-table-scroll::-webkit-scrollbar-thumb,
+.device-col::-webkit-scrollbar-thumb,
+.device-info-list::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+  transition: background 0.2s ease;
+}
+
+.device-scroll-body::-webkit-scrollbar-thumb:hover,
+.device-table-scroll::-webkit-scrollbar-thumb:hover,
+.device-col::-webkit-scrollbar-thumb:hover,
+.device-info-list::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.device-scroll-body,
+.device-table-scroll,
+.device-col,
+.device-info-list {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+/* Tablet & Mobile Breakpoints for Device Control */
+@media (max-width: 992px) {
+  #tab-device.fit-screen {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  #tab-device.fit-screen .device-flex-columns {
+    flex-direction: column !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  #tab-device.fit-screen .device-col {
+    height: auto !important;
+    max-height: none !important;
+    flex: 1 1 100% !important;
+    overflow: visible !important;
   }
 }
 

@@ -4784,6 +4784,23 @@ function closeDeleteEmployeeModal() {
 
 // 5. Device Control & Diagnostics
 async function initDeviceControl() {
+  // Screen-Fit Viewport Preference restoration
+  try {
+    const savedFitScreen = localStorage.getItem('device_fit_screen');
+    const tabDev = document.getElementById('tab-device');
+    const fitBtn = document.getElementById('btnToggleDeviceFit');
+    const fitText = document.getElementById('btnToggleDeviceFitText');
+    if (savedFitScreen === 'false') {
+      tabDev?.classList.remove('fit-screen');
+      fitBtn?.classList.remove('active');
+      if (fitText) fitText.textContent = 'Fit to Screen: OFF';
+    } else {
+      tabDev?.classList.add('fit-screen');
+      fitBtn?.classList.add('active');
+      if (fitText) fitText.textContent = 'Fit to Screen: ON';
+    }
+  } catch (e) {}
+
   initFirebaseSync();
   document.getElementById('btnTestConn')?.addEventListener('click', testDeviceConnection);
   document.getElementById('btnActionSync')?.addEventListener('click', triggerManualSync);

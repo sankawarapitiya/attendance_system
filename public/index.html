@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=2.6.0">
+  <link rel="stylesheet" href="css/style.css?v=2.7.0">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%231d4ed8'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/></svg>">
   <script>
     // Immediate global handlers to ensure zero ReferenceError on early clicks
@@ -98,6 +98,51 @@
       if (typeof window.executeResetEmpColumns === 'function') {
         window.executeResetEmpColumns();
       }
+    };
+    window.filterDeviceSection = function(section, btn) {
+      const pills = document.querySelectorAll('#deviceNavPills .btn-chip');
+      pills.forEach(p => p.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+
+      const cards = document.querySelectorAll('#tab-device .device-card');
+      const leftCol = document.getElementById('deviceColLeft');
+      const rightCol = document.getElementById('deviceColRight');
+
+      cards.forEach(card => {
+        const cardSection = card.getAttribute('data-section');
+        if (section === 'all' || cardSection === section) {
+          card.style.display = 'flex';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+
+      if (leftCol && rightCol) {
+        if (section === 'all') {
+          leftCol.style.display = 'flex';
+          leftCol.style.flex = '1 1 50%';
+          rightCol.style.display = 'flex';
+          rightCol.style.flex = '1 1 50%';
+        } else {
+          const hasLeftCards = leftCol.querySelector('.device-card[data-section="' + section + '"]');
+          const hasRightCards = rightCol.querySelector('.device-card[data-section="' + section + '"]');
+          leftCol.style.display = hasLeftCards ? 'flex' : 'none';
+          if (hasLeftCards) leftCol.style.flex = '1 1 100%';
+          rightCol.style.display = hasRightCards ? 'flex' : 'none';
+          if (hasRightCards) rightCol.style.flex = '1 1 100%';
+        }
+      }
+    };
+    window.toggleDeviceFitScreen = function() {
+      const tab = document.getElementById('tab-device');
+      const btn = document.getElementById('btnToggleDeviceFit');
+      const text = document.getElementById('btnToggleDeviceFitText');
+      if (!tab) return;
+
+      const isFit = tab.classList.toggle('fit-screen');
+      if (btn) btn.classList.toggle('active', isFit);
+      if (text) text.textContent = isFit ? 'Fit to Screen: ON' : 'Fit to Screen: OFF';
+      try { localStorage.setItem('device_fit_screen', isFit ? 'true' : 'false'); } catch (e) {}
     };
   </script>
 </head>
@@ -1101,10 +1146,31 @@
       </section>
 
       <!-- TAB 4: DEVICE CONTROL & SETTINGS -->
-      <section class="tab-content" id="tab-device">
-        <div class="device-grid">
-          <!-- Device Status Card -->
-          <div class="card">
+      <section class="tab-content fit-screen" id="tab-device">
+        <!-- Device Control Viewport Toolbar & Section Filter Pills -->
+        <div class="device-toolbar">
+          <div class="device-nav-pills" id="deviceNavPills">
+            <button type="button" class="btn btn-chip active" onclick="window.filterDeviceSection('all', this)">🌐 All Panels</button>
+            <button type="button" class="btn btn-chip" onclick="window.filterDeviceSection('terminal', this)">📱 Terminal &amp; Settings</button>
+            <button type="button" class="btn btn-chip" onclick="window.filterDeviceSection('org', this)">🏛️ Organization Details</button>
+            <button type="button" class="btn btn-chip" onclick="window.filterDeviceSection('firebase', this)">🔥 Cloud Sync (Firestore)</button>
+            <button type="button" class="btn btn-chip" onclick="window.filterDeviceSection('logs', this)">📋 Sync Logs</button>
+            <button type="button" class="btn btn-chip" onclick="window.filterDeviceSection('diagnostics', this)">🛡️ Diagnostics &amp; Reset</button>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <button type="button" class="btn btn-sm btn-outline active" id="btnToggleDeviceFit" onclick="window.toggleDeviceFitScreen()" title="Toggle Screen-Fit Flexible Viewport Mode">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+              <span id="btnToggleDeviceFitText">Fit to Screen: ON</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Two Balanced Flex Columns fitting viewport with independent scrolling -->
+        <div class="device-flex-columns" id="deviceFlexColumns">
+          <!-- LEFT COLUMN: Terminal Status, Settings, Organization Details -->
+          <div class="device-col" id="deviceColLeft">
+            <!-- Device Status Card -->
+          <div class="card device-card" id="cardTerminalStatus" data-section="terminal">
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
               <div style="display: flex; align-items: center; gap: 10px;">
                 <h3 style="margin-bottom: 0;">SpeedFace-V5L Terminal Status</h3>
@@ -1112,8 +1178,8 @@
               </div>
               <button class="btn btn-sm btn-outline" id="btnTestConn">Test Connection</button>
             </div>
-            <div class="card-body">
-              <div class="device-info-list">
+            <div class="card-body device-scroll-body">
+              <div class="device-info-list" style="max-height: 240px; overflow-y: auto;">
                 <div class="info-row">
                   <span class="info-key">Terminal IP Address</span>
                   <span class="info-val font-mono" id="devIpVal">192.168.10.15</span>
@@ -1175,12 +1241,12 @@
             </div>
           </div>
 
-          <!-- Settings Card -->
-          <div class="card">
+            <!-- Settings Card -->
+          <div class="card device-card" id="cardConnectionSettings" data-section="terminal">
             <div class="card-header">
               <h3>Connection & Sync Settings</h3>
             </div>
-            <div class="card-body">
+            <div class="card-body device-scroll-body">
               <form id="settingsForm">
                 <div class="form-group">
                   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -1227,8 +1293,8 @@
             </div>
         </div>
 
-        <!-- Organization & Report Letterhead Settings Card -->
-        <div class="card mt-4">
+            <!-- Organization & Report Letterhead Settings Card -->
+        <div class="card device-card" id="cardOrgSettings" data-section="org">
           <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <div>
               <h3 style="margin-bottom: 2px;">🏛️ Organization & Report Letterhead Details</h3>
@@ -1236,7 +1302,7 @@
             </div>
             <span class="badge-tag" style="background: var(--accent-light); color: var(--accent-dark); font-weight: 700; font-size: 0.8rem; border: 1px solid var(--accent-border);">Print Letterhead</span>
           </div>
-          <div class="card-body">
+          <div class="card-body device-scroll-body">
             <form id="orgSettingsForm">
               <div class="form-group">
                 <label for="settingOrgName">Organization / Institution / Company Name <span class="text-danger">*</span></label>
@@ -1284,9 +1350,12 @@
             </form>
           </div>
         </div>
+          </div>
 
-        <!-- Firebase Firestore Cloud Sync & Multi-Organization Card -->
-        <div class="card mt-4" id="firebaseSyncCard">
+          <!-- RIGHT COLUMN: Firebase Sync, Sync Logs, System Health, Data Reset -->
+          <div class="device-col" id="deviceColRight">
+            <!-- Firebase Firestore Cloud Sync & Multi-Organization Card -->
+        <div class="card device-card" id="firebaseSyncCard" data-section="firebase">
           <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
             <div>
               <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
@@ -1310,7 +1379,7 @@
               </button>
             </div>
           </div>
-          <div class="card-body">
+          <div class="card-body device-scroll-body">
             <!-- Live Cloud Sync Status Banner with Real-time Progress Bar -->
             <div id="fbLiveSyncBanner" style="margin-bottom: 20px; border-radius: 12px; padding: 16px 20px; border: 1px solid #e2e8f0; background: #f8fafc; transition: all 0.3s ease;">
               <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
@@ -1505,12 +1574,12 @@
           </div>
         </div>
 
-        <!-- Recent Sync Log Card -->
-        <div class="card mt-4">
+            <!-- Recent Sync Log Card -->
+        <div class="card device-card" id="cardRecentSyncLogs" data-section="logs">
           <div class="card-header">
             <h3>Recent Synchronization Logs</h3>
           </div>
-          <div class="card-body table-responsive">
+          <div class="card-body table-responsive device-table-scroll">
             <table class="data-table">
               <thead>
                 <tr>
@@ -1529,61 +1598,8 @@
           </div>
         </div>
 
-        <!-- Data Management & System Reset Card (Danger Zone) -->
-        <div class="card card-danger-zone mt-4" id="cardDataReset">
-          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <span style="font-size: 1.4rem;">⚠️</span>
-              <div>
-                <h3 style="margin-bottom: 2px; color: #b91c1c;">Data Management & System Reset</h3>
-                <p class="subtitle" style="margin-bottom: 0;">Safely download database backups, purge attendance records, or wipe employee directories</p>
-              </div>
-            </div>
-            <span class="badge" style="background:#fee2e2; color:#b91c1c; font-weight:700; border: 1px solid #fca5a5;">
-              DANGER ZONE
-            </span>
-          </div>
-          <div class="card-body">
-            <!-- Warning & Information Banner -->
-            <div style="background: #fff5f5; border: 1px solid #fed7d7; border-left: 4px solid #ef4444; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; font-size: 0.9rem; color: #7f1d1d;">
-              <strong>Notice:</strong> Reset operations permanently delete data from the local SQLite database. They cannot be undone unless you have a backup. It is strongly advised to download a complete JSON backup prior to performing any reset.
-            </div>
-
-            <!-- Current Database Summary Stats -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
-                <div style="font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Attendance Punches</div>
-                <div id="resetStatAttCount" style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
-                <div style="font-size: 0.75rem; color: #94a3b8;">Stored in attendance_records</div>
-              </div>
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
-                <div style="font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Enrolled Employees</div>
-                <div id="resetStatEmpCount" style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
-                <div style="font-size: 0.75rem; color: #94a3b8;">Stored in employees table</div>
-              </div>
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
-                <div style="font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Sync & Audit Logs</div>
-                <div id="resetStatLogCount" style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
-                <div style="font-size: 0.75rem; color: #94a3b8;">Stored in sync_logs table</div>
-              </div>
-            </div>
-
-            <!-- Action Controls -->
-            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: flex-start;">
-              <button type="button" class="btn btn-outline" id="btnDownloadBackup" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                Download Full Database Backup (.JSON)
-              </button>
-              <button type="button" class="btn btn-danger-outline" id="btnOpenResetModal" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                Reset Attendance & Employees...
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Production System Diagnostics, Health & Rolling Backups Card -->
-        <div class="card mt-4" id="cardSystemHealth">
+            <!-- Production System Diagnostics, Health & Rolling Backups Card -->
+        <div class="card device-card" id="cardSystemHealth" data-section="diagnostics">
           <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <div style="display: flex; align-items: center; gap: 10px;">
               <span style="font-size: 1.4rem;">🛡️</span>
@@ -1598,7 +1614,7 @@
               </button>
             </div>
           </div>
-          <div class="card-body">
+          <div class="card-body device-scroll-body">
             <!-- Production Health Metric Boxes -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px;">
               <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
@@ -1660,6 +1676,61 @@
 Loading application logs...
               </div>
             </div>
+          </div>
+        </div>
+
+            <!-- Data Management & System Reset Card (Danger Zone) -->
+        <div class="card card-danger-zone device-card" id="cardDataReset" data-section="diagnostics">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 1.4rem;">⚠️</span>
+              <div>
+                <h3 style="margin-bottom: 2px; color: #b91c1c;">Data Management & System Reset</h3>
+                <p class="subtitle" style="margin-bottom: 0;">Safely download database backups, purge attendance records, or wipe employee directories</p>
+              </div>
+            </div>
+            <span class="badge" style="background:#fee2e2; color:#b91c1c; font-weight:700; border: 1px solid #fca5a5;">
+              DANGER ZONE
+            </span>
+          </div>
+          <div class="card-body device-scroll-body">
+            <!-- Warning & Information Banner -->
+            <div style="background: #fff5f5; border: 1px solid #fed7d7; border-left: 4px solid #ef4444; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; font-size: 0.9rem; color: #7f1d1d;">
+              <strong>Notice:</strong> Reset operations permanently delete data from the local SQLite database. They cannot be undone unless you have a backup. It is strongly advised to download a complete JSON backup prior to performing any reset.
+            </div>
+
+            <!-- Current Database Summary Stats -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                <div style="font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Attendance Punches</div>
+                <div id="resetStatAttCount" style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                <div style="font-size: 0.75rem; color: #94a3b8;">Stored in attendance_records</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                <div style="font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Enrolled Employees</div>
+                <div id="resetStatEmpCount" style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                <div style="font-size: 0.75rem; color: #94a3b8;">Stored in employees table</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                <div style="font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Sync & Audit Logs</div>
+                <div id="resetStatLogCount" style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                <div style="font-size: 0.75rem; color: #94a3b8;">Stored in sync_logs table</div>
+              </div>
+            </div>
+
+            <!-- Action Controls -->
+            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: flex-start;">
+              <button type="button" class="btn btn-outline" id="btnDownloadBackup" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Download Full Database Backup (.JSON)
+              </button>
+              <button type="button" class="btn btn-danger-outline" id="btnOpenResetModal" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                Reset Attendance & Employees...
+              </button>
+            </div>
+          </div>
+        </div>
           </div>
         </div>
       </section>
@@ -7118,6 +7189,6 @@ Loading application logs...
   <!-- Toast Notification Container -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <script src="js/app.js?v=2.6.0"></script>
+  <script src="js/app.js?v=2.7.0"></script>
 </body>
 </html>
