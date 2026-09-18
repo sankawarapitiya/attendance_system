@@ -260,6 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initGuide();
   initWebSocket();
   loadDeviceControlData();
+  updateStopSyncButtonsUI();
 });
 
 // Toast Notifications
@@ -5372,8 +5373,7 @@ async function triggerManualSync() {
   showToast(`Pulling attendance records from SpeedFace (${ip})...`, 'info');
 
   state.deviceSyncing = true;
-  document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'inline-flex');
-  document.getElementById('btnActionStopSync')?.style.setProperty('display', 'inline-flex');
+  updateStopSyncButtonsUI();
 
   try {
     const res = await fetch('/api/device/sync', {
@@ -5397,45 +5397,92 @@ async function triggerManualSync() {
     showToast(err.message, 'error');
   } finally {
     state.deviceSyncing = false;
-    document.getElementById('btnActionStopSync')?.style.setProperty('display', 'none');
-    if (!state.cloudSyncing) {
-      document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'none');
-    }
+    updateStopSyncButtonsUI();
     if (quickIcon) quickIcon.classList.remove('spin');
   }
 }
 
-// 6b. Stop Sync Actions
+// 6b. Stop Sync Actions & Button State Management
+function updateStopSyncButtonsUI() {
+  const isSyncing = Boolean(state.deviceSyncing || state.cloudSyncing);
+  const btnHeader = document.getElementById('btnStopSyncHeader');
+  const btnAction = document.getElementById('btnActionStopSync');
+  const btnFb = document.getElementById('btnStopFirestoreSync');
+  const btnBanner = document.getElementById('fbLiveSyncStopBtn');
+
+  if (btnHeader) {
+    btnHeader.style.display = 'inline-flex';
+    if (isSyncing) {
+      btnHeader.className = 'btn btn-danger';
+      btnHeader.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg> <span id="btnStopSyncHeaderText">Stop Active Sync</span>`;
+      btnHeader.title = 'Halt active synchronization immediately';
+    } else {
+      btnHeader.className = 'btn btn-danger-outline';
+      btnHeader.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg> <span id="btnStopSyncHeaderText">Stop Sync</span>`;
+      btnHeader.title = 'Stop or pause synchronization';
+    }
+  }
+
+  if (btnAction) {
+    btnAction.style.display = 'inline-flex';
+    if (state.deviceSyncing) {
+      btnAction.className = 'btn btn-danger';
+      btnAction.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg> <span id="btnActionStopSyncText">Stop Active Sync</span>`;
+      btnAction.title = 'Halt active machine download';
+    } else {
+      btnAction.className = 'btn btn-danger-outline';
+      btnAction.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg> <span id="btnActionStopSyncText">Stop Machine Sync</span>`;
+      btnAction.title = 'Stop or cancel machine synchronization';
+    }
+  }
+
+  if (btnFb) {
+    btnFb.style.display = 'inline-flex';
+    if (state.cloudSyncing) {
+      btnFb.className = 'btn btn-sm btn-danger';
+      btnFb.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:12px;height:12px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg> <span id="btnStopFirestoreSyncText">Stop Active Sync</span>`;
+      btnFb.title = 'Halt active Firestore cloud upload';
+    } else {
+      btnFb.className = 'btn btn-sm btn-danger-outline';
+      btnFb.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:12px;height:12px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg> <span id="btnStopFirestoreSyncText">Stop Cloud Sync</span>`;
+      btnFb.title = 'Stop or pause Firestore cloud upload';
+    }
+  }
+
+  if (btnBanner) {
+    if (state.cloudSyncing) {
+      btnBanner.style.display = 'inline-flex';
+    } else {
+      btnBanner.style.display = 'none';
+    }
+  }
+}
+
 async function stopAllSync() {
   const btn = document.getElementById('btnStopSyncHeader');
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Stopping...`;
+    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Stopping...`;
   }
-  showToast('Stopping all active synchronizations...', 'info');
+  showToast('Stopping synchronization (Local punches remain 100% safe)...', 'info');
 
   try {
     const res = await fetch('/api/sync/stop', { method: 'POST' });
     const data = await res.json();
     if (data.success) {
-      showToast('All synchronization stopped. Local punches are 100% safe.', 'success');
+      if (!state.deviceSyncing && !state.cloudSyncing) {
+        showToast('Sync is currently idle / stopped. All local punches are safe in SQLite.', 'info');
+      } else {
+        showToast('All synchronization stopped. Local punches are 100% safe.', 'success');
+      }
     }
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
     state.deviceSyncing = false;
     state.cloudSyncing = false;
-    if (btn) {
-      btn.disabled = false;
-      btn.style.display = 'none';
-      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg><span>Stop Sync</span>`;
-    }
-    const btnActionStop = document.getElementById('btnActionStopSync');
-    if (btnActionStop) btnActionStop.style.display = 'none';
-    const btnStopFb = document.getElementById('btnStopFirestoreSync');
-    if (btnStopFb) btnStopFb.style.display = 'none';
-    const btnBannerStop = document.getElementById('fbLiveSyncStopBtn');
-    if (btnBannerStop) btnBannerStop.style.display = 'none';
+    if (btn) btn.disabled = false;
+    updateStopSyncButtonsUI();
     loadDashboardStats();
     if (typeof loadFirebaseStatus === 'function') loadFirebaseStatus();
   }
@@ -5445,7 +5492,7 @@ async function stopDeviceSync() {
   const btn = document.getElementById('btnActionStopSync');
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Stopping...`;
+    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Stopping...`;
   }
   showToast('Stopping machine synchronization...', 'info');
 
@@ -5453,7 +5500,11 @@ async function stopDeviceSync() {
     const res = await fetch('/api/device/sync/stop', { method: 'POST' });
     const data = await res.json();
     if (data.success) {
-      showToast(data.message || 'Machine sync stopped', 'success');
+      if (!state.deviceSyncing) {
+        showToast('Machine sync is currently idle. Terminal is connected and ready.', 'info');
+      } else {
+        showToast(data.message || 'Machine sync stopped. Local punches are safe.', 'success');
+      }
     } else {
       showToast(data.error || 'Could not cancel sync', 'error');
     }
@@ -5461,15 +5512,8 @@ async function stopDeviceSync() {
     showToast(err.message, 'error');
   } finally {
     state.deviceSyncing = false;
-    if (btn) {
-      btn.disabled = false;
-      btn.style.display = 'none';
-      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg> Stop Machine Sync`;
-    }
-    const btnHeaderStop = document.getElementById('btnStopSyncHeader');
-    if (btnHeaderStop && !state.cloudSyncing) {
-      btnHeaderStop.style.display = 'none';
-    }
+    if (btn) btn.disabled = false;
+    updateStopSyncButtonsUI();
   }
 }
 
@@ -5478,7 +5522,7 @@ async function stopCloudSync() {
   const btnBanner = document.getElementById('fbLiveSyncStopBtn');
   if (btnFb) {
     btnFb.disabled = true;
-    btnFb.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Stopping...`;
+    btnFb.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Stopping...`;
   }
   if (btnBanner) {
     btnBanner.disabled = true;
@@ -5490,27 +5534,23 @@ async function stopCloudSync() {
     const res = await fetch('/api/firebase/stop-sync', { method: 'POST' });
     const data = await res.json();
     if (data.success) {
-      showToast('Cloud upload stopped. Local punches are 100% safe in SQLite.', 'success');
+      if (!state.cloudSyncing) {
+        showToast('Cloud upload is currently idle. Local punches are safely stored in SQLite.', 'info');
+      } else {
+        showToast('Cloud upload stopped. Local punches are 100% safe in SQLite.', 'success');
+      }
     }
     await loadFirebaseStatus();
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
     state.cloudSyncing = false;
-    if (btnFb) {
-      btnFb.disabled = false;
-      btnFb.style.display = 'none';
-      btnFb.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:12px;height:12px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg> Stop Cloud Sync`;
-    }
+    if (btnFb) btnFb.disabled = false;
     if (btnBanner) {
       btnBanner.disabled = false;
-      btnBanner.style.display = 'none';
       btnBanner.textContent = '⏹️ Stop Sync';
     }
-    const btnHeaderStop = document.getElementById('btnStopSyncHeader');
-    if (btnHeaderStop && !state.deviceSyncing) {
-      btnHeaderStop.style.display = 'none';
-    }
+    updateStopSyncButtonsUI();
   }
 }
 
@@ -5701,22 +5741,15 @@ function handleWebSocketMessage(msg) {
     const isDeviceSyncing = syncData.status === 'SYNCING';
     state.deviceSyncing = isDeviceSyncing;
 
-    const btnHeaderStop = document.getElementById('btnStopSyncHeader');
-    const btnActionStop = document.getElementById('btnActionStopSync');
-    const btnActionSync = document.getElementById('btnActionSync');
+    updateStopSyncButtonsUI();
 
+    const btnActionSync = document.getElementById('btnActionSync');
     if (isDeviceSyncing) {
-      if (btnHeaderStop) btnHeaderStop.style.display = 'inline-flex';
-      if (btnActionStop) btnActionStop.style.display = 'inline-flex';
       if (btnActionSync) {
         btnActionSync.disabled = true;
         btnActionSync.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Syncing Machine...`;
       }
     } else {
-      if (btnActionStop) btnActionStop.style.display = 'none';
-      if (!state.cloudSyncing && btnHeaderStop) {
-        btnHeaderStop.style.display = 'none';
-      }
       if (btnActionSync) {
         btnActionSync.disabled = false;
         btnActionSync.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Download All Records Now`;
@@ -7472,9 +7505,7 @@ function initFirebaseSync() {
     btnSyncNow.disabled = true;
     btnSyncNow.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Uploading...`;
     state.cloudSyncing = true;
-    document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'inline-flex');
-    document.getElementById('btnStopFirestoreSync')?.style.setProperty('display', 'inline-flex');
-    document.getElementById('fbLiveSyncStopBtn')?.style.setProperty('display', 'inline-flex');
+    updateStopSyncButtonsUI();
 
     try {
       showToast('Starting cloud upload to Firestore...', 'info');
@@ -7500,11 +7531,7 @@ function initFirebaseSync() {
       showToast(err.message, 'error');
     } finally {
       state.cloudSyncing = false;
-      document.getElementById('btnStopFirestoreSync')?.style.setProperty('display', 'none');
-      document.getElementById('fbLiveSyncStopBtn')?.style.setProperty('display', 'none');
-      if (!state.deviceSyncing) {
-        document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'none');
-      }
+      updateStopSyncButtonsUI();
       btnSyncNow.disabled = false;
       btnSyncNow.innerHTML = origHtml;
     }
@@ -7702,9 +7729,7 @@ function updateCloudSyncProgressUI(prog) {
 
   if (prog.isSyncing) {
     state.cloudSyncing = true;
-    document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'inline-flex');
-    document.getElementById('btnStopFirestoreSync')?.style.setProperty('display', 'inline-flex');
-    document.getElementById('fbLiveSyncStopBtn')?.style.setProperty('display', 'inline-flex');
+    updateStopSyncButtonsUI();
 
     // Header Pill
     if (headerPill) {
@@ -7762,11 +7787,7 @@ function updateCloudSyncProgressUI(prog) {
     }
   } else {
     state.cloudSyncing = false;
-    document.getElementById('btnStopFirestoreSync')?.style.setProperty('display', 'none');
-    document.getElementById('fbLiveSyncStopBtn')?.style.setProperty('display', 'none');
-    if (!state.deviceSyncing) {
-      document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'none');
-    }
+    updateStopSyncButtonsUI();
 
     if (prog.state === 'COMPLETED') {
       if (headerPill) {
@@ -7977,9 +7998,7 @@ function updateFirebaseStatusUI(status) {
   // Visual State Determination: SYNCING, STOPPED, NOT CONFIGURED, OFFLINE, QUEUED, or IN SYNC
   if (isSyncing) {
     state.cloudSyncing = true;
-    document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'inline-flex');
-    document.getElementById('btnStopFirestoreSync')?.style.setProperty('display', 'inline-flex');
-    document.getElementById('fbLiveSyncStopBtn')?.style.setProperty('display', 'inline-flex');
+    updateStopSyncButtonsUI();
 
     // 1. SYNCING ACTIVE
     if (headerPill) {
@@ -8030,11 +8049,7 @@ function updateFirebaseStatusUI(status) {
 
   } else {
     state.cloudSyncing = false;
-    document.getElementById('btnStopFirestoreSync')?.style.setProperty('display', 'none');
-    document.getElementById('fbLiveSyncStopBtn')?.style.setProperty('display', 'none');
-    if (!state.deviceSyncing) {
-      document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'none');
-    }
+    updateStopSyncButtonsUI();
 
     if (prog.state === 'STOPPED') {
       if (headerPill) {

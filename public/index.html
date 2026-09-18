@@ -206,9 +206,9 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
             <span class="sync-btn-text">Sync Machine</span>
           </button>
-          <button class="btn btn-danger" id="btnStopSyncHeader" style="display: none; align-items: center; gap: 6px; padding: 7px 15px; font-weight: 600;" title="Stop active synchronization">
+          <button class="btn btn-danger-outline" id="btnStopSyncHeader" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 15px; font-weight: 600;" title="Stop or pause synchronization">
             <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
-            <span>Stop Sync</span>
+            <span id="btnStopSyncHeaderText">Stop Sync</span>
           </button>
         </div>
       </header>
@@ -1146,9 +1146,9 @@
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
                   Download All Records Now
                 </button>
-                <button class="btn btn-danger" id="btnActionStopSync" style="display: none; align-items: center; gap: 6px;" title="Cancel ongoing machine sync">
+                <button class="btn btn-danger-outline" id="btnActionStopSync" style="display: inline-flex; align-items: center; gap: 6px;" title="Stop or cancel active machine synchronization">
                   <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
-                  Stop Machine Sync
+                  <span id="btnActionStopSyncText">Stop Machine Sync</span>
                 </button>
                 <button class="btn btn-outline" id="btnActionSyncTime">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
@@ -1291,9 +1291,9 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 Upload Pending Data Now
               </button>
-              <button class="btn btn-sm btn-danger" id="btnStopFirestoreSync" type="button" style="display: none; align-items: center; gap: 6px;" title="Stop active cloud upload">
+              <button class="btn btn-sm btn-danger-outline" id="btnStopFirestoreSync" type="button" style="display: inline-flex; align-items: center; gap: 6px;" title="Stop or pause Firestore cloud sync">
                 <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:12px;height:12px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
-                Stop Cloud Sync
+                <span id="btnStopFirestoreSyncText">Stop Cloud Sync</span>
               </button>
             </div>
           </div>
@@ -2840,6 +2840,6 @@ Loading application logs...
   <!-- Toast Notification Container -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <script src="js/app.js?v=2.1.1"></script>
+  <script src="js/app.js?v=2.1.2"></script>
 </body>
 </html>
