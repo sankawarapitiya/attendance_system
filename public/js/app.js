@@ -8261,6 +8261,7 @@ function updateFirebaseStatusUI(status) {
     if (progressWrap) progressWrap.style.display = 'none';
     if (bannerPercent) bannerPercent.style.display = 'none';
   }
+  }
 
   // Project Badge
   if (projBadge) {
