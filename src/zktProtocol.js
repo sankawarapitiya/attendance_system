@@ -138,7 +138,23 @@ class SpeedFaceClient {
       });
     };
 
+    this.activeZk = zk;
     return zk;
+  }
+
+  /**
+   * Immediately aborts and destroys any active socket connection.
+   */
+  abort() {
+    if (this.activeZk) {
+      try {
+        if (this.activeZk.zklibTcp && this.activeZk.zklibTcp.socket) {
+          this.activeZk.zklibTcp.socket.destroy();
+        }
+        this.activeZk.disconnect().catch(() => {});
+      } catch (e) {}
+      this.activeZk = null;
+    }
   }
 
   /**

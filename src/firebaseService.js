@@ -71,6 +71,8 @@ class FirebaseService {
     this.httpsAgent = new https.Agent({ keepAlive: true, timeout: 30000 });
     this.isOnline = false;
     this.isSyncing = false;
+    this.stopRequested = false;
+    this.activeRestReq = null;
     this.quotaExceeded = false;
     this.quotaExceededUntil = null;
     this.lastError = null;
@@ -224,6 +226,7 @@ class FirebaseService {
         let raw = '';
         res.on('data', chunk => raw += chunk);
         res.on('end', () => {
+          this.activeRestReq = null;
           if (res.statusCode >= 200 && res.statusCode < 300) {
             this.quotaExceeded = false;
             this.quotaExceededUntil = null;
@@ -250,11 +253,15 @@ class FirebaseService {
         });
       });
 
+      this.activeRestReq = req;
+
       req.on('timeout', () => {
+        this.activeRestReq = null;
         req.destroy(new Error('Firestore REST request timed out (15s)'));
       });
 
       req.on('error', (err) => {
+        this.activeRestReq = null;
         reject(err);
       });
 
@@ -593,6 +600,7 @@ class FirebaseService {
     const batchSize = Math.min(100, Math.max(20, options.limit || 50));
 
     this.isSyncing = true;
+    this.stopRequested = false;
     this.syncStartTime = Date.now();
     let totalUploaded = 0;
     let batchesProcessed = 0;
@@ -618,10 +626,20 @@ class FirebaseService {
       const projectId = this.keyData.project_id;
 
       while (true) {
+        if (this.stopRequested) {
+          console.log(`[FIREBASE] Cloud sync stop requested. Breaking batch loop.`);
+          break;
+        }
+
         // 1. Fetch pending records from local SQLite
         const pending = await getUnsyncedAttendance(batchSize);
         if (!pending || pending.length === 0) {
           break; // All pending records have been uploaded
+        }
+
+        if (this.stopRequested) {
+          console.log(`[FIREBASE] Cloud sync stop requested. Breaking batch loop.`);
+          break;
         }
 
         // 2. Prepare Firestore REST writes
@@ -703,6 +721,43 @@ class FirebaseService {
         if (pending.length < batchSize || (options.limit && totalUploaded >= options.limit)) {
           break;
         }
+      }
+
+      // Check if user requested stop during loop
+      if (this.stopRequested) {
+        this.stopRequested = false;
+        this.isSyncing = false;
+        const currentStats = await getCloudSyncStats();
+        const pendingLeft = currentStats.pending_attendance || 0;
+        this.syncProgress = {
+          isSyncing: false,
+          state: 'STOPPED',
+          uploadedCount: totalUploaded,
+          totalPending: pendingLeft,
+          percent: totalToUpload > 0 ? Math.round((totalUploaded / totalToUpload) * 100) : 0,
+          message: `Cloud sync stopped by user (${totalUploaded} uploaded, ${pendingLeft} queued in local SQLite).`,
+          currentBatch: batchesProcessed,
+          totalBatches: Math.ceil(totalToUpload / batchSize) || 1,
+          updatedAt: new Date().toISOString()
+        };
+        this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+        if (totalUploaded > 0) {
+          await dbRun(`
+            INSERT INTO sync_logs (sync_type, status, records_synced, total_records, message)
+            VALUES ('CLOUD_SYNC', 'STOPPED', ?, ?, ?)
+          `, [totalUploaded, totalToUpload, `Cloud sync stopped by user after uploading ${totalUploaded} punches. Local records safe.`]);
+        }
+
+        return {
+          success: true,
+          stopped: true,
+          uploadedCount: totalUploaded,
+          batchesProcessed,
+          remainingPending: pendingLeft,
+          orgId,
+          syncProgress: this.syncProgress
+        };
       }
 
       // 5. Update Organization Document metadata once at end of sync run
@@ -862,6 +917,11 @@ class FirebaseService {
       const nowIso = new Date().toISOString();
 
       for (let i = 0; i < employees.length; i += batchSize) {
+        if (this.stopRequested) {
+          console.log(`[FIREBASE] Employee sync stop requested.`);
+          break;
+        }
+
         const slice = employees.slice(i, i + batchSize);
         const writes = [];
         const syncedUserIds = [];
@@ -909,6 +969,7 @@ class FirebaseService {
       return {
         success: true,
         count: totalSynced,
+        stopped: this.stopRequested,
         orgId
       };
     } catch (err) {
@@ -918,6 +979,51 @@ class FirebaseService {
         error: err.message
       };
     }
+  }
+
+  /**
+   * Immediately stops active cloud synchronization.
+   * Local SQLite records remain 100% untouched and safely queued for future upload.
+   */
+  async stopSync() {
+    this.stopRequested = true;
+
+    // Abort active in-flight HTTP request if any
+    if (this.activeRestReq) {
+      try {
+        this.activeRestReq.destroy(new Error('Cloud sync aborted by user'));
+      } catch (e) {}
+      this.activeRestReq = null;
+    }
+
+    const currentStats = await getCloudSyncStats();
+    const pendingLeft = currentStats.pending_attendance || 0;
+
+    this.isSyncing = false;
+    this.syncProgress = {
+      isSyncing: false,
+      state: 'STOPPED',
+      uploadedCount: this.syncProgress.uploadedCount || 0,
+      totalPending: pendingLeft,
+      percent: this.syncProgress.percent || 0,
+      message: `Cloud sync cancelled by user (${pendingLeft} records safely kept in local SQLite).`,
+      currentBatch: this.syncProgress.currentBatch || 0,
+      totalBatches: this.syncProgress.totalBatches || 0,
+      updatedAt: new Date().toISOString()
+    };
+
+    this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+    await dbRun(`
+      INSERT INTO sync_logs (sync_type, status, records_synced, total_records, message)
+      VALUES ('CLOUD_SYNC', 'STOPPED', 0, 0, 'Cloud sync stopped by user. Local records 100% safe.')
+    `).catch(() => {});
+
+    return {
+      success: true,
+      message: 'Cloud sync stopped. Local records 100% safe.',
+      syncProgress: this.syncProgress
+    };
   }
 
   /**

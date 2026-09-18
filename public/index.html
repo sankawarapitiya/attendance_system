@@ -206,6 +206,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
             <span class="sync-btn-text">Sync Machine</span>
           </button>
+          <button class="btn btn-danger" id="btnStopSyncHeader" style="display: none; align-items: center; gap: 6px; padding: 7px 15px; font-weight: 600;" title="Stop active synchronization">
+            <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
+            <span>Stop Sync</span>
+          </button>
         </div>
       </header>
 
@@ -1142,6 +1146,10 @@
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
                   Download All Records Now
                 </button>
+                <button class="btn btn-danger" id="btnActionStopSync" style="display: none; align-items: center; gap: 6px;" title="Cancel ongoing machine sync">
+                  <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
+                  Stop Machine Sync
+                </button>
                 <button class="btn btn-outline" id="btnActionSyncTime">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                   Sync Device Clock with PC
@@ -1283,6 +1291,10 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 Upload Pending Data Now
               </button>
+              <button class="btn btn-sm btn-danger" id="btnStopFirestoreSync" type="button" style="display: none; align-items: center; gap: 6px;" title="Stop active cloud upload">
+                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:12px;height:12px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
+                Stop Cloud Sync
+              </button>
             </div>
           </div>
           <div class="card-body">
@@ -1303,6 +1315,9 @@
                   </div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 10px;">
+                  <button class="btn btn-sm btn-danger-outline" id="fbLiveSyncStopBtn" type="button" style="display: none; padding: 4px 12px; font-size: 0.78rem; font-weight: 700; border-radius: 999px; align-items: center; gap: 5px;" title="Cancel ongoing cloud upload">
+                    ⏹️ Stop Sync
+                  </button>
                   <span id="fbLiveSyncPercentBadge" class="badge" style="font-size: 0.85rem; padding: 5px 12px; font-weight: 700; background: var(--accent-light); color: var(--accent-dark); border: 1px solid var(--accent-border); display: none;">0%</span>
                   <span id="fbLiveSyncStatePill" class="badge" style="font-size: 0.82rem; padding: 5px 14px; font-weight: 700; background: #f1f5f9; color: #475569;">CHECKING</span>
                 </div>

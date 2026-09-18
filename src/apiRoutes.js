@@ -3,7 +3,7 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const { dbAll, dbGet, dbRun, runDatabaseBackup } = require('./db');
-const { syncFromDevice, checkDeviceHealth, getSyncStatus, startAutoSync, stopAutoSync } = require('./syncService');
+const { syncFromDevice, cancelDeviceSync, checkDeviceHealth, getSyncStatus, startAutoSync, stopAutoSync } = require('./syncService');
 const { SpeedFaceClient } = require('./zktProtocol');
 const { firebaseService } = require('./firebaseService');
 const config = require('./config');
@@ -853,6 +853,16 @@ router.post('/device/sync', async (req, res) => {
     const localAddress = body.interfaceIp || (ifaceIpSetting ? ifaceIpSetting.value : null);
 
     const result = await syncFromDevice(ip, port, localAddress);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 4b. Stop active device sync
+router.post('/device/sync/stop', async (req, res) => {
+  try {
+    const result = await cancelDeviceSync();
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -2599,6 +2609,32 @@ router.post('/firebase/reset-sync', async (req, res) => {
     const scope = req.body?.scope || 'all';
     const result = await firebaseService.resetCloudSync(scope);
     res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 8. Stop active Firestore cloud sync
+router.post('/firebase/stop-sync', async (req, res) => {
+  try {
+    const result = await firebaseService.stopSync();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 9. Stop all synchronizations (both device sync and cloud sync)
+router.post('/sync/stop', async (req, res) => {
+  try {
+    const devRes = await cancelDeviceSync();
+    const fbRes = await firebaseService.stopSync();
+    res.json({
+      success: true,
+      message: 'All synchronization processes stopped',
+      device: devRes,
+      firebase: fbRes
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

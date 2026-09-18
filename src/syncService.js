@@ -52,6 +52,8 @@ async function getOrDetectLocalAddress(preferredIp, targetDeviceIp = '192.168.10
 
 let isSyncing = false;
 let isHealthChecking = false;
+let activeClient = null;
+let stopSyncRequested = false;
 let syncTimer = null;
 let healthCheckTimer = null;
 let cloudSyncTimer = null;
@@ -175,6 +177,7 @@ async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, loc
   }
 
   isSyncing = true;
+  stopSyncRequested = false;
   lastSyncStatus.status = 'SYNCING';
   notifyWs('SYNC_STATUS', { status: 'SYNCING', message: 'Connecting to device...' });
 
@@ -187,13 +190,22 @@ async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, loc
 
   localAddress = await getOrDetectLocalAddress(localAddress, deviceIp);
   const client = new SpeedFaceClient(deviceIp, devicePort, 10000, localAddress);
+  activeClient = client;
   const startTime = Date.now();
 
   try {
+    if (stopSyncRequested) {
+      throw new Error('Synchronization stopped by user');
+    }
+
     // 1. Test connection and get device info
     console.log(`[SYNC] Connecting to SpeedFace at ${deviceIp}:${devicePort}...`);
     const connInfo = await client.testConnection();
     
+    if (stopSyncRequested) {
+      throw new Error('Synchronization stopped by user');
+    }
+
     if (!connInfo.success) {
       throw new Error(connInfo.error || 'Failed to establish connection to device');
     }
@@ -211,6 +223,10 @@ async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, loc
       deviceInfo: connInfo
     });
 
+    if (stopSyncRequested) {
+      throw new Error('Synchronization stopped by user');
+    }
+
     // 2. Fetch Users
     notifyWs('SYNC_STATUS', { status: 'SYNCING', message: 'Fetching enrolled employees...' });
     let users = [];
@@ -224,9 +240,17 @@ async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, loc
       console.warn('[SYNC] Notice: User list retrieval:', uErr.message);
     }
 
+    if (stopSyncRequested) {
+      throw new Error('Synchronization stopped by user');
+    }
+
     // 3. Fetch Attendance Records (SpeedFace 49-byte format)
     notifyWs('SYNC_STATUS', { status: 'SYNCING', message: 'Reading attendance logs from terminal...' });
     const records = await client.getAttendances();
+    if (stopSyncRequested) {
+      throw new Error('Synchronization stopped by user');
+    }
+
     console.log(`[SYNC] Pulled ${records.length} records from ${deviceIp}. Inserting into database...`);
 
     const insertResult = await insertAttendanceBatch(records);
@@ -277,13 +301,14 @@ async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, loc
     });
 
     // Auto-upload pending records to Firebase Firestore (non-blocking)
-    firebaseService.syncPendingAttendance({ limit: 500 }).then(cloudRes => {
-      if (cloudRes.success && cloudRes.uploadedCount > 0) {
-        notifyWs('FIREBASE_SYNC_PROGRESS', cloudRes);
-      }
-    }).catch(() => {});
+    if (!stopSyncRequested) {
+      firebaseService.syncPendingAttendance({ limit: 500 }).then(cloudRes => {
+        if (cloudRes.success && cloudRes.uploadedCount > 0) {
+          notifyWs('FIREBASE_SYNC_PROGRESS', cloudRes);
+        }
+      }).catch(() => {});
+    }
 
-    isSyncing = false;
     return {
       success: true,
       newRecords: insertResult.inserted,
@@ -292,7 +317,22 @@ async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, loc
       durationSeconds: duration
     };
   } catch (err) {
-    isSyncing = false;
+    if (stopSyncRequested) {
+      lastSyncStatus.status = 'STOPPED';
+      lastSyncStatus.error = 'Sync stopped by user';
+      console.log('[SYNC] Device sync stopped by user.');
+      notifyWs('SYNC_STATUS', {
+        status: 'STOPPED',
+        message: 'Machine synchronization stopped by user',
+        deviceOnline: lastSyncStatus.deviceOnline
+      });
+      return {
+        success: false,
+        stopped: true,
+        message: 'Synchronization stopped by user'
+      };
+    }
+
     lastSyncStatus.status = 'ERROR';
     lastSyncStatus.deviceOnline = false;
     lastSyncStatus.error = err.message;
@@ -321,6 +361,9 @@ async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, loc
       success: false,
       error: err.message
     };
+  } finally {
+    isSyncing = false;
+    activeClient = null;
   }
 }
 
@@ -422,6 +465,35 @@ function stopAutoSync() {
   }
 }
 
+/**
+ * Stops any in-progress device synchronization and updates state.
+ */
+async function cancelDeviceSync() {
+  if (!isSyncing && !activeClient) {
+    return { success: true, message: 'No device synchronization in progress', isSyncing: false };
+  }
+
+  stopSyncRequested = true;
+  if (activeClient) {
+    try {
+      activeClient.abort();
+    } catch (e) {}
+    activeClient = null;
+  }
+
+  isSyncing = false;
+  lastSyncStatus.status = 'STOPPED';
+  lastSyncStatus.error = 'Machine synchronization stopped by user';
+
+  notifyWs('SYNC_STATUS', {
+    status: 'STOPPED',
+    message: 'Machine synchronization stopped by user',
+    deviceOnline: lastSyncStatus.deviceOnline
+  });
+
+  return { success: true, message: 'Machine synchronization stopped' };
+}
+
 function getSyncStatus() {
   return {
     isSyncing,
@@ -431,6 +503,7 @@ function getSyncStatus() {
 
 module.exports = {
   syncFromDevice,
+  cancelDeviceSync,
   checkDeviceHealth,
   startAutoSync,
   stopAutoSync,

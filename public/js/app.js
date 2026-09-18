@@ -242,6 +242,8 @@ const state = {
   },
   reportPageSize: 'a4-landscape',
   printOptions: { ...DEFAULT_PRINT_OPTIONS },
+  deviceSyncing: false,
+  cloudSyncing: false,
   ws: null
 };
 
@@ -307,6 +309,7 @@ function initNavigation() {
   });
 
   document.getElementById('btnSyncHeader')?.addEventListener('click', triggerManualSync);
+  document.getElementById('btnStopSyncHeader')?.addEventListener('click', stopAllSync);
   document.getElementById('quickSyncBtn')?.addEventListener('click', triggerManualSync);
 }
 
@@ -4782,6 +4785,7 @@ async function initDeviceControl() {
   initFirebaseSync();
   document.getElementById('btnTestConn')?.addEventListener('click', testDeviceConnection);
   document.getElementById('btnActionSync')?.addEventListener('click', triggerManualSync);
+  document.getElementById('btnActionStopSync')?.addEventListener('click', stopDeviceSync);
   document.getElementById('btnActionSyncTime')?.addEventListener('click', syncDeviceTime);
   document.getElementById('btnActionReboot')?.addEventListener('click', rebootDevice);
 
@@ -5367,6 +5371,10 @@ async function triggerManualSync() {
   const interfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
   showToast(`Pulling attendance records from SpeedFace (${ip})...`, 'info');
 
+  state.deviceSyncing = true;
+  document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'inline-flex');
+  document.getElementById('btnActionStopSync')?.style.setProperty('display', 'inline-flex');
+
   try {
     const res = await fetch('/api/device/sync', {
       method: 'POST',
@@ -5375,18 +5383,134 @@ async function triggerManualSync() {
     });
     const data = await res.json();
 
-    if (data.success) {
+    if (data.success && !data.stopped) {
       showToast(`Sync complete! ${data.newRecords} new records added (Device has ${data.totalDeviceLogs} total logs).`, 'success');
       loadDashboardStats();
       if (state.currentTab === 'tab-records') loadRecords();
       if (state.currentTab === 'tab-employees') loadEmployees();
+    } else if (data.stopped) {
+      showToast('Machine synchronization was stopped by user.', 'info');
     } else {
       showToast(data.error || 'Sync encountered an issue', 'error');
     }
   } catch (err) {
     showToast(err.message, 'error');
   } finally {
+    state.deviceSyncing = false;
+    document.getElementById('btnActionStopSync')?.style.setProperty('display', 'none');
+    if (!state.cloudSyncing) {
+      document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'none');
+    }
     if (quickIcon) quickIcon.classList.remove('spin');
+  }
+}
+
+// 6b. Stop Sync Actions
+async function stopAllSync() {
+  const btn = document.getElementById('btnStopSyncHeader');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Stopping...`;
+  }
+  showToast('Stopping all active synchronizations...', 'info');
+
+  try {
+    const res = await fetch('/api/sync/stop', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('All synchronization stopped. Local punches are 100% safe.', 'success');
+    }
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    state.deviceSyncing = false;
+    state.cloudSyncing = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.style.display = 'none';
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg><span>Stop Sync</span>`;
+    }
+    const btnActionStop = document.getElementById('btnActionStopSync');
+    if (btnActionStop) btnActionStop.style.display = 'none';
+    const btnStopFb = document.getElementById('btnStopFirestoreSync');
+    if (btnStopFb) btnStopFb.style.display = 'none';
+    const btnBannerStop = document.getElementById('fbLiveSyncStopBtn');
+    if (btnBannerStop) btnBannerStop.style.display = 'none';
+    loadDashboardStats();
+    if (typeof loadFirebaseStatus === 'function') loadFirebaseStatus();
+  }
+}
+
+async function stopDeviceSync() {
+  const btn = document.getElementById('btnActionStopSync');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Stopping...`;
+  }
+  showToast('Stopping machine synchronization...', 'info');
+
+  try {
+    const res = await fetch('/api/device/sync/stop', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || 'Machine sync stopped', 'success');
+    } else {
+      showToast(data.error || 'Could not cancel sync', 'error');
+    }
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    state.deviceSyncing = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.style.display = 'none';
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg> Stop Machine Sync`;
+    }
+    const btnHeaderStop = document.getElementById('btnStopSyncHeader');
+    if (btnHeaderStop && !state.cloudSyncing) {
+      btnHeaderStop.style.display = 'none';
+    }
+  }
+}
+
+async function stopCloudSync() {
+  const btnFb = document.getElementById('btnStopFirestoreSync');
+  const btnBanner = document.getElementById('fbLiveSyncStopBtn');
+  if (btnFb) {
+    btnFb.disabled = true;
+    btnFb.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Stopping...`;
+  }
+  if (btnBanner) {
+    btnBanner.disabled = true;
+    btnBanner.textContent = 'Stopping...';
+  }
+  showToast('Stopping cloud upload (Local punches remain 100% safe)...', 'info');
+
+  try {
+    const res = await fetch('/api/firebase/stop-sync', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('Cloud upload stopped. Local punches are 100% safe in SQLite.', 'success');
+    }
+    await loadFirebaseStatus();
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    state.cloudSyncing = false;
+    if (btnFb) {
+      btnFb.disabled = false;
+      btnFb.style.display = 'none';
+      btnFb.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:12px;height:12px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg> Stop Cloud Sync`;
+    }
+    if (btnBanner) {
+      btnBanner.disabled = false;
+      btnBanner.style.display = 'none';
+      btnBanner.textContent = '⏹️ Stop Sync';
+    }
+    const btnHeaderStop = document.getElementById('btnStopSyncHeader');
+    if (btnHeaderStop && !state.deviceSyncing) {
+      btnHeaderStop.style.display = 'none';
+    }
   }
 }
 
@@ -5573,8 +5697,38 @@ function handleWebSocketMessage(msg) {
       }
     }
   } else if (msg.type === 'SYNC_STATUS') {
-    if (msg.data && msg.data.deviceOnline !== undefined) {
-      const isOnline = Boolean(msg.data.deviceOnline);
+    const syncData = msg.data || {};
+    const isDeviceSyncing = syncData.status === 'SYNCING';
+    state.deviceSyncing = isDeviceSyncing;
+
+    const btnHeaderStop = document.getElementById('btnStopSyncHeader');
+    const btnActionStop = document.getElementById('btnActionStopSync');
+    const btnActionSync = document.getElementById('btnActionSync');
+
+    if (isDeviceSyncing) {
+      if (btnHeaderStop) btnHeaderStop.style.display = 'inline-flex';
+      if (btnActionStop) btnActionStop.style.display = 'inline-flex';
+      if (btnActionSync) {
+        btnActionSync.disabled = true;
+        btnActionSync.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Syncing Machine...`;
+      }
+    } else {
+      if (btnActionStop) btnActionStop.style.display = 'none';
+      if (!state.cloudSyncing && btnHeaderStop) {
+        btnHeaderStop.style.display = 'none';
+      }
+      if (btnActionSync) {
+        btnActionSync.disabled = false;
+        btnActionSync.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg> Download All Records Now`;
+      }
+    }
+
+    if (syncData.status === 'STOPPED') {
+      showToast(syncData.message || 'Machine sync cancelled by user.', 'info');
+    }
+
+    if (syncData.deviceOnline !== undefined) {
+      const isOnline = Boolean(syncData.deviceOnline);
       state.device.online = isOnline;
       const devStatusEl = document.getElementById('statDeviceStatus');
       const miniDot = document.getElementById('miniDeviceStatusDot');
@@ -7317,6 +7471,11 @@ function initFirebaseSync() {
     const origHtml = btnSyncNow.innerHTML;
     btnSyncNow.disabled = true;
     btnSyncNow.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Uploading...`;
+    state.cloudSyncing = true;
+    document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'inline-flex');
+    document.getElementById('btnStopFirestoreSync')?.style.setProperty('display', 'inline-flex');
+    document.getElementById('fbLiveSyncStopBtn')?.style.setProperty('display', 'inline-flex');
+
     try {
       showToast('Starting cloud upload to Firestore...', 'info');
       const res = await fetch('/api/firebase/sync-now', {
@@ -7325,8 +7484,10 @@ function initFirebaseSync() {
         body: JSON.stringify({ force: true, limit: 500 })
       });
       const data = await res.json();
-      if (data.success) {
+      if (data.success && !data.stopped) {
         showToast(`Uploaded ${data.uploadedCount || 0} record(s) to Firestore for org ${data.orgId}!`, 'success', 4000);
+      } else if (data.stopped) {
+        showToast(`Cloud upload cancelled by user. Local punches remain 100% safe.`, 'info', 5000);
       } else if (data.quotaExceeded) {
         showToast(`Firestore Daily Quota Limit Reached (20,000 writes/day). All punches are 100% safe in SQLite and will resume when quota resets.`, 'warning', 6000);
       } else if (data.offline) {
@@ -7338,10 +7499,20 @@ function initFirebaseSync() {
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
+      state.cloudSyncing = false;
+      document.getElementById('btnStopFirestoreSync')?.style.setProperty('display', 'none');
+      document.getElementById('fbLiveSyncStopBtn')?.style.setProperty('display', 'none');
+      if (!state.deviceSyncing) {
+        document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'none');
+      }
       btnSyncNow.disabled = false;
       btnSyncNow.innerHTML = origHtml;
     }
   });
+
+  // 3b. Stop Cloud Sync Buttons
+  document.getElementById('btnStopFirestoreSync')?.addEventListener('click', stopCloudSync);
+  document.getElementById('fbLiveSyncStopBtn')?.addEventListener('click', stopCloudSync);
 
   // 4. Sync Employees Button
   const btnSyncEmp = document.getElementById('btnSyncEmployeesFirestore');
@@ -7530,6 +7701,11 @@ function updateCloudSyncProgressUI(prog) {
   const badge = document.getElementById('fbStatusBadge');
 
   if (prog.isSyncing) {
+    state.cloudSyncing = true;
+    document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'inline-flex');
+    document.getElementById('btnStopFirestoreSync')?.style.setProperty('display', 'inline-flex');
+    document.getElementById('fbLiveSyncStopBtn')?.style.setProperty('display', 'inline-flex');
+
     // Header Pill
     if (headerPill) {
       headerPill.style.background = '#f0f9ff';
@@ -7584,93 +7760,131 @@ function updateCloudSyncProgressUI(prog) {
     if (progressRatio) {
       progressRatio.textContent = `${Number(prog.uploadedCount || 0).toLocaleString()} punches uploaded`;
     }
-  } else if (prog.state === 'COMPLETED') {
-    if (headerPill) {
-      headerPill.style.background = '#f0fdf4';
-      headerPill.style.borderColor = '#86efac';
-      headerPill.style.color = '#166534';
+  } else {
+    state.cloudSyncing = false;
+    document.getElementById('btnStopFirestoreSync')?.style.setProperty('display', 'none');
+    document.getElementById('fbLiveSyncStopBtn')?.style.setProperty('display', 'none');
+    if (!state.deviceSyncing) {
+      document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'none');
     }
-    if (headerDot) {
-      headerDot.style.background = '#16a34a';
-      headerDot.style.animation = 'none';
-    }
-    if (headerText) headerText.textContent = '☁️ Cloud: Synced';
 
-    if (banner) {
-      banner.style.background = '#f0fdf4';
-      banner.style.borderColor = '#bbf7d0';
-    }
-    if (bannerIcon) {
-      bannerIcon.innerHTML = '✅';
-      bannerIcon.style.background = '#dcfce7';
-    }
-    if (bannerTitle) bannerTitle.textContent = 'Cloud Synchronization: Complete';
-    if (bannerSubtitle) bannerSubtitle.textContent = prog.message || 'All local records successfully uploaded!';
-    if (bannerState) {
-      bannerState.textContent = 'IN SYNC';
-      bannerState.style.background = '#dcfce7';
-      bannerState.style.color = '#15803d';
-    }
-    if (progressWrap) progressWrap.style.display = 'none';
-    if (bannerPercent) bannerPercent.style.display = 'none';
-  } else if (prog.state === 'QUOTA_EXHAUSTED') {
-    if (headerPill) {
-      headerPill.style.background = '#fff7ed';
-      headerPill.style.borderColor = '#fdba74';
-      headerPill.style.color = '#c2410c';
-    }
-    if (headerDot) {
-      headerDot.style.background = '#ea580c';
-      headerDot.style.animation = 'none';
-    }
-    if (headerText) headerText.textContent = `☁️ Cloud: Quota Limit (${Number(prog.totalPending || 0).toLocaleString()} Safe)`;
+    if (prog.state === 'COMPLETED') {
+      if (headerPill) {
+        headerPill.style.background = '#f0fdf4';
+        headerPill.style.borderColor = '#86efac';
+        headerPill.style.color = '#166534';
+      }
+      if (headerDot) {
+        headerDot.style.background = '#16a34a';
+        headerDot.style.animation = 'none';
+      }
+      if (headerText) headerText.textContent = '☁️ Cloud: Synced';
 
-    if (banner) {
-      banner.style.background = '#fff7ed';
-      banner.style.borderColor = '#fed7aa';
-    }
-    if (bannerIcon) {
-      bannerIcon.innerHTML = '⚠️';
-      bannerIcon.style.background = '#ffedd5';
-    }
-    if (bannerTitle) bannerTitle.innerHTML = `Daily Write Quota Reached <span style="font-size:0.75rem; font-weight:700; color:#c2410c; background:#ffedd5; padding:2px 8px; border-radius:12px;">PUNCHES SAFE</span>`;
-    if (bannerSubtitle) bannerSubtitle.textContent = prog.message || 'Google Cloud Firestore daily write quota reached (Spark Free Plan: 20,000 writes/day). All local punches remain 100% safe in SQLite.';
-    if (bannerState) {
-      bannerState.textContent = 'QUOTA PAUSED';
-      bannerState.style.background = '#fed7aa';
-      bannerState.style.color = '#9a3412';
-    }
-    if (progressWrap) progressWrap.style.display = 'none';
-    if (bannerPercent) bannerPercent.style.display = 'none';
-  } else if (prog.state === 'OFFLINE') {
-    if (headerPill) {
-      headerPill.style.background = '#fee2e2';
-      headerPill.style.borderColor = '#fca5a5';
-      headerPill.style.color = '#991b1b';
-    }
-    if (headerDot) {
-      headerDot.style.background = '#dc2626';
-      headerDot.style.animation = 'none';
-    }
-    if (headerText) headerText.textContent = '☁️ Cloud: Offline';
+      if (banner) {
+        banner.style.background = '#f0fdf4';
+        banner.style.borderColor = '#bbf7d0';
+      }
+      if (bannerIcon) {
+        bannerIcon.innerHTML = '✅';
+        bannerIcon.style.background = '#dcfce7';
+      }
+      if (bannerTitle) bannerTitle.textContent = 'Cloud Synchronization: Complete';
+      if (bannerSubtitle) bannerSubtitle.textContent = prog.message || 'All local records successfully uploaded!';
+      if (bannerState) {
+        bannerState.textContent = 'IN SYNC';
+        bannerState.style.background = '#dcfce7';
+        bannerState.style.color = '#15803d';
+      }
+      if (progressWrap) progressWrap.style.display = 'none';
+      if (bannerPercent) bannerPercent.style.display = 'none';
+    } else if (prog.state === 'STOPPED') {
+      if (headerPill) {
+        headerPill.style.background = '#f8fafc';
+        headerPill.style.borderColor = '#cbd5e1';
+        headerPill.style.color = '#475569';
+      }
+      if (headerDot) {
+        headerDot.style.background = '#94a3b8';
+        headerDot.style.animation = 'none';
+      }
+      if (headerText) headerText.textContent = `☁️ Cloud: Paused (${Number(prog.totalPending || 0).toLocaleString()} Safe)`;
 
-    if (banner) {
-      banner.style.background = '#fff1f2';
-      banner.style.borderColor = '#fecdd3';
+      if (banner) {
+        banner.style.background = '#f8fafc';
+        banner.style.borderColor = '#cbd5e1';
+      }
+      if (bannerIcon) {
+        bannerIcon.innerHTML = '⏹️';
+        bannerIcon.style.background = '#f1f5f9';
+      }
+      if (bannerTitle) bannerTitle.innerHTML = `Cloud Sync Paused <span style="font-size:0.75rem; font-weight:700; color:#475569; background:#e2e8f0; padding:2px 8px; border-radius:12px;">PUNCHES SAFE</span>`;
+      if (bannerSubtitle) bannerSubtitle.textContent = prog.message || 'Cloud sync stopped by user. All local attendance records remain 100% safe in SQLite.';
+      if (bannerState) {
+        bannerState.textContent = 'PAUSED';
+        bannerState.style.background = '#f1f5f9';
+        bannerState.style.color = '#475569';
+      }
+      if (progressWrap) progressWrap.style.display = 'none';
+      if (bannerPercent) bannerPercent.style.display = 'none';
+    } else if (prog.state === 'QUOTA_EXHAUSTED') {
+      if (headerPill) {
+        headerPill.style.background = '#fff7ed';
+        headerPill.style.borderColor = '#fdba74';
+        headerPill.style.color = '#c2410c';
+      }
+      if (headerDot) {
+        headerDot.style.background = '#ea580c';
+        headerDot.style.animation = 'none';
+      }
+      if (headerText) headerText.textContent = `☁️ Cloud: Quota Limit (${Number(prog.totalPending || 0).toLocaleString()} Safe)`;
+
+      if (banner) {
+        banner.style.background = '#fff7ed';
+        banner.style.borderColor = '#fed7aa';
+      }
+      if (bannerIcon) {
+        bannerIcon.innerHTML = '⚠️';
+        bannerIcon.style.background = '#ffedd5';
+      }
+      if (bannerTitle) bannerTitle.innerHTML = `Daily Write Quota Reached <span style="font-size:0.75rem; font-weight:700; color:#c2410c; background:#ffedd5; padding:2px 8px; border-radius:12px;">PUNCHES SAFE</span>`;
+      if (bannerSubtitle) bannerSubtitle.textContent = prog.message || 'Google Cloud Firestore daily write quota reached (Spark Free Plan: 20,000 writes/day). All local punches remain 100% safe in SQLite.';
+      if (bannerState) {
+        bannerState.textContent = 'QUOTA PAUSED';
+        bannerState.style.background = '#fed7aa';
+        bannerState.style.color = '#9a3412';
+      }
+      if (progressWrap) progressWrap.style.display = 'none';
+      if (bannerPercent) bannerPercent.style.display = 'none';
+    } else if (prog.state === 'OFFLINE') {
+      if (headerPill) {
+        headerPill.style.background = '#fee2e2';
+        headerPill.style.borderColor = '#fca5a5';
+        headerPill.style.color = '#991b1b';
+      }
+      if (headerDot) {
+        headerDot.style.background = '#dc2626';
+        headerDot.style.animation = 'none';
+      }
+      if (headerText) headerText.textContent = '☁️ Cloud: Offline';
+
+      if (banner) {
+        banner.style.background = '#fff1f2';
+        banner.style.borderColor = '#fecdd3';
+      }
+      if (bannerIcon) {
+        bannerIcon.innerHTML = '⚠️';
+        bannerIcon.style.background = '#fee2e2';
+      }
+      if (bannerTitle) bannerTitle.textContent = 'Cloud Sync Paused (Offline Mode)';
+      if (bannerSubtitle) bannerSubtitle.textContent = prog.message || 'Network disconnected. Punches safely queued locally.';
+      if (bannerState) {
+        bannerState.textContent = 'OFFLINE';
+        bannerState.style.background = '#fee2e2';
+        bannerState.style.color = '#991b1b';
+      }
+      if (progressWrap) progressWrap.style.display = 'none';
+      if (bannerPercent) bannerPercent.style.display = 'none';
     }
-    if (bannerIcon) {
-      bannerIcon.innerHTML = '⚠️';
-      bannerIcon.style.background = '#fee2e2';
-    }
-    if (bannerTitle) bannerTitle.textContent = 'Cloud Sync Paused (Offline Mode)';
-    if (bannerSubtitle) bannerSubtitle.textContent = prog.message || 'Network disconnected. Punches safely queued locally.';
-    if (bannerState) {
-      bannerState.textContent = 'OFFLINE';
-      bannerState.style.background = '#fee2e2';
-      bannerState.style.color = '#991b1b';
-    }
-    if (progressWrap) progressWrap.style.display = 'none';
-    if (bannerPercent) bannerPercent.style.display = 'none';
   }
 }
 
@@ -7760,8 +7974,13 @@ function updateFirebaseStatusUI(status) {
     });
   }
 
-  // Visual State Determination: SYNCING, NOT CONFIGURED, OFFLINE, QUEUED, or IN SYNC
+  // Visual State Determination: SYNCING, STOPPED, NOT CONFIGURED, OFFLINE, QUEUED, or IN SYNC
   if (isSyncing) {
+    state.cloudSyncing = true;
+    document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'inline-flex');
+    document.getElementById('btnStopFirestoreSync')?.style.setProperty('display', 'inline-flex');
+    document.getElementById('fbLiveSyncStopBtn')?.style.setProperty('display', 'inline-flex');
+
     // 1. SYNCING ACTIVE
     if (headerPill) {
       headerPill.style.background = '#f0f9ff';
@@ -7809,7 +8028,51 @@ function updateFirebaseStatusUI(status) {
     if (progressDetails) progressDetails.textContent = `Target Partition: organizations/${status.orgId}/attendance`;
     if (progressRatio) progressRatio.textContent = `${Number(prog.uploadedCount || 0).toLocaleString()} / ${Number(pendingCount).toLocaleString()} records`;
 
-  } else if (!status.configured) {
+  } else {
+    state.cloudSyncing = false;
+    document.getElementById('btnStopFirestoreSync')?.style.setProperty('display', 'none');
+    document.getElementById('fbLiveSyncStopBtn')?.style.setProperty('display', 'none');
+    if (!state.deviceSyncing) {
+      document.getElementById('btnStopSyncHeader')?.style.setProperty('display', 'none');
+    }
+
+    if (prog.state === 'STOPPED') {
+      if (headerPill) {
+        headerPill.style.background = '#f8fafc';
+        headerPill.style.borderColor = '#cbd5e1';
+        headerPill.style.color = '#475569';
+      }
+      if (headerDot) {
+        headerDot.style.background = '#94a3b8';
+        headerDot.style.animation = 'none';
+      }
+      if (headerText) headerText.textContent = `Cloud: Paused (${pendingCount.toLocaleString()} Queued)`;
+
+      if (badge) {
+        badge.textContent = `⏸️ Cloud Sync Paused (${pendingCount.toLocaleString()} Queued)`;
+        badge.style.background = '#f1f5f9';
+        badge.style.color = '#475569';
+      }
+
+      if (banner) {
+        banner.style.background = '#f8fafc';
+        banner.style.borderColor = '#cbd5e1';
+      }
+      if (bannerIcon) {
+        bannerIcon.innerHTML = '⏹️';
+        bannerIcon.style.background = '#f1f5f9';
+      }
+      if (bannerTitle) bannerTitle.innerHTML = `Cloud Sync Paused <span style="font-size:0.75rem; font-weight:700; color:#475569; background:#e2e8f0; padding:2px 8px; border-radius:12px;">PUNCHES SAFE</span>`;
+      if (bannerSubtitle) bannerSubtitle.textContent = prog.message || `Sync stopped by user. All ${pendingCount.toLocaleString()} punches remain 100% safe in SQLite.`;
+      if (bannerState) {
+        bannerState.textContent = 'PAUSED';
+        bannerState.style.background = '#f1f5f9';
+        bannerState.style.color = '#475569';
+      }
+      if (progressWrap) progressWrap.style.display = 'none';
+      if (bannerPercent) bannerPercent.style.display = 'none';
+
+    } else if (!status.configured) {
     // 2. NO SERVICE ACCOUNT KEY
     if (headerPill) {
       headerPill.style.background = '#fef3c7';
