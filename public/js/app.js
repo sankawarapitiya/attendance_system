@@ -4787,7 +4787,7 @@ async function initDeviceControl() {
   document.getElementById('btnTestConn')?.addEventListener('click', testDeviceConnection);
   document.getElementById('btnActionSync')?.addEventListener('click', triggerManualSync);
   document.getElementById('btnActionStopSync')?.addEventListener('click', stopDeviceSync);
-  document.getElementById('btnActionSyncTime')?.addEventListener('click', syncDeviceTime);
+  initTimeSync();
   document.getElementById('btnActionReboot')?.addEventListener('click', rebootDevice);
 
   // Network Interface change & refresh handlers
@@ -5203,6 +5203,7 @@ async function loadDeviceControlData() {
 
   // Run connection test to populate live device metrics
   testDeviceConnection();
+  loadTimeSyncStatus(false);
   loadSyncLogs();
   loadDataResetSummary();
   loadSystemHealth();
@@ -5297,25 +5298,344 @@ async function testDeviceConnection() {
   }
 }
 
-async function syncDeviceTime() {
-  const interfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
-  showToast('Synchronizing device clock with computer time...', 'info');
+// ==========================================
+// 6. SpeedFace Time Synchronization (Online & Manual)
+// ==========================================
+let timeSyncModalInterval = null;
+let lastKnownOnlineDate = null;
+
+function initTimeSync() {
+  document.getElementById('btnActionOnlineSyncTime')?.addEventListener('click', () => syncDeviceTimeOnline(false));
+  document.getElementById('btnActionOpenTimeModal')?.addEventListener('click', openTimeSyncModal);
+  document.getElementById('btnQuickTimeOptions')?.addEventListener('click', openTimeSyncModal);
+
+  document.getElementById('btnCloseTimeSyncModal')?.addEventListener('click', closeTimeSyncModal);
+  document.getElementById('btnCloseTimeSyncModalBottom')?.addEventListener('click', closeTimeSyncModal);
+  document.getElementById('timeSyncModalBackdrop')?.addEventListener('click', closeTimeSyncModal);
+
+  // Modal Tabs
+  document.getElementById('tabBtnTimeOnline')?.addEventListener('click', () => switchTimeTab('online'));
+  document.getElementById('tabBtnTimeManual')?.addEventListener('click', () => switchTimeTab('manual'));
+  document.getElementById('tabBtnTimePc')?.addEventListener('click', () => switchTimeTab('pc'));
+
+  // Action Triggers
+  document.getElementById('btnExecuteOnlineSync')?.addEventListener('click', () => syncDeviceTimeOnline(true));
+  document.getElementById('btnExecuteManualSync')?.addEventListener('click', syncDeviceTimeManual);
+  document.getElementById('btnExecutePcSync')?.addEventListener('click', syncDeviceTimePc);
+  document.getElementById('btnRefreshModalTimes')?.addEventListener('click', () => loadTimeSyncStatus(true));
+
+  // Quick Adjustment Buttons for Manual Input
+  document.getElementById('btnManualFillNow')?.addEventListener('click', () => {
+    fillManualTimeInput(new Date());
+  });
+  document.getElementById('btnManualFillOnline')?.addEventListener('click', () => {
+    if (lastKnownOnlineDate) {
+      fillManualTimeInput(lastKnownOnlineDate);
+    } else {
+      fillManualTimeInput(new Date());
+    }
+  });
+
+  document.getElementById('btnAdjustMinus1h')?.addEventListener('click', () => adjustManualTimeInput(-3600));
+  document.getElementById('btnAdjustPlus1h')?.addEventListener('click', () => adjustManualTimeInput(3600));
+  document.getElementById('btnAdjustMinus5m')?.addEventListener('click', () => adjustManualTimeInput(-300));
+  document.getElementById('btnAdjustPlus5m')?.addEventListener('click', () => adjustManualTimeInput(300));
+  document.getElementById('btnAdjustMinus1m')?.addEventListener('click', () => adjustManualTimeInput(-60));
+  document.getElementById('btnAdjustPlus1m')?.addEventListener('click', () => adjustManualTimeInput(60));
+}
+
+function switchTimeTab(tab) {
+  const btnOnline = document.getElementById('tabBtnTimeOnline');
+  const btnManual = document.getElementById('tabBtnTimeManual');
+  const btnPc = document.getElementById('tabBtnTimePc');
+
+  const paneOnline = document.getElementById('timePaneOnline');
+  const paneManual = document.getElementById('timePaneManual');
+  const panePc = document.getElementById('timePanePc');
+
+  [btnOnline, btnManual, btnPc].forEach(b => {
+    if (b) b.className = 'btn btn-sm btn-outline';
+  });
+  if (paneOnline) paneOnline.style.display = 'none';
+  if (paneManual) paneManual.style.display = 'none';
+  if (panePc) panePc.style.display = 'none';
+
+  if (tab === 'online') {
+    if (btnOnline) btnOnline.className = 'btn btn-sm btn-primary';
+    if (paneOnline) paneOnline.style.display = 'block';
+  } else if (tab === 'manual') {
+    if (btnManual) btnManual.className = 'btn btn-sm btn-primary';
+    if (paneManual) paneManual.style.display = 'block';
+    if (!document.getElementById('inputManualDateTime')?.value) {
+      fillManualTimeInput(lastKnownOnlineDate || new Date());
+    }
+  } else if (tab === 'pc') {
+    if (btnPc) btnPc.className = 'btn btn-sm btn-primary';
+    if (panePc) panePc.style.display = 'block';
+  }
+}
+
+function fillManualTimeInput(date) {
+  const input = document.getElementById('inputManualDateTime');
+  if (!input) return;
+  const d = (date instanceof Date && !isNaN(date.getTime())) ? date : new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  input.value = `${yyyy}-${mm}-${dd}T${hh}:${min}:${ss}`;
+}
+
+function adjustManualTimeInput(secondsDelta) {
+  const input = document.getElementById('inputManualDateTime');
+  if (!input) return;
+  let cur = input.value ? new Date(input.value) : new Date();
+  if (isNaN(cur.getTime())) cur = new Date();
+  cur = new Date(cur.getTime() + secondsDelta * 1000);
+  fillManualTimeInput(cur);
+}
+
+function openTimeSyncModal() {
+  const modal = document.getElementById('timeSyncModal');
+  if (modal) modal.classList.add('active');
+  fillManualTimeInput(new Date());
+  loadTimeSyncStatus(true);
+
+  if (timeSyncModalInterval) clearInterval(timeSyncModalInterval);
+  timeSyncModalInterval = setInterval(() => {
+    const pcLive = document.getElementById('modalPcTimeLive');
+    const pcSummary = document.getElementById('modalPcTimeSummary');
+    const now = new Date();
+    const str = now.toLocaleTimeString();
+    if (pcLive) pcLive.textContent = str;
+    if (pcSummary) pcSummary.textContent = now.toLocaleString();
+  }, 1000);
+}
+
+function closeTimeSyncModal() {
+  const modal = document.getElementById('timeSyncModal');
+  if (modal) modal.classList.remove('active');
+  if (timeSyncModalInterval) {
+    clearInterval(timeSyncModalInterval);
+    timeSyncModalInterval = null;
+  }
+}
+
+async function loadTimeSyncStatus(showFeedback = false) {
+  const modalDev = document.getElementById('modalDevTimeLive');
+  const modalOnline = document.getElementById('modalOnlineTimeLive');
+  const modalBadge = document.getElementById('modalDriftBadge');
+  const modalSource = document.getElementById('modalOnlineSource');
+
+  if (showFeedback && modalDev) {
+    modalDev.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #0284c7;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Loading...`;
+  }
+
   try {
+    const interfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
+    const ip = document.getElementById('settingIp')?.value || '192.168.10.15';
+    const port = document.getElementById('settingPort')?.value || 4370;
+
+    const query = new URLSearchParams({ ip, port, interfaceIp: interfaceIp || '' });
+    const res = await fetch(`/api/device/time-status?${query.toString()}`);
+    const data = await res.json();
+
+    if (data.success) {
+      if (modalDev) modalDev.textContent = data.deviceTime || 'Offline';
+      if (document.getElementById('devTimeVal') && data.deviceTime) {
+        document.getElementById('devTimeVal').textContent = data.deviceTime;
+      }
+
+      if (data.onlineTime && data.onlineTime.formatted) {
+        if (modalOnline) modalOnline.textContent = data.onlineTime.formatted;
+        if (modalSource) modalSource.textContent = `${data.onlineTime.source} (${data.timeZone || 'Asia/Colombo'})`;
+        lastKnownOnlineDate = new Date(data.onlineTime.iso || data.onlineTime.formatted);
+      } else {
+        if (modalOnline) modalOnline.textContent = 'Offline';
+        if (modalSource) modalSource.textContent = 'Internet time servers unreachable';
+      }
+
+      // Drift calculation badge
+      const driftBadge = document.getElementById('devTimeDriftBadge');
+      if (modalBadge) {
+        if (data.driftStatus === 'IN_SYNC') {
+          modalBadge.style.background = '#dcfce7';
+          modalBadge.style.color = '#166534';
+          modalBadge.textContent = '✓ Perfectly in Sync (0s)';
+          if (driftBadge) {
+            driftBadge.style.display = 'inline-block';
+            driftBadge.style.background = '#dcfce7';
+            driftBadge.style.color = '#166534';
+            driftBadge.textContent = '✓ Clock in Sync';
+          }
+        } else if (data.driftStatus === 'AHEAD') {
+          modalBadge.style.background = '#fef3c7';
+          modalBadge.style.color = '#92400e';
+          modalBadge.textContent = `⚠️ Ahead by +${data.driftSeconds}s`;
+          if (driftBadge) {
+            driftBadge.style.display = 'inline-block';
+            driftBadge.style.background = '#fef3c7';
+            driftBadge.style.color = '#92400e';
+            driftBadge.textContent = `⚠️ +${data.driftSeconds}s Drift`;
+          }
+        } else if (data.driftStatus === 'BEHIND') {
+          modalBadge.style.background = '#fee2e2';
+          modalBadge.style.color = '#991b1b';
+          modalBadge.textContent = `⚠️ Behind by ${Math.abs(data.driftSeconds)}s`;
+          if (driftBadge) {
+            driftBadge.style.display = 'inline-block';
+            driftBadge.style.background = '#fee2e2';
+            driftBadge.style.color = '#991b1b';
+            driftBadge.textContent = `⚠️ ${data.driftSeconds}s Drift`;
+          }
+        } else {
+          modalBadge.style.background = '#f1f5f9';
+          modalBadge.style.color = '#475569';
+          modalBadge.textContent = 'Drift status unavailable';
+          if (driftBadge) driftBadge.style.display = 'none';
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Could not load time status:', err);
+  }
+}
+
+// Execute Online Sync
+async function syncDeviceTimeOnline(fromModal = false) {
+  const btn = fromModal ? document.getElementById('btnExecuteOnlineSync') : document.getElementById('btnActionOnlineSyncTime');
+  const origHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Updating Online Time...`;
+  }
+  showToast('Fetching certified online atomic time & syncing SpeedFace...', 'info');
+
+  try {
+    const interfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
+    const ip = document.getElementById('settingIp')?.value || '192.168.10.15';
+    const port = document.getElementById('settingPort')?.value || 4370;
+
     const res = await fetch('/api/device/sync-time', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ interfaceIp })
+      body: JSON.stringify({ mode: 'online', ip, port, interfaceIp })
     });
     const data = await res.json();
+
     if (data.success) {
-      showToast('SpeedFace clock successfully synchronized!', 'success');
-      testDeviceConnection();
+      showToast(`SpeedFace clock synced to Online Atomic Time: ${data.confirmedDeviceTime || data.appliedTime}`, 'success', 5000);
+      if (document.getElementById('devTimeVal')) {
+        document.getElementById('devTimeVal').textContent = data.confirmedDeviceTime || data.appliedTime;
+      }
+      loadTimeSyncStatus(false);
     } else {
-      showToast(data.error || 'Failed to sync clock', 'error');
+      showToast(data.error || 'Failed to sync online time', 'error');
     }
   } catch (err) {
     showToast(err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
   }
+}
+
+// Execute Manual Custom Time Sync
+async function syncDeviceTimeManual() {
+  const input = document.getElementById('inputManualDateTime');
+  const customTime = input?.value;
+  if (!customTime) {
+    showToast('Please select or specify a valid date and time', 'warning');
+    return;
+  }
+
+  const btn = document.getElementById('btnExecuteManualSync');
+  const origHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Setting Time...`;
+  }
+  showToast(`Encoding custom time (${customTime}) to SpeedFace hardware...`, 'info');
+
+  try {
+    const interfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
+    const ip = document.getElementById('settingIp')?.value || '192.168.10.15';
+    const port = document.getElementById('settingPort')?.value || 4370;
+
+    const res = await fetch('/api/device/sync-time', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'manual', customTime, ip, port, interfaceIp })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast(`SpeedFace clock successfully updated to: ${data.confirmedDeviceTime || data.appliedTime}`, 'success', 5000);
+      if (document.getElementById('devTimeVal')) {
+        document.getElementById('devTimeVal').textContent = data.confirmedDeviceTime || data.appliedTime;
+      }
+      loadTimeSyncStatus(false);
+    } else {
+      showToast(data.error || 'Failed to apply custom time', 'error');
+    }
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+  }
+}
+
+// Execute PC Time Sync
+async function syncDeviceTimePc() {
+  const btn = document.getElementById('btnExecutePcSync');
+  const origHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Syncing PC Time...`;
+  }
+  showToast('Synchronizing SpeedFace with computer system time...', 'info');
+
+  try {
+    const interfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
+    const ip = document.getElementById('settingIp')?.value || '192.168.10.15';
+    const port = document.getElementById('settingPort')?.value || 4370;
+
+    const res = await fetch('/api/device/sync-time', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'pc', ip, port, interfaceIp })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast(`SpeedFace clock synced with computer: ${data.confirmedDeviceTime || data.appliedTime}`, 'success', 5000);
+      if (document.getElementById('devTimeVal')) {
+        document.getElementById('devTimeVal').textContent = data.confirmedDeviceTime || data.appliedTime;
+      }
+      loadTimeSyncStatus(false);
+    } else {
+      showToast(data.error || 'Failed to sync with computer time', 'error');
+    }
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+  }
+}
+
+// Alias for compatibility
+async function syncDeviceTime() {
+  return syncDeviceTimeOnline(false);
 }
 
 async function rebootDevice() {

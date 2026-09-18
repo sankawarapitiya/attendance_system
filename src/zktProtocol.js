@@ -293,20 +293,72 @@ class SpeedFaceClient {
   }
 
   /**
-   * Synchronizes the SpeedFace terminal's clock with the computer's current time.
+   * Retrieves the current clock time from the SpeedFace terminal.
    */
-  async syncTime() {
+  async getTime() {
     const zk = this.createInstance();
     try {
       await zk.createSocket();
-      const now = new Date();
-      const encoded = encodeZKTime(now);
+      const timeRes = await zk.zklibTcp.executeCmd(COMMANDS.CMD_GET_TIME, '');
+      let deviceTime = null;
+      let rawTime = null;
+      if (timeRes && timeRes.length >= 12) {
+        rawTime = timeRes.readUInt32LE(8);
+        deviceTime = decodeZKTime(rawTime);
+      }
+      await zk.disconnect();
+      return { success: true, deviceTime, rawTime };
+    } catch (err) {
+      try { await zk.disconnect(); } catch (e) {}
+      throw err;
+    }
+  }
+
+  /**
+   * Synchronizes the SpeedFace terminal's clock with the specified date/time or current computer time.
+   * @param {Date|string|number} [targetDate] - Custom Date, ISO string, or timestamp. If omitted/null, uses current time.
+   */
+  async syncTime(targetDate = null) {
+    const zk = this.createInstance();
+    try {
+      await zk.createSocket();
+      let dateToSet;
+      if (!targetDate) {
+        dateToSet = new Date();
+      } else if (targetDate instanceof Date) {
+        dateToSet = targetDate;
+      } else {
+        dateToSet = new Date(targetDate);
+      }
+
+      if (isNaN(dateToSet.getTime())) {
+        throw new Error('Invalid date/time provided for synchronization.');
+      }
+
+      const encoded = encodeZKTime(dateToSet);
       const timeBuf = Buffer.alloc(4);
       timeBuf.writeUInt32LE(encoded, 0);
 
       await zk.zklibTcp.executeCmd(COMMANDS.CMD_SET_TIME, timeBuf);
+
+      // Verify and read back confirmed device time
+      let confirmedTime = null;
+      try {
+        const timeRes = await zk.zklibTcp.executeCmd(COMMANDS.CMD_GET_TIME, '');
+        if (timeRes && timeRes.length >= 12) {
+          const rawTime = timeRes.readUInt32LE(8);
+          confirmedTime = decodeZKTime(rawTime);
+        }
+      } catch (e) {
+        console.warn('Could not read back confirmed time:', e.message);
+      }
+
       await zk.disconnect();
-      return { success: true, syncedTime: now.toISOString() };
+      return { 
+        success: true, 
+        syncedTime: confirmedTime || dateToSet.toISOString(),
+        formattedTime: confirmedTime || dateToSet.toLocaleString('sv-SE').replace('T', ' ')
+      };
     } catch (err) {
       try { await zk.disconnect(); } catch (e) {}
       throw err;

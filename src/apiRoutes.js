@@ -6,6 +6,7 @@ const { dbAll, dbGet, dbRun, runDatabaseBackup } = require('./db');
 const { syncFromDevice, cancelDeviceSync, checkDeviceHealth, getSyncStatus, startAutoSync, stopAutoSync } = require('./syncService');
 const { SpeedFaceClient } = require('./zktProtocol');
 const { firebaseService } = require('./firebaseService');
+const timeService = require('./timeService');
 const config = require('./config');
 const logger = require('./logger');
 const { 
@@ -906,20 +907,63 @@ router.post('/device/test', async (req, res) => {
   }
 });
 
-// 6. Synchronize device clock
+// 6a. Get live time status across device, PC, and online time server
+router.get('/device/time-status', async (req, res) => {
+  try {
+    const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
+    const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
+    const ifaceIpSetting = await dbGet(`SELECT value FROM settings WHERE key = 'network_interface_ip'`);
+    const timeZoneSetting = await dbGet(`SELECT value FROM settings WHERE key = 'time_zone'`);
+
+    const ip = req.query.ip || (ipSetting ? ipSetting.value : '192.168.10.15');
+    const port = parseInt(req.query.port || (portSetting ? portSetting.value : 4370), 10);
+    const localAddress = req.query.interfaceIp || (ifaceIpSetting ? ifaceIpSetting.value : null);
+    const timeZone = req.query.timeZone || (timeZoneSetting ? timeZoneSetting.value : 'Asia/Colombo');
+
+    const status = await timeService.getDeviceTimeStatus({ ip, port, localAddress, timeZone });
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 6b. Get quick online atomic time
+router.get('/time/online', async (req, res) => {
+  try {
+    const timeZoneSetting = await dbGet(`SELECT value FROM settings WHERE key = 'time_zone'`);
+    const timeZone = req.query.timeZone || (timeZoneSetting ? timeZoneSetting.value : 'Asia/Colombo');
+    const result = await timeService.getOnlineTime(timeZone);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 6c. Synchronize device clock (Supports 'online', 'manual', and 'pc' modes)
 router.post('/device/sync-time', async (req, res) => {
   try {
     const body = req.body || {};
     const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
     const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
     const ifaceIpSetting = await dbGet(`SELECT value FROM settings WHERE key = 'network_interface_ip'`);
+    const timeZoneSetting = await dbGet(`SELECT value FROM settings WHERE key = 'time_zone'`);
 
     const ip = body.ip || (ipSetting ? ipSetting.value : '192.168.10.15');
     const port = parseInt(body.port || (portSetting ? portSetting.value : 4370), 10);
     const localAddress = body.interfaceIp || (ifaceIpSetting ? ifaceIpSetting.value : null);
+    const timeZone = body.timeZone || (timeZoneSetting ? timeZoneSetting.value : 'Asia/Colombo');
+    const mode = body.mode || 'online'; // 'online' | 'manual' | 'pc'
+    const customTime = body.customTime || body.time || null;
 
-    const client = new SpeedFaceClient(ip, port, 6000, localAddress);
-    const result = await client.syncTime();
+    const result = await timeService.syncDeviceTime({
+      mode,
+      customTime,
+      ip,
+      port,
+      localAddress,
+      timeZone
+    });
+
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

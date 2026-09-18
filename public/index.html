@@ -1123,9 +1123,15 @@
                   <span class="info-key">Communication Port</span>
                   <span class="info-val font-mono">4370 (TCP)</span>
                 </div>
-                <div class="info-row">
+                <div class="info-row" style="align-items: center;">
                   <span class="info-key">Device Time</span>
-                  <span class="info-val font-mono" id="devTimeVal">-</span>
+                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <span class="info-val font-mono" id="devTimeVal">-</span>
+                    <span class="badge" id="devTimeDriftBadge" style="display:none; font-size: 0.72rem; padding: 2px 8px; font-weight: 700;"></span>
+                    <button class="btn btn-xs btn-outline" id="btnQuickTimeOptions" type="button" style="padding: 2px 8px; font-size: 0.74rem; font-weight: 600; border-radius: 4px;" title="Adjust or Sync Device Time">
+                      🕒 Time Options
+                    </button>
+                  </div>
                 </div>
                 <div class="info-row">
                   <span class="info-key">Enrolled Users on Terminal</span>
@@ -1150,9 +1156,13 @@
                   <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
                   <span id="btnActionStopSyncText">Stop Machine Sync</span>
                 </button>
-                <button class="btn btn-outline" id="btnActionSyncTime">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                  Sync Device Clock with PC
+                <button class="btn btn-outline" id="btnActionOnlineSyncTime" type="button" title="Synchronize SpeedFace terminal clock directly to official Online Atomic Time">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                  <span>🌐 Online Time Update</span>
+                </button>
+                <button class="btn btn-outline" id="btnActionOpenTimeModal" type="button" title="Open Manual Date/Time Adjustment & Clock Drift Monitor">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                  <span>✍️ Manual Time Update...</span>
                 </button>
                 <button class="btn btn-danger-outline" id="btnActionReboot">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
@@ -2682,6 +2692,172 @@ Loading application logs...
     </div>
   </div>
 
+  <!-- Time Synchronization Modal (Manual and Online Update) -->
+  <div class="modal" id="timeSyncModal" style="z-index: 2100;">
+    <div class="modal-backdrop" id="timeSyncModalBackdrop"></div>
+    <div class="modal-content" style="max-width: 720px; width: 95%; z-index: 2101;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 40px; height: 40px; border-radius: 8px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 1.3rem;">
+            🕒
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem; color: #1e293b;">SpeedFace Terminal Time Synchronization</h3>
+            <p style="margin: 0; font-size: 0.8rem; color: var(--text-muted);">Sync device clock with Online Atomic Time or enter a custom manual timestamp</p>
+          </div>
+        </div>
+        <button type="button" class="btn-close" id="btnCloseTimeSyncModal">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 20px 24px; display: flex; flex-direction: column; gap: 18px;">
+        
+        <!-- Live Clock Cards Grid (3 Columns) -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px;">
+          <!-- 1. Device Clock -->
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; text-align: center;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
+              📟 Terminal Clock
+            </div>
+            <div id="modalDevTimeLive" class="font-mono" style="font-size: 1.25rem; font-weight: 700; color: #0f172a;">
+              Loading...
+            </div>
+            <div id="modalDriftBadgeWrap" style="margin-top: 6px;">
+              <span class="badge" id="modalDriftBadge" style="background:#f1f5f9; color:#475569; font-size: 0.73rem;">Checking drift...</span>
+            </div>
+          </div>
+
+          <!-- 2. Online Atomic Clock -->
+          <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; padding: 14px; text-align: center;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: #0369a1; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
+              🌐 Online Atomic Time
+            </div>
+            <div id="modalOnlineTimeLive" class="font-mono" style="font-size: 1.25rem; font-weight: 700; color: #0284c7;">
+              Loading...
+            </div>
+            <div id="modalOnlineSource" style="font-size: 0.73rem; color: #0284c7; margin-top: 6px; font-weight: 600;">
+              Asia/Colombo (UTC+5:30)
+            </div>
+          </div>
+
+          <!-- 3. Local Computer Clock -->
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; text-align: center;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
+              💻 Computer / PC Time
+            </div>
+            <div id="modalPcTimeLive" class="font-mono" style="font-size: 1.25rem; font-weight: 700; color: #334155;">
+              --:--:--
+            </div>
+            <div style="font-size: 0.73rem; color: #64748b; margin-top: 6px;">
+              Local Host OS Clock
+            </div>
+          </div>
+        </div>
+
+        <!-- Mode Toggle Navigation Pills -->
+        <div style="display: flex; gap: 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; flex-wrap: wrap;">
+          <button type="button" class="btn btn-sm btn-primary" id="tabBtnTimeOnline" style="font-weight: 600; border-radius: 20px; padding: 6px 16px;">
+            🌐 Online Atomic Sync (Recommended)
+          </button>
+          <button type="button" class="btn btn-sm btn-outline" id="tabBtnTimeManual" style="font-weight: 600; border-radius: 20px; padding: 6px 16px;">
+            ✍️ Manual Time Update
+          </button>
+          <button type="button" class="btn btn-sm btn-outline" id="tabBtnTimePc" style="font-weight: 600; border-radius: 20px; padding: 6px 16px;">
+            💻 Sync with PC Time
+          </button>
+        </div>
+
+        <!-- Section 1: Online Sync Pane -->
+        <div id="timePaneOnline" style="display: block;">
+          <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 16px; margin-bottom: 14px;">
+            <h4 style="margin: 0 0 6px 0; color: #0369a1; font-size: 0.95rem;">Official Internet Atomic Time Sync</h4>
+            <p style="margin: 0 0 10px 0; font-size: 0.84rem; color: #334155; line-height: 1.45;">
+              Synchronize the SpeedFace device clock with certified atomic internet time servers (NTP Stratum-1 / TimeAPI / Google Atomic HTTP). Ensures punch timestamps are legally accurate, synchronized with government time, and never drift.
+            </p>
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 8px; border-top: 1px solid #e0f2fe;">
+              <div style="font-size: 0.82rem; color: #475569;">
+                Target Timezone: <strong id="modalTimezoneDisplay">Asia/Colombo (UTC+05:30)</strong>
+              </div>
+              <button type="button" class="btn btn-primary" id="btnExecuteOnlineSync" style="font-weight: 700; display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                Sync Terminal to Online Time Now
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: Manual Update Pane -->
+        <div id="timePaneManual" style="display: none;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
+            <h4 style="margin: 0 0 6px 0; color: #1e293b; font-size: 0.95rem;">Manual Custom Date &amp; Time</h4>
+            <p style="margin: 0 0 12px 0; font-size: 0.84rem; color: #64748b;">
+              Specify exact date and time values to manually encode into the SpeedFace hardware registers.
+            </p>
+
+            <div class="form-group" style="margin-bottom: 12px;">
+              <label for="inputManualDateTime" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 6px; display: block;">
+                Custom Date &amp; Time (YYYY-MM-DD HH:MM:SS)
+              </label>
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <input type="datetime-local" step="1" id="inputManualDateTime" class="form-control font-mono" style="font-size: 1.05rem; font-weight: 700; max-width: 320px; padding: 8px 12px;">
+                <button type="button" class="btn btn-sm btn-outline" id="btnManualFillNow" style="font-size: 0.8rem; padding: 6px 12px;">
+                  Set to Now
+                </button>
+                <button type="button" class="btn btn-sm btn-outline" id="btnManualFillOnline" style="font-size: 0.8rem; padding: 6px 12px;">
+                  Set to Online Time
+                </button>
+              </div>
+            </div>
+
+            <!-- Quick adjustment buttons -->
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px;">
+              <span style="font-size: 0.78rem; font-weight: 600; color: #64748b; align-self: center; margin-right: 4px;">Quick Adjust:</span>
+              <button type="button" class="btn btn-xs btn-outline" id="btnAdjustMinus1h">-1 Hour</button>
+              <button type="button" class="btn btn-xs btn-outline" id="btnAdjustPlus1h">+1 Hour</button>
+              <button type="button" class="btn btn-xs btn-outline" id="btnAdjustMinus5m">-5 Mins</button>
+              <button type="button" class="btn btn-xs btn-outline" id="btnAdjustPlus5m">+5 Mins</button>
+              <button type="button" class="btn btn-xs btn-outline" id="btnAdjustMinus1m">-1 Min</button>
+              <button type="button" class="btn btn-xs btn-outline" id="btnAdjustPlus1m">+1 Min</button>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end;">
+              <button type="button" class="btn btn-primary" id="btnExecuteManualSync" style="font-weight: 700; display: inline-flex; align-items: center; gap: 6px; padding: 8px 20px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                Apply Custom Time to Terminal
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 3: PC Time Sync Pane -->
+        <div id="timePanePc" style="display: none;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
+            <h4 style="margin: 0 0 6px 0; color: #1e293b; font-size: 0.95rem;">Synchronize with Local Computer Clock</h4>
+            <p style="margin: 0 0 12px 0; font-size: 0.84rem; color: #64748b;">
+              Copies the server computer's operating system clock directly into the SpeedFace hardware clock.
+            </p>
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+              <div style="font-size: 0.85rem; color: #334155;">
+                Current PC Time: <strong id="modalPcTimeSummary" class="font-mono">--:--:--</strong>
+              </div>
+              <button type="button" class="btn btn-primary" id="btnExecutePcSync" style="font-weight: 700; display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                Sync Device Clock with PC
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 12px 24px;">
+        <button type="button" class="btn btn-sm btn-outline" id="btnRefreshModalTimes" style="display: inline-flex; align-items: center; gap: 5px;">
+          🔄 Refresh Clocks
+        </button>
+        <button type="button" class="btn btn-outline" id="btnCloseTimeSyncModalBottom">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Print & PDF Options Modal -->
   <div class="modal" id="printOptionsModal" style="z-index: 2000;">
     <div class="modal-backdrop" onclick="closePrintOptionsModal()"></div>
@@ -2840,6 +3016,6 @@ Loading application logs...
   <!-- Toast Notification Container -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <script src="js/app.js?v=2.1.2"></script>
+  <script src="js/app.js?v=2.2.0"></script>
 </body>
 </html>
