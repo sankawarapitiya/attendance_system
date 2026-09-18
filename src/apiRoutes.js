@@ -2037,6 +2037,122 @@ router.delete('/shifts/:id', async (req, res) => {
 });
 
 // 10. Holidays CRUD
+// 10.0 Holiday Sample Template Download (CSV / Excel)
+router.get('/holidays/sample-template', async (req, res) => {
+  try {
+    const format = (req.query.format || 'csv').toLowerCase();
+
+    // Check if official data file exists, else use standard reference holidays
+    let sampleRows = [];
+    const holidaysCsvPath = path.join(__dirname, '..', 'data', 'holidays_2026.csv');
+    if (fs.existsSync(holidaysCsvPath)) {
+      try {
+        const rawContent = fs.readFileSync(holidaysCsvPath, 'utf8');
+        const workbook = XLSX.read(rawContent, { type: 'string', raw: true });
+        const sheetName = workbook.SheetNames[0];
+        sampleRows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '', raw: false });
+      } catch (e) {
+        sampleRows = [];
+      }
+    }
+
+    if (!sampleRows || sampleRows.length === 0) {
+      sampleRows = [
+        {
+          'Date': '2026-01-03',
+          'Day': 'Saturday',
+          'Holiday Description': 'Duruthu Full Moon Poya Day',
+          'Bank Holiday': 'True',
+          'Public Holiday': 'True',
+          'Mercantile Holiday': 'False'
+        },
+        {
+          'Date': '2026-01-15',
+          'Day': 'Thursday',
+          'Holiday Description': 'Tamil Thai Pongal Day',
+          'Bank Holiday': 'True',
+          'Public Holiday': 'True',
+          'Mercantile Holiday': 'True'
+        },
+        {
+          'Date': '2026-02-04',
+          'Day': 'Wednesday',
+          'Holiday Description': 'National Independence Day',
+          'Bank Holiday': 'True',
+          'Public Holiday': 'True',
+          'Mercantile Holiday': 'True'
+        },
+        {
+          'Date': '2026-04-13',
+          'Day': 'Monday',
+          'Holiday Description': 'Day prior to Sinhala & Tamil New Year Day',
+          'Bank Holiday': 'True',
+          'Public Holiday': 'True',
+          'Mercantile Holiday': 'True'
+        },
+        {
+          'Date': '2026-04-14',
+          'Day': 'Tuesday',
+          'Holiday Description': 'Sinhala & Tamil New Year Day',
+          'Bank Holiday': 'True',
+          'Public Holiday': 'True',
+          'Mercantile Holiday': 'True'
+        },
+        {
+          'Date': '2026-05-01',
+          'Day': 'Friday',
+          'Holiday Description': 'May Day (International Workers\' Day)',
+          'Bank Holiday': 'True',
+          'Public Holiday': 'True',
+          'Mercantile Holiday': 'True'
+        },
+        {
+          'Date': '2026-05-02',
+          'Day': 'Saturday',
+          'Holiday Description': 'Vesak Full Moon Poya Day',
+          'Bank Holiday': 'True',
+          'Public Holiday': 'True',
+          'Mercantile Holiday': 'False'
+        },
+        {
+          'Date': '2026-12-25',
+          'Day': 'Friday',
+          'Holiday Description': 'Christmas Day',
+          'Bank Holiday': 'True',
+          'Public Holiday': 'True',
+          'Mercantile Holiday': 'True'
+        }
+      ];
+    }
+
+    if (format === 'xlsx') {
+      const worksheet = XLSX.utils.json_to_sheet(sampleRows);
+      worksheet['!cols'] = [
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 45 },
+        { wch: 15 },
+        { wch: 15 },
+        { wch: 18 }
+      ];
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Official_Holidays');
+      const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename="SpeedFace_Official_Holidays_Template.xlsx"');
+      return res.send(buffer);
+    } else {
+      const worksheet = XLSX.utils.json_to_sheet(sampleRows);
+      const csv = XLSX.utils.sheet_to_csv(worksheet);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="SpeedFace_Official_Holidays_Template.csv"');
+      return res.send(csv);
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 router.get('/holidays', async (req, res) => {
   try {
     const holidays = await dbAll(`SELECT * FROM holidays ORDER BY holiday_date ASC`);

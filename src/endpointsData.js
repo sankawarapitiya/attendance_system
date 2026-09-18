@@ -417,6 +417,17 @@ const API_ENDPOINTS = [
     }
   },
   {
+    id: 'holiday-sample-template',
+    category: 'shifts',
+    categoryName: '⏰ Shifts & Holidays',
+    method: 'GET',
+    path: '/api/holidays/sample-template',
+    description: 'Download standard CSV or Excel (.xlsx) template for official holidays import',
+    parameters: {
+      format: 'Template format: csv or xlsx (optional, default: csv)'
+    }
+  },
+  {
     id: 'get-holidays',
     category: 'shifts',
     categoryName: '⏰ Shifts & Holidays',

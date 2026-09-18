@@ -6379,8 +6379,16 @@ async function initShiftsAndHolidays() {
     }
   });
 
-  document.getElementById('btnDownloadSampleHolidaysCsv')?.addEventListener('click', () => {
-    downloadSampleHolidaysTemplate();
+  ['btnDownloadSampleHolidaysCsv', 'btnDownloadSampleHolidaysCsvTop', 'btnDownloadSampleHolidaysCsvDropzone', 'btnDownloadHolidaySampleMain'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('click', () => {
+      showToast('Downloading official holidays CSV template...', 'info', 2000);
+    });
+  });
+
+  ['btnDownloadSampleHolidaysXlsx', 'btnDownloadSampleHolidaysXlsxTop', 'btnDownloadSampleHolidaysXlsxDropzone'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('click', () => {
+      showToast('Downloading official holidays Excel (.xlsx) template...', 'info', 2000);
+    });
   });
 
   document.getElementById('btnHolidayUploadConfirm')?.addEventListener('click', async () => {
@@ -6975,8 +6983,18 @@ async function confirmHolidaysImport() {
   }
 }
 
-function downloadSampleHolidaysTemplate() {
-  const sampleCsv = `Date,Day,Holiday Description,Bank Holiday,Public Holiday,Mercantile Holiday
+function downloadSampleHolidaysTemplate(format = 'csv') {
+  try {
+    const url = `/api/holidays/sample-template?format=${encodeURIComponent(format)}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = format === 'xlsx' ? 'SpeedFace_Official_Holidays_Template.xlsx' : 'SpeedFace_Official_Holidays_Template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast(`Downloading official holidays ${format.toUpperCase()} template...`, 'info', 2000);
+  } catch (err) {
+    const sampleCsv = `Date,Day,Holiday Description,Bank Holiday,Public Holiday,Mercantile Holiday
 2026-01-03,Saturday,Duruthu Full Moon Poya Day,True,True,False
 2026-01-15,Thursday,Tamil Thai Pongal Day,True,True,True
 2026-02-01,Sunday,Navam Full Moon Poya Day,True,True,False
@@ -6987,16 +7005,17 @@ function downloadSampleHolidaysTemplate() {
 2026-05-01,Friday,May Day (International Workers' Day),True,True,True
 2026-12-25,Friday,Christmas Day,True,True,True`;
 
-  const blob = new Blob([sampleCsv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'holidays_template.csv';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  showToast('Downloaded sample holidays CSV template', 'info');
+    const blob = new Blob([sampleCsv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'SpeedFace_Official_Holidays_Template.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Downloaded sample holidays CSV template', 'info');
+  }
 }
 
 async function openBulkShiftModal() {
