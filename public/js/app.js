@@ -7320,6 +7320,10 @@ async function loadSystemLogs() {
 
 let apiServiceInitialized = false;
 let apiSelectedSnippetLang = 'curl';
+let apiEndpointsList = [];
+let apiActiveCategory = 'all';
+let apiActiveMethod = 'all';
+let apiSearchQuery = '';
 
 async function initApiServiceTab() {
   // Update Base URL display
@@ -7328,6 +7332,9 @@ async function initApiServiceTab() {
   if (baseUrlEl) {
     baseUrlEl.textContent = `${baseHost}/api`;
   }
+
+  // Load and render all 59 API endpoints
+  loadAndRenderApiCatalog();
 
   // Load employees for user selector dropdown if not already loaded or empty
   const userSelect = document.getElementById('apiAttSelectUser');
@@ -7388,12 +7395,432 @@ async function initApiServiceTab() {
   renderApiSnippet();
 }
 
+async function loadAndRenderApiCatalog() {
+  const container = document.getElementById('apiEndpointsCatalogContainer');
+  if (!container) return;
+
+  if (apiEndpointsList.length === 0) {
+    try {
+      const res = await fetch('/api/v1/docs');
+      const data = await res.json();
+      if (data.endpoints && Array.isArray(data.endpoints)) {
+        apiEndpointsList = data.endpoints;
+        const badgeCount = document.getElementById('apiCatalogBadgeCount');
+        const totalCount = document.getElementById('apiTotalCount');
+        if (badgeCount) badgeCount.textContent = `${apiEndpointsList.length} Endpoints`;
+        if (totalCount) totalCount.textContent = apiEndpointsList.length;
+      }
+    } catch (err) {
+      console.error('Failed to fetch API docs:', err);
+      container.innerHTML = `
+        <div style="text-align: center; padding: 30px; color: #ef4444;">
+          <strong>Failed to load API catalog:</strong> ${escapeHtml(err.message)}
+          <br><button type="button" class="btn btn-sm btn-outline" onclick="loadAndRenderApiCatalog()" style="margin-top: 10px;">↺ Try Again</button>
+        </div>
+      `;
+      return;
+    }
+  }
+
+  renderApiEndpointsCatalog();
+}
+
+function renderApiEndpointsCatalog() {
+  const container = document.getElementById('apiEndpointsCatalogContainer');
+  const countBadge = document.getElementById('apiShowingCount');
+  const totalBadge = document.getElementById('apiTotalCount');
+  if (!container) return;
+
+  const total = apiEndpointsList.length;
+  if (totalBadge) totalBadge.textContent = total;
+
+  // Filter endpoints
+  const filtered = apiEndpointsList.filter(ep => {
+    // Category filter
+    if (apiActiveCategory !== 'all' && (ep.category || '').toLowerCase() !== apiActiveCategory.toLowerCase()) {
+      return false;
+    }
+    // Method filter
+    if (apiActiveMethod !== 'all' && (ep.method || '').toUpperCase() !== apiActiveMethod.toUpperCase()) {
+      return false;
+    }
+    // Search query filter
+    if (apiSearchQuery) {
+      const q = apiSearchQuery;
+      const matchPath = ep.path && ep.path.toLowerCase().includes(q);
+      const matchAlias = ep.alias && ep.alias.toLowerCase().includes(q);
+      const matchDesc = ep.description && ep.description.toLowerCase().includes(q);
+      const matchCat = ep.categoryName && ep.categoryName.toLowerCase().includes(q);
+      const matchMethod = ep.method && ep.method.toLowerCase().includes(q);
+      const matchParams = ep.parameters && JSON.stringify(ep.parameters).toLowerCase().includes(q);
+      const matchBody = ep.body && JSON.stringify(ep.body).toLowerCase().includes(q);
+
+      if (!matchPath && !matchAlias && !matchDesc && !matchCat && !matchMethod && !matchParams && !matchBody) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  if (countBadge) countBadge.textContent = filtered.length;
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 48px 20px; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
+        <div style="font-size: 2rem; margin-bottom: 8px;">🔍</div>
+        <div style="font-size: 1rem; font-weight: 700; color: #1e293b;">No matching endpoints found</div>
+        <p style="font-size: 0.85rem; color: #64748b; margin: 4px auto 12px auto; max-width: 420px;">
+          No API endpoints match your filter "<strong>${escapeHtml(apiSearchQuery || apiActiveCategory || apiActiveMethod)}</strong>".
+        </p>
+        <button type="button" class="btn btn-sm btn-outline" onclick="window.resetApiCatalogFilters()" style="cursor: pointer;">
+          ↺ Reset All Filters
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  // Method badge class helper
+  const getMethodBadgeClass = (m) => {
+    switch ((m || '').toUpperCase()) {
+      case 'GET': return 'api-badge-get';
+      case 'POST': return 'api-badge-post';
+      case 'PUT': return 'api-badge-put';
+      case 'DELETE': return 'api-badge-delete';
+      default: return 'api-badge-get';
+    }
+  };
+
+  const html = filtered.map(ep => {
+    const safeId = (ep.id || ep.path).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const methodUpper = (ep.method || 'GET').toUpperCase();
+    const methodBadgeClass = getMethodBadgeClass(methodUpper);
+
+    // Query Parameters markup
+    let paramsMarkup = '';
+    if (ep.parameters && Object.keys(ep.parameters).length > 0) {
+      const rows = Object.entries(ep.parameters).map(([key, desc]) => `
+        <div class="api-param-row">
+          <span class="api-param-key">${escapeHtml(key)}</span>
+          <span class="api-param-val">${escapeHtml(String(desc))}</span>
+        </div>
+      `).join('');
+      paramsMarkup = `
+        <div style="margin-top: 10px;">
+          <div class="api-params-title">
+            <span>Query Parameters</span>
+          </div>
+          <div class="api-params-grid">${rows}</div>
+        </div>
+      `;
+    }
+
+    // Body schema markup
+    let bodyMarkup = '';
+    let defaultBodyJson = '';
+    if (ep.body && Object.keys(ep.body).length > 0) {
+      const sampleObj = {};
+      Object.entries(ep.body).forEach(([k, v]) => {
+        const valStr = String(v);
+        const matchSample = valStr.match(/e\.g\.\s*"?([^",)]+)"?/i);
+        if (matchSample) {
+          const val = matchSample[1].replace(/\\"/g, '"');
+          if (val === 'true') sampleObj[k] = true;
+          else if (val === 'false') sampleObj[k] = false;
+          else if (!isNaN(Number(val))) sampleObj[k] = Number(val);
+          else sampleObj[k] = val;
+        } else if (valStr.toLowerCase().includes('boolean')) {
+          sampleObj[k] = true;
+        } else if (valStr.toLowerCase().includes('number')) {
+          sampleObj[k] = 1;
+        } else {
+          sampleObj[k] = 'example';
+        }
+      });
+      defaultBodyJson = JSON.stringify(sampleObj, null, 2);
+
+      const rows = Object.entries(ep.body).map(([key, desc]) => `
+        <div class="api-param-row">
+          <span class="api-param-key">${escapeHtml(key)}</span>
+          <span class="api-param-val">${escapeHtml(String(desc))}</span>
+        </div>
+      `).join('');
+      bodyMarkup = `
+        <div style="margin-top: 10px;">
+          <div class="api-params-title">
+            <span>JSON Request Body Schema</span>
+          </div>
+          <div class="api-params-grid">${rows}</div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="api-endpoint-card" id="card_${safeId}">
+        <div class="api-card-top">
+          <div class="api-endpoint-left">
+            <span class="api-badge-method ${methodBadgeClass}">${methodUpper}</span>
+            <span class="api-endpoint-path">${escapeHtml(ep.path)}</span>
+            ${ep.alias ? `<span class="api-badge-alias">Alias: ${escapeHtml(ep.alias)}</span>` : ''}
+            <span class="api-badge-cat">${escapeHtml(ep.categoryName || ep.category)}</span>
+          </div>
+          <div class="api-endpoint-actions">
+            <button type="button" class="btn btn-sm btn-primary" onclick="window.toggleApiTestDrawer('${safeId}', '${escapeHtml(ep.id)}')" style="font-weight: 600; padding: 4px 10px; font-size: 0.76rem; display: flex; align-items: center; gap: 4px;">
+              <span>⚡ Test</span>
+            </button>
+            <button type="button" class="btn btn-sm btn-outline" onclick="window.copyApiEndpointPath('${escapeHtml(ep.path)}')" style="font-size: 0.74rem; padding: 4px 8px;" title="Copy path to clipboard">
+              📋 Path
+            </button>
+            <button type="button" class="btn btn-sm btn-outline" onclick="window.copyApiEndpointCurl('${escapeHtml(ep.id)}')" style="font-size: 0.74rem; padding: 4px 8px;" title="Copy cURL command">
+              📋 cURL
+            </button>
+          </div>
+        </div>
+
+        <div class="api-card-content">
+          <div class="api-desc">${escapeHtml(ep.description || '')}</div>
+          ${paramsMarkup}
+          ${bodyMarkup}
+
+          <!-- Live Test Drawer (Hidden by default) -->
+          <div class="api-test-drawer" id="drawer_${safeId}" style="display: none;">
+            <div class="api-drawer-header">
+              <div class="api-drawer-badges">
+                <span style="font-size: 0.8rem; font-weight: 700; color: #f8fafc;">Live Test Runner:</span>
+                <span class="badge" id="status_${safeId}" style="background: #475569; color: #fff; font-size: 0.72rem; padding: 3px 8px;">Ready</span>
+                <span class="text-xs text-muted" id="time_${safeId}">-- ms</span>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <button type="button" class="btn btn-sm btn-primary" id="btnRun_${safeId}" onclick="window.executeApiGenericTest('${escapeHtml(ep.id)}', '${safeId}')" style="padding: 4px 12px; font-size: 0.75rem; font-weight: 600;">
+                  ▶ Send Request
+                </button>
+                <button type="button" class="btn btn-sm btn-outline" onclick="window.copyApiDrawerOutput('${safeId}')" style="font-size: 0.72rem; padding: 4px 8px; color: #e2e8f0; border-color: #475569;">
+                  📋 Copy JSON
+                </button>
+              </div>
+            </div>
+
+            ${methodUpper !== 'GET' && defaultBodyJson ? `
+              <div style="margin-bottom: 6px; font-size: 0.75rem; color: #94a3b8; font-weight: 600;">Editable Request Payload (JSON):</div>
+              <textarea class="api-body-editor" id="bodyInput_${safeId}">${defaultBodyJson}</textarea>
+            ` : ''}
+
+            <pre class="api-json-pre" id="out_${safeId}">Click "Send Request" to test this endpoint live against your SpeedFace server.</pre>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = html;
+}
+
+window.toggleApiTestDrawer = function(safeId, epId) {
+  const drawer = document.getElementById(`drawer_${safeId}`);
+  if (!drawer) return;
+  const isHidden = drawer.style.display === 'none';
+  drawer.style.display = isHidden ? 'block' : 'none';
+  if (isHidden) {
+    const ep = apiEndpointsList.find(e => e.id === epId);
+    if (ep && (ep.method || '').toUpperCase() === 'GET') {
+      window.executeApiGenericTest(epId, safeId);
+    }
+  }
+};
+
+window.copyApiEndpointPath = function(path) {
+  copyTextToClipboard(path, `Copied endpoint path: ${path}`);
+};
+
+window.copyApiEndpointCurl = function(epId) {
+  const ep = apiEndpointsList.find(e => e.id === epId);
+  if (!ep) return;
+  const origin = window.location.origin;
+  const method = (ep.method || 'GET').toUpperCase();
+  let path = ep.path;
+  path = path.replace(/:userId/g, '44').replace(/:id/g, '44').replace(/:orgId/g, 'demo_corp');
+
+  const url = `${origin}${path}`;
+  let curl = `curl -X ${method} "${url}" \\\n  -H "Accept: application/json"`;
+
+  if (method !== 'GET' && ep.body) {
+    const sampleObj = {};
+    Object.entries(ep.body).forEach(([k, v]) => {
+      const matchSample = String(v).match(/e\.g\.\s*"?([^",)]+)"?/i);
+      if (matchSample) {
+        const val = matchSample[1].replace(/\\"/g, '"');
+        if (val === 'true') sampleObj[k] = true;
+        else if (val === 'false') sampleObj[k] = false;
+        else if (!isNaN(Number(val))) sampleObj[k] = Number(val);
+        else sampleObj[k] = val;
+      } else {
+        sampleObj[k] = 'example';
+      }
+    });
+    curl += ` \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(sampleObj)}'`;
+  }
+
+  copyTextToClipboard(curl, `cURL command for ${ep.path} copied!`);
+};
+
+window.copyApiDrawerOutput = function(safeId) {
+  const out = document.getElementById(`out_${safeId}`);
+  if (out) {
+    copyTextToClipboard(out.textContent, 'Response copied to clipboard!');
+  }
+};
+
+window.executeApiGenericTest = async function(epId, safeId) {
+  const ep = apiEndpointsList.find(e => e.id === epId);
+  if (!ep) return;
+
+  const btn = document.getElementById(`btnRun_${safeId}`);
+  const statusEl = document.getElementById(`status_${safeId}`);
+  const timeEl = document.getElementById(`time_${safeId}`);
+  const outEl = document.getElementById(`out_${safeId}`);
+  const bodyInput = document.getElementById(`bodyInput_${safeId}`);
+
+  let path = ep.path;
+  path = path.replace(/:userId/g, '44').replace(/:id/g, '44').replace(/:orgId/g, 'demo_corp');
+
+  const url = `${window.location.origin}${path}`;
+  const method = (ep.method || 'GET').toUpperCase();
+
+  let originalHtml = '';
+  if (btn) {
+    originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Sending...';
+  }
+
+  const startTime = performance.now();
+  try {
+    const fetchOptions = {
+      method: method,
+      headers: { 'Accept': 'application/json' }
+    };
+
+    if (method !== 'GET' && bodyInput) {
+      fetchOptions.headers['Content-Type'] = 'application/json';
+      const bodyVal = bodyInput.value.trim();
+      if (bodyVal) {
+        try {
+          JSON.parse(bodyVal);
+          fetchOptions.body = bodyVal;
+        } catch (jsonErr) {
+          if (statusEl) {
+            statusEl.textContent = 'Invalid JSON';
+            statusEl.style.background = '#ef4444';
+          }
+          if (outEl) outEl.textContent = `JSON Syntax Error in Payload:\n${jsonErr.message}`;
+          return;
+        }
+      }
+    }
+
+    const res = await fetch(url, fetchOptions);
+    const duration = Math.round(performance.now() - startTime);
+
+    if (timeEl) timeEl.textContent = `${duration} ms`;
+    if (statusEl) {
+      statusEl.textContent = `${res.status} ${res.statusText || (res.ok ? 'OK' : 'Error')}`;
+      statusEl.style.background = res.ok ? '#10b981' : (res.status >= 500 ? '#ef4444' : '#f59e0b');
+    }
+
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const json = await res.json();
+      if (outEl) outEl.textContent = JSON.stringify(json, null, 2);
+    } else {
+      const text = await res.text();
+      if (outEl) outEl.textContent = text.slice(0, 5000);
+    }
+  } catch (err) {
+    const duration = Math.round(performance.now() - startTime);
+    if (timeEl) timeEl.textContent = `${duration} ms`;
+    if (statusEl) {
+      statusEl.textContent = 'Network Error';
+      statusEl.style.background = '#ef4444';
+    }
+    if (outEl) outEl.textContent = JSON.stringify({ error: err.message }, null, 2);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+};
+
+window.resetApiCatalogFilters = function() {
+  apiActiveCategory = 'all';
+  apiActiveMethod = 'all';
+  apiSearchQuery = '';
+
+  const searchInput = document.getElementById('apiCatalogSearchInput');
+  if (searchInput) searchInput.value = '';
+  const clearBtn = document.getElementById('btnClearApiSearch');
+  if (clearBtn) clearBtn.style.display = 'none';
+
+  document.querySelectorAll('.api-filter-pill').forEach(p => {
+    p.classList.toggle('active', p.dataset.category === 'all');
+  });
+  document.querySelectorAll('.api-method-filter').forEach(m => {
+    m.classList.toggle('active', m.dataset.method === 'all');
+  });
+
+  renderApiEndpointsCatalog();
+};
+
 function setupApiServiceListeners() {
   // Base URL copy
   document.getElementById('btnCopyBaseApiUrl')?.addEventListener('click', () => {
     const url = document.getElementById('apiBaseUrlDisplay')?.textContent || '';
     copyTextToClipboard(url, 'Base API URL copied to clipboard!');
   });
+
+  // Endpoints Catalog: Search input filter
+  const searchInput = document.getElementById('apiCatalogSearchInput');
+  const clearSearchBtn = document.getElementById('btnClearApiSearch');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      apiSearchQuery = e.target.value.trim().toLowerCase();
+      if (clearSearchBtn) {
+        clearSearchBtn.style.display = apiSearchQuery ? 'inline-block' : 'none';
+      }
+      renderApiEndpointsCatalog();
+    });
+  }
+  if (clearSearchBtn) {
+    clearSearchBtn.addEventListener('click', () => {
+      if (searchInput) searchInput.value = '';
+      apiSearchQuery = '';
+      clearSearchBtn.style.display = 'none';
+      renderApiEndpointsCatalog();
+    });
+  }
+
+  // Endpoints Catalog: Method filter buttons
+  document.querySelectorAll('.api-method-filter').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.api-method-filter').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      apiActiveMethod = btn.dataset.method || 'all';
+      renderApiEndpointsCatalog();
+    });
+  });
+
+  // Endpoints Catalog: Category filter pills
+  document.querySelectorAll('.api-filter-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.api-filter-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      apiActiveCategory = btn.dataset.category || 'all';
+      renderApiEndpointsCatalog();
+    });
+  });
+
+  // Endpoints Catalog: Reset filters button
+  document.getElementById('btnResetApiFilters')?.addEventListener('click', window.resetApiCatalogFilters);
 
   // Endpoint 1: Users Filter inputs change
   ['apiUsersFilterStatus', 'apiUsersFilterDept', 'apiUsersFilterSearch'].forEach(id => {

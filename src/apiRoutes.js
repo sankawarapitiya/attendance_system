@@ -7,6 +7,7 @@ const { syncFromDevice, cancelDeviceSync, checkDeviceHealth, getSyncStatus, star
 const { SpeedFaceClient } = require('./zktProtocol');
 const { firebaseService } = require('./firebaseService');
 const timeService = require('./timeService');
+const { API_ENDPOINTS } = require('./endpointsData');
 const config = require('./config');
 const logger = require('./logger');
 const { 
@@ -85,6 +86,26 @@ function getLocalIps(deviceIp = '192.168.10.15') {
   }
   return addresses;
 }
+
+// Health and status check
+router.get(['/health', '/status'], async (req, res) => {
+  try {
+    const dbOk = await dbGet('SELECT 1 as ok');
+    const recCount = await dbGet('SELECT COUNT(*) as c FROM attendance_records');
+    const empCount = await dbGet('SELECT COUNT(*) as c FROM employees');
+    res.json({
+      status: 'ok',
+      uptime: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+      database: dbOk ? 'connected' : 'disconnected',
+      records: recCount?.c || 0,
+      employees: empCount?.c || 0,
+      memory: process.memoryUsage()
+    });
+  } catch (e) {
+    res.status(500).json({ status: 'error', error: e.message });
+  }
+});
 
 // 1. Dashboard summary stats
 router.get('/stats', async (req, res) => {
@@ -1468,6 +1489,42 @@ router.get('/employees', async (req, res) => {
   }
 });
 
+// GET single employee by ID
+router.get(['/employees/:id', '/v1/users/:id', '/users/:id', '/v1/users/:userId', '/employees/:userId'], async (req, res) => {
+  try {
+    const userId = req.params.userId || req.params.id;
+    const emp = await dbGet(`
+      SELECT 
+        e.*,
+        COALESCE(e.is_active, 1) as is_active,
+        s.name as shift_name,
+        s.start_time as shift_start,
+        s.end_time as shift_end,
+        s.color as shift_color,
+        s.work_days as shift_work_days,
+        COUNT(a.id) as total_punches,
+        MAX(a.punch_time) as last_seen
+      FROM employees e
+      LEFT JOIN working_shifts s ON COALESCE(e.shift_id, 1) = s.id
+      LEFT JOIN attendance_records a ON e.user_id = a.user_id
+      WHERE e.user_id = ?
+      GROUP BY e.user_id
+    `, [userId]);
+
+    if (!emp) {
+      return res.status(404).json({ success: false, error: `Employee with User ID ${userId} not found` });
+    }
+
+    res.json({
+      success: true,
+      employee: emp,
+      user: emp
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // Quick toggle active status for an employee
 router.post('/employees/:id/toggle-active', async (req, res) => {
   try {
@@ -2349,40 +2406,18 @@ router.get('/system/backups/download/:filename', (req, res) => {
  * Returns metadata and schema documentation for available REST endpoints.
  */
 router.get(['/v1', '/v1/docs'], (req, res) => {
+  const category = (req.query.category || 'all').toLowerCase();
+  let list = API_ENDPOINTS;
+  if (category && category !== 'all') {
+    list = list.filter(e => e.category.toLowerCase() === category);
+  }
   res.json({
     success: true,
-    service: 'SpeedFace-V5L Attendance API Service',
-    version: '1.0.0',
-    description: 'RESTful API for accessing employee profiles and calculated attendance records.',
-    endpoints: [
-      {
-        method: 'GET',
-        path: '/api/v1/users',
-        alias: '/api/users',
-        description: 'Get all enrolled users with complete profile details, shift assignments, and punch stats',
-        parameters: {
-          status: 'Filter by active status (active, inactive, all). Default: all',
-          department: 'Filter by department name',
-          search: 'Search across User ID, Name, NIC, Service ID, Phone, Email',
-          page: 'Page number (optional)',
-          limit: 'Page size limit (optional)'
-        }
-      },
-      {
-        method: 'GET',
-        path: '/api/v1/users/:userId/attendance',
-        alias: '/api/users/:userId/attendance',
-        description: 'Get calculated attendance records with daily status, punctuality, grace, short leaves, OT, and period totals for a user',
-        parameters: {
-          userId: 'Employee User ID (Path parameter, required)',
-          month: 'Target month in YYYY-MM format (e.g. 2026-09). Defaults to current month',
-          date: 'Single date in YYYY-MM-DD format (optional)',
-          startDate: 'Range start date in YYYY-MM-DD format (optional)',
-          endDate: 'Range end date in YYYY-MM-DD format (optional)',
-          includePunches: 'Include array of raw punches for each day (true/false, default: true)'
-        }
-      }
-    ]
+    service: 'SpeedFace-V5L Full Attendance & Device API Gateway',
+    version: '2.0.0',
+    description: 'RESTful API for accessing employee profiles, shifts, calculated attendance records, SpeedFace terminal hardware control, time sync, and cloud services.',
+    totalEndpoints: list.length,
+    endpoints: list
   });
 });
 
@@ -2586,7 +2621,7 @@ router.post('/firebase/test-connection', async (req, res) => {
 });
 
 // 3. Save Service Account Key (Upload / Paste)
-router.post('/firebase/upload-key', async (req, res) => {
+router.post(['/firebase/upload-key', '/firebase/save-credentials'], async (req, res) => {
   try {
     const keyData = req.body?.keyData || req.body?.serviceAccount || req.body;
     if (!keyData || (typeof keyData === 'object' && Object.keys(keyData).length === 0)) {
