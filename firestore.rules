@@ -1,0 +1,64 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: organizations/{orgId}
+// Document ID: Organization ID string (e.g., DSOFFICE_LUNUGAMWEHERA)
+//
+// Subcollection: organizations/{orgId}/attendance/{docId}
+// Fields:
+//   - user_id: string
+//   - punch_time: string
+//   - punch_state: number / string
+//   - verify_type: number / string
+//   - org_id: string
+//
+// Subcollection: organizations/{orgId}/employees/{userId}
+// Fields:
+//   - user_id: string
+//   - name: string
+//   - role: string
+//   - department: string
+//
+// Collection: _system_health/{docId}
+// Document ID: 'ping'
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Organizations and partitioned data (read-only for cloud dashboard, write-protected)
+    match /organizations/{orgId} {
+      allow read: if true;
+      allow write: if false;
+
+      match /attendance/{docId} {
+        allow read: if true;
+        allow write: if false;
+      }
+
+      match /employees/{userId} {
+        allow read: if true;
+        allow write: if false;
+      }
+    }
+
+    // Legacy attendance_records collection
+    match /attendance_records/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // System Health & Diagnostics
+    match /_system_health/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Default deny all other paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
