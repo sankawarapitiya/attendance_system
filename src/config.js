@@ -33,6 +33,7 @@ const config = {
   nodeEnv: process.env.NODE_ENV || 'production',
   isProduction: (process.env.NODE_ENV === 'production'),
   corsOrigin: process.env.CORS_ORIGIN || '*',
+  isCloudDeploy: (process.env.CLOUD_DEPLOY === 'true' || process.env.CLOUD_MODE === 'true' || process.env.DEPLOY_ENV === 'cloud'),
 
   // SpeedFace Terminal defaults
   deviceIp: process.env.DEVICE_IP || '192.168.10.15',

@@ -865,6 +865,14 @@ router.get('/reports/export', async (req, res) => {
 // 4. Trigger manual device sync
 router.post('/device/sync', async (req, res) => {
   try {
+    if (config.isCloudDeploy) {
+      return res.json({
+        success: false,
+        cloudMode: true,
+        message: 'Direct device terminal sync is disabled in Cloud Deploy mode. Attendance data is served from Google Cloud Firestore.'
+      });
+    }
+
     const body = req.body || {};
     const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
     const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
@@ -884,6 +892,14 @@ router.post('/device/sync', async (req, res) => {
 // 4b. Stop active device sync
 router.post('/device/sync/stop', async (req, res) => {
   try {
+    if (config.isCloudDeploy) {
+      return res.json({
+        success: true,
+        cloudMode: true,
+        message: 'No active device synchronization in Cloud Deploy mode.'
+      });
+    }
+
     const result = await cancelDeviceSync();
     res.json(result);
   } catch (err) {
@@ -894,6 +910,21 @@ router.post('/device/sync/stop', async (req, res) => {
 // 5. Live device health and status check
 router.get('/device/status', async (req, res) => {
   try {
+    if (config.isCloudDeploy) {
+      return res.json({
+        success: true,
+        online: true,
+        cloudMode: true,
+        source: 'Google Cloud Firestore',
+        message: 'Cloud Deploy Mode active. Biometric attendance is synchronized via Google Cloud Firestore.',
+        deviceInfo: {
+          model: 'SpeedFace-V5L (Cloud Sync)',
+          ip: 'Edge Machine -> Firestore',
+          status: 'Cloud Mode'
+        }
+      });
+    }
+
     const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
     const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
     const ifaceIpSetting = await dbGet(`SELECT value FROM settings WHERE key = 'network_interface_ip'`);
@@ -912,6 +943,15 @@ router.get('/device/status', async (req, res) => {
 // Test connection to device on demand
 router.post('/device/test', async (req, res) => {
   try {
+    if (config.isCloudDeploy) {
+      return res.json({
+        success: false,
+        online: false,
+        cloudMode: true,
+        message: 'Direct TCP terminal connection is stopped in Cloud Deploy mode. Attendance data is served from Google Cloud Firestore.'
+      });
+    }
+
     const body = req.body || {};
     const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
     const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
@@ -931,6 +971,20 @@ router.post('/device/test', async (req, res) => {
 // 6a. Get live time status across device, PC, and online time server
 router.get('/device/time-status', async (req, res) => {
   try {
+    if (config.isCloudDeploy) {
+      const nowIso = new Date().toISOString().replace('T', ' ').slice(0, 19);
+      return res.json({
+        success: true,
+        cloudMode: true,
+        deviceTime: nowIso,
+        pcTime: nowIso,
+        onlineTime: nowIso,
+        driftSeconds: 0,
+        inSync: true,
+        message: 'Cloud Deploy Mode: Terminal clock managed by Edge Server.'
+      });
+    }
+
     const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
     const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
     const ifaceIpSetting = await dbGet(`SELECT value FROM settings WHERE key = 'network_interface_ip'`);
@@ -963,6 +1017,14 @@ router.get('/time/online', async (req, res) => {
 // 6c. Synchronize device clock (Supports 'online', 'manual', and 'pc' modes)
 router.post('/device/sync-time', async (req, res) => {
   try {
+    if (config.isCloudDeploy) {
+      return res.json({
+        success: false,
+        cloudMode: true,
+        message: 'Terminal clock synchronization is disabled in Cloud Deploy mode.'
+      });
+    }
+
     const body = req.body || {};
     const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
     const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
@@ -994,6 +1056,14 @@ router.post('/device/sync-time', async (req, res) => {
 // 7. Reboot terminal
 router.post('/device/reboot', async (req, res) => {
   try {
+    if (config.isCloudDeploy) {
+      return res.json({
+        success: false,
+        cloudMode: true,
+        message: 'Hardware terminal reboot is disabled in Cloud Deploy mode.'
+      });
+    }
+
     const body = req.body || {};
     const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
     const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
@@ -1106,19 +1176,23 @@ router.post('/device/reset-data', async (req, res) => {
 
     // Optional clearing of punch records on physical hardware terminal
     if (clearTerminalLogs) {
-      const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
-      const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
-      const ifaceIpSetting = await dbGet(`SELECT value FROM settings WHERE key = 'network_interface_ip'`);
+      if (config.isCloudDeploy) {
+        terminalResult = { success: false, cloudMode: true, error: 'Direct terminal log clearing is disabled in Cloud Deploy mode' };
+      } else {
+        const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
+        const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
+        const ifaceIpSetting = await dbGet(`SELECT value FROM settings WHERE key = 'network_interface_ip'`);
 
-      const ip = ipSetting ? ipSetting.value : '192.168.10.15';
-      const port = parseInt(portSetting ? portSetting.value : 4370, 10);
-      const localAddress = ifaceIpSetting ? ifaceIpSetting.value : null;
+        const ip = ipSetting ? ipSetting.value : '192.168.10.15';
+        const port = parseInt(portSetting ? portSetting.value : 4370, 10);
+        const localAddress = ifaceIpSetting ? ifaceIpSetting.value : null;
 
-      try {
-        const client = new SpeedFaceClient(ip, port, 8000, localAddress);
-        terminalResult = await client.clearAttendanceLogs();
-      } catch (tErr) {
-        terminalResult = { success: false, error: tErr.message };
+        try {
+          const client = new SpeedFaceClient(ip, port, 8000, localAddress);
+          terminalResult = await client.clearAttendanceLogs();
+        } catch (tErr) {
+          terminalResult = { success: false, error: tErr.message };
+        }
       }
     }
 
@@ -1392,7 +1466,7 @@ router.post('/employees/upload', async (req, res) => {
     let deviceSyncCount = 0;
     let deviceSyncError = null;
 
-    if (syncToDevice && insertedCount > 0) {
+    if (syncToDevice && insertedCount > 0 && !config.isCloudDeploy) {
       try {
         const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
         const ifaceIpSetting = await dbGet(`SELECT value FROM settings WHERE key = 'network_interface_ip'`);
@@ -1645,7 +1719,7 @@ router.post('/employees', async (req, res) => {
     let photoSynced = false;
     let deviceError = null;
 
-    if (syncToDevice) {
+    if (syncToDevice && !config.isCloudDeploy) {
       try {
         const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
         const ip = ipSetting ? ipSetting.value : '192.168.10.15';
@@ -1720,7 +1794,7 @@ router.delete(['/employees/:id', '/v1/users/:id', '/users/:id'], async (req, res
     let deviceDeleted = false;
     let deviceError = null;
 
-    if (deleteFromDevice) {
+    if (deleteFromDevice && !config.isCloudDeploy) {
       // Direct TCP command
       try {
         const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
@@ -2288,6 +2362,14 @@ router.delete('/holidays/:id', async (req, res) => {
 // Push all customized employees to SpeedFace device in batch
 router.post('/employees/sync-all', async (req, res) => {
   try {
+    if (config.isCloudDeploy) {
+      return res.json({
+        success: false,
+        cloudMode: true,
+        message: 'Direct terminal push is disabled in Cloud Deploy mode. Attendance data and employee directories are managed via Google Cloud Firestore.'
+      });
+    }
+
     const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
     const ip = ipSetting ? ipSetting.value : '192.168.10.15';
     const ifaceIpSetting = await dbGet(`SELECT value FROM settings WHERE key = 'network_interface_ip'`);

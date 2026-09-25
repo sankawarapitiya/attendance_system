@@ -167,7 +167,9 @@ app.get(['/health', '/api/health'], async (req, res) => {
       },
       speedFace: {
         configuredIp: config.deviceIp,
-        configuredPort: config.devicePort
+        configuredPort: config.devicePort,
+        terminalAccess: config.isCloudDeploy ? 'STOPPED (Cloud Firestore Mode)' : 'DIRECT (TCP 4370)',
+        cloudDeploy: config.isCloudDeploy
       },
       webSocket: {
         activeClients: wss.clients.size
@@ -314,27 +316,35 @@ async function start() {
       logger.info('SYSTEM', ` Target Device:  ${config.deviceIp}:${config.devicePort}`);
       logger.info('SYSTEM', '================================================================');
 
-      // Schedule background sync
-      startAutoSync(config.autoSyncInterval, async () => {
-        const ipRow = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
-        const portRow = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
-        const enabledRow = await dbGet(`SELECT value FROM settings WHERE key = 'auto_sync_enabled'`);
-        return {
-          device_ip: ipRow ? ipRow.value : config.deviceIp,
-          device_port: portRow ? portRow.value : String(config.devicePort),
-          auto_sync_enabled: enabledRow ? enabledRow.value : 'true'
-        };
-      });
+      if (config.isCloudDeploy) {
+        logger.info('CLOUD', '================================================================');
+        logger.info('CLOUD', ' CLOUD DEPLOY MODE ACTIVE');
+        logger.info('CLOUD', ' Direct TCP terminal socket access to device (4370) is STOPPED.');
+        logger.info('CLOUD', ' Primary data source: Google Cloud Firestore.');
+        logger.info('CLOUD', '================================================================');
+      } else {
+        // Schedule background sync
+        startAutoSync(config.autoSyncInterval, async () => {
+          const ipRow = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
+          const portRow = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
+          const enabledRow = await dbGet(`SELECT value FROM settings WHERE key = 'auto_sync_enabled'`);
+          return {
+            device_ip: ipRow ? ipRow.value : config.deviceIp,
+            device_port: portRow ? portRow.value : String(config.devicePort),
+            auto_sync_enabled: enabledRow ? enabledRow.value : 'true'
+          };
+        });
 
-      // Initial device connectivity check
-      setTimeout(async () => {
-        logger.info('INIT', `Verifying initial connection with SpeedFace at ${config.deviceIp}:${config.devicePort}...`);
-        try {
-          await syncFromDevice(config.deviceIp, config.devicePort);
-        } catch (err) {
-          logger.warn('INIT', `Initial sync notice: ${err.message}`);
-        }
-      }, 1500);
+        // Initial device connectivity check
+        setTimeout(async () => {
+          logger.info('INIT', `Verifying initial connection with SpeedFace at ${config.deviceIp}:${config.devicePort}...`);
+          try {
+            await syncFromDevice(config.deviceIp, config.devicePort);
+          } catch (err) {
+            logger.warn('INIT', `Initial sync notice: ${err.message}`);
+          }
+        }, 1500);
+      }
     });
   } catch (err) {
     logger.error('CRASH', `Fatal initialization error: ${err.message}`, err.stack);
