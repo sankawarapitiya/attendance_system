@@ -8,7 +8,7 @@
  * 2. Stops all direct device terminal TCP connections (port 4370).
  * 3. Updates Device Status card to 'FIRESTORE CLOUD MODE' and locks direct hardware actions.
  * 4. Computes daily roll-call attendance summary, punctuality, and KPI stats dynamically.
- * 5. Provides client-side CSV export for daily roll-call reports.
+ * 5. Provides client-side CSV export for daily roll-call reports, raw logs, and employees.
  */
 
 (function () {
@@ -16,6 +16,8 @@
                       window.location.hostname.endsWith('.web.app') || 
                       window.location.hostname.endsWith('.firebaseapp.com') || 
                       window.__FORCE_CLOUD_MODE === true;
+
+  window.IS_CLOUD_MODE = isCloudHost;
 
   if (!isCloudHost) {
     // Local machine mode: native local Express API connects to device on LAN
@@ -38,6 +40,18 @@
     employees: null,
     lastFetchedAtt: 0,
     lastFetchedEmp: 0
+  };
+
+  /**
+   * Refresh Cloud Data manually on demand
+   */
+  window.refreshCloudData = async function () {
+    memoryCache.attendance = null;
+    memoryCache.employees = null;
+    memoryCache.lastFetchedAtt = 0;
+    memoryCache.lastFetchedEmp = 0;
+    await getCloudEmployees();
+    await getCloudAttendance();
   };
 
   /**
@@ -89,7 +103,7 @@
           docs.push(...data.documents);
         }
         pageToken = data.nextPageToken;
-        if (docs.length >= 1500) break; // Safety cap
+        if (docs.length >= 2000) break; // Safety cap
       } while (pageToken);
     } catch (e) {
       console.error('[CLOUD-ADAPTER] Network error loading ' + subcollection + ':', e);
@@ -489,11 +503,27 @@
             totalRecords: records.length,
             totalEmployees: emps.length,
             todayPunches: todayRecords.length,
+            todayRecords: todayRecords.length,
             presentToday: uniqueTodayUsers.size,
+            todayUniqueUsers: uniqueTodayUsers.size,
             activeEmployees: emps.filter(e => e.is_active).length,
             cloudConnected: true,
             orgId: activeOrgId,
-            terminalAccess: 'STOPPED (Cloud Firestore Mode)'
+            deviceOnline: true,
+            deviceIp: 'Google Cloud Firestore',
+            syncStatus: { deviceOnline: true },
+            admsConnected: false,
+            cloudMode: true,
+            terminalAccess: 'STOPPED (Cloud Firestore Mode)',
+            deviceInfo: {
+              model: 'Google Cloud Firestore',
+              ip: 'Firestore (Partition: ' + activeOrgId + ')',
+              status: 'Cloud Mode',
+              deviceTime: new Date().toLocaleTimeString(),
+              userCounts: emps.length,
+              logCounts: records.length,
+              logCapacity: 'Unlimited'
+            }
           }
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
@@ -583,8 +613,8 @@
           source: 'Google Cloud Firestore',
           message: 'Cloud Deployment Active: Biometric hardware is connected locally at the office. Attendance data is served directly from Google Cloud Firestore.',
           deviceInfo: {
-            model: 'SpeedFace-V5L (Cloud Sync)',
-            ip: 'Edge Machine -> Firestore',
+            model: 'Google Cloud Firestore',
+            ip: 'Firestore (Partition: ' + activeOrgId + ')',
             status: 'Cloud Mode',
             storedLogs: records.length,
             enrolledUsers: emps.length
@@ -594,11 +624,17 @@
 
       // 10. Device Actions - STOP direct hardware access in cloud mode
       if (path === '/api/device/test') {
+        const records = await getCloudAttendance();
+        const emps = await getCloudEmployees();
         return new Response(JSON.stringify({
-          success: false,
-          online: false,
+          success: true,
+          online: true,
           cloudMode: true,
-          message: 'Direct TCP terminal connection is stopped in Cloud Deploy mode. Attendance data is served from Google Cloud Firestore.'
+          message: 'Cloud Mode Active: Attendance data loaded from Google Cloud Firestore. Direct hardware socket stopped.',
+          deviceTime: new Date().toLocaleTimeString(),
+          userCounts: emps.length,
+          logCounts: records.length,
+          logCapacity: 'Cloud Scalable'
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
@@ -654,9 +690,9 @@
         return new Response(JSON.stringify({
           success: true,
           cloudMode: true,
-          attendance: records.length,
-          employees: emps.length,
-          syncLogs: 0
+          attendanceCount: records.length,
+          employeeCount: emps.length,
+          syncLogCount: 0
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
@@ -676,6 +712,25 @@
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
+      // Network interfaces in cloud
+      if (path === '/api/network-interfaces') {
+        return new Response(JSON.stringify({
+          success: true,
+          interfaces: [
+            { name: 'Google Cloud Platform (Global CDN)', ip: 'Cloud Firestore', netmask: '255.255.255.255', inSameSubnet: true }
+          ],
+          selectedInterface: 'Google Cloud Platform (Global CDN)',
+          selectedInterfaceIp: 'Cloud Firestore'
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (path === '/api/network-ips') {
+        return new Response(JSON.stringify({
+          success: true,
+          ips: [{ interface: 'Google Cloud Firestore', ip: 'Cloud Global CDN' }]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
       // 11. Firebase Status endpoints
       if (path === '/api/firebase/status') {
         return new Response(JSON.stringify({
@@ -686,7 +741,15 @@
           orgId: activeOrgId,
           syncStatus: 'CLOUD_DIRECT_READ',
           online: true,
-          queueCount: 0
+          queueCount: 0,
+          status: {
+            state: 'COMPLETED',
+            message: 'Connected to Firestore Cloud. Real-time read active.',
+            isSyncing: false,
+            configured: true,
+            orgId: activeOrgId,
+            projectId: CLOUD_CONFIG.projectId
+          }
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
@@ -752,6 +815,10 @@
    * UI Enhancement and Hardware Terminal Lockdown in Cloud Mode
    */
   function applyCloudUiAdjustments() {
+    // 0. Hide any WebSocket reconnection alert banner
+    const connAlert = document.getElementById('connectionAlertBanner');
+    if (connAlert) connAlert.style.display = 'none';
+
     // 1. Header Cloud Live Badge
     const brandGroup = document.querySelector('.brand-title-group');
     if (brandGroup && !document.getElementById('cloudModeBadge')) {
@@ -762,6 +829,29 @@
       brandGroup.appendChild(badge);
     }
 
+    // 1b. Header Top Sync Button text update
+    const btnSyncHeader = document.getElementById('btnSyncHeader');
+    if (btnSyncHeader) {
+      btnSyncHeader.title = 'Refresh attendance logs from Google Cloud Firestore';
+      const textSpan = btnSyncHeader.querySelector('span:not(.pulse-ring)');
+      if (textSpan) textSpan.textContent = 'Refresh Cloud Data';
+    }
+
+    // 1c. Dashboard Machine Stat Card
+    const devStatusEl = document.getElementById('statDeviceStatus');
+    if (devStatusEl) {
+      devStatusEl.textContent = 'Cloud Active';
+      devStatusEl.className = 'stat-value text-success';
+    }
+    const devSub = document.getElementById('statDeviceSub');
+    if (devSub) {
+      devSub.textContent = `Firestore: ${activeOrgId}`;
+    }
+    const miniDot = document.getElementById('miniDeviceStatusDot');
+    if (miniDot) {
+      miniDot.className = 'status-indicator online';
+    }
+
     // 2. Terminal Status Card (#cardTerminalStatus)
     const cardTerminal = document.getElementById('cardTerminalStatus');
     if (cardTerminal) {
@@ -770,19 +860,19 @@
       if (devBadge) {
         devBadge.className = 'badge';
         devBadge.style.cssText = 'background:#0284c7; color:#ffffff; font-weight:700; font-size:0.75rem; padding:4px 10px; border-radius:999px;';
-        devBadge.innerHTML = '☁️ FIRESTORE CLOUD MODE';
+        devBadge.innerHTML = '☁️ CLOUD LIVE (FIRESTORE)';
       }
 
       // Inject Cloud Notice Banner under Card Header
       if (!document.getElementById('cloudTerminalNoticeBanner')) {
         const banner = document.createElement('div');
         banner.id = 'cloudTerminalNoticeBanner';
-        banner.style.cssText = 'margin:12px 16px 4px; padding:12px 16px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; color:#166534; font-size:0.82rem; display:flex; align-items:flex-start; gap:10px; line-height:1.45;';
+        banner.style.cssText = 'margin:12px 16px 4px; padding:14px 16px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; color:#166534; font-size:0.84rem; display:flex; align-items:flex-start; gap:10px; line-height:1.5;';
         banner.innerHTML = `
-          <span style="font-size:1.3rem; line-height:1;">☁️</span>
+          <span style="font-size:1.4rem; line-height:1;">☁️</span>
           <div>
-            <div style="font-weight:700; margin-bottom:2px;">Cloud Deployment Active (Direct Terminal Access Stopped)</div>
-            <div style="color:#15803d;">Biometric attendance punches and employee records are queried directly from <strong>Google Cloud Firestore</strong>. Direct TCP terminal socket connection (port 4370) is stopped on cloud deployment. Hardware synchronization with the physical SpeedFace machine is managed by the local office Edge Server.</div>
+            <div style="font-weight:700; margin-bottom:3px; font-size:0.92rem;">Cloud Deployment Active (Direct Terminal Access Stopped)</div>
+            <div style="color:#15803d;">All biometric attendance records, timesheets, and employee rosters are streamed directly from <strong>Google Cloud Firestore</strong>. Direct TCP terminal socket access (port 4370) is completely disabled in this cloud deployment. Hardware communication with the physical SpeedFace machine is managed by the local office Edge Server.</div>
           </div>
         `;
         const cardHeader = cardTerminal.querySelector('.card-header');
@@ -793,13 +883,13 @@
 
       // Update info row values
       const devIp = document.getElementById('devIpVal');
-      if (devIp) devIp.textContent = `Cloud Partition: ${activeOrgId}`;
+      if (devIp) devIp.textContent = `Google Cloud Firestore (${activeOrgId})`;
 
       const devIface = document.getElementById('devInterfaceVal');
       if (devIface) devIface.textContent = 'Google Cloud Firestore REST';
 
       const devCap = document.getElementById('devCapVal');
-      if (devCap) devCap.textContent = 'Cloud Scalable';
+      if (devCap) devCap.textContent = 'Cloud Unlimited';
 
       // Disable physical hardware buttons
       const buttonsToLock = [
@@ -816,7 +906,7 @@
         const btn = document.getElementById(b.id);
         if (btn) {
           btn.disabled = true;
-          btn.style.opacity = '0.5';
+          btn.style.opacity = '0.45';
           btn.style.cursor = 'not-allowed';
           btn.title = b.title;
         }
@@ -860,7 +950,7 @@
         const btn = document.getElementById(btnId);
         if (btn) {
           btn.disabled = true;
-          btn.style.opacity = '0.5';
+          btn.style.opacity = '0.45';
           btn.style.cursor = 'not-allowed';
           btn.title = 'In Cloud Deploy mode, data is streamed directly from Firestore. Uploads are performed by the office Edge Server.';
         }
@@ -911,6 +1001,92 @@
         }
       }, true);
     }
+
+    // 5. Client-side Raw Attendance Export Interceptors
+    ['btnExportExcel', 'btnExportCsv'].forEach(btnId => {
+      const btn = document.getElementById(btnId);
+      if (btn && !btn._cloudExportBound) {
+        btn._cloudExportBound = true;
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+
+          try {
+            const records = await getCloudAttendance();
+            const emps = await getCloudEmployees();
+            const empMap = {};
+            emps.forEach(emp => { empMap[emp.user_id] = emp; });
+
+            const headers = ['#', 'Punch ID', 'User ID', 'Employee Name', 'Department', 'Role', 'Punch Time', 'State', 'Verify Mode'];
+            const csvLines = [headers.join(',')];
+
+            records.forEach((r, idx) => {
+              const empName = r.name || empMap[r.user_id]?.name || `Employee #${r.user_id}`;
+              const empDept = r.department || empMap[r.user_id]?.department || 'General';
+              const empRole = r.role || empMap[r.user_id]?.role || 'Staff';
+              const line = [
+                idx + 1,
+                `"${r.id}"`,
+                `"${r.user_id}"`,
+                `"${empName.replace(/"/g, '""')}"`,
+                `"${empDept.replace(/"/g, '""')}"`,
+                `"${empRole.replace(/"/g, '""')}"`,
+                `"${r.punch_time}"`,
+                r.punch_state,
+                r.verify_type
+              ];
+              csvLines.push(line.join(','));
+            });
+
+            downloadCsvFile(`Attendance_Records_${new Date().toISOString().slice(0, 10)}.csv`, csvLines.join('\n'));
+          } catch (err) {
+            console.error('[CLOUD-ADAPTER] Export error:', err);
+            alert('Failed to export records: ' + err.message);
+          }
+        }, true);
+      }
+    });
+
+    // 6. Client-side Employee Export Interceptors
+    ['btnExportEmployeesExcel', 'btnExportEmployeesCsv'].forEach(btnId => {
+      const btn = document.getElementById(btnId);
+      if (btn && !btn._cloudExportBound) {
+        btn._cloudExportBound = true;
+        btn.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+
+          try {
+            const emps = await getCloudEmployees();
+            const headers = ['#', 'User ID', 'Name', 'Department', 'Role', 'Service ID', 'NIC', 'Phone', 'Email', 'Gender', 'Birthday', 'Status'];
+            const csvLines = [headers.join(',')];
+
+            emps.forEach((emp, idx) => {
+              const line = [
+                idx + 1,
+                `"${emp.user_id}"`,
+                `"${(emp.name || '').replace(/"/g, '""')}"`,
+                `"${(emp.department || '').replace(/"/g, '""')}"`,
+                `"${(emp.role || '').replace(/"/g, '""')}"`,
+                `"${(emp.service_id || '').replace(/"/g, '""')}"`,
+                `"${(emp.nic || '').replace(/"/g, '""')}"`,
+                `"${(emp.phone || '').replace(/"/g, '""')}"`,
+                `"${(emp.email || '').replace(/"/g, '""')}"`,
+                `"${(emp.gender || '').replace(/"/g, '""')}"`,
+                `"${(emp.birthday || '').replace(/"/g, '""')}"`,
+                `"${emp.is_active ? 'Active' : 'Inactive'}"`
+              ];
+              csvLines.push(line.join(','));
+            });
+
+            downloadCsvFile(`Employees_${new Date().toISOString().slice(0, 10)}.csv`, csvLines.join('\n'));
+          } catch (err) {
+            console.error('[CLOUD-ADAPTER] Export error:', err);
+            alert('Failed to export employees: ' + err.message);
+          }
+        }, true);
+      }
+    });
   }
 
   // Run on DOMContentLoaded and check periodically until elements render

@@ -249,6 +249,9 @@ const state = {
 
 // DOM Ready
 document.addEventListener('DOMContentLoaded', () => {
+  if (window.IS_CLOUD_MODE) {
+    console.log('[APP] Running in Cloud Mode - Biometric terminal access disabled. All data loaded from Google Cloud Firestore.');
+  }
   initPrintOptions();
   initNavigation();
   initDashboard();
@@ -258,7 +261,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initShiftsAndHolidays();
   initDeviceControl();
   initGuide();
-  initWebSocket();
+  if (!window.IS_CLOUD_MODE) {
+    initWebSocket();
+  }
   loadDeviceControlData();
   updateStopSyncButtonsUI();
   initApiServiceTab();
@@ -372,12 +377,12 @@ async function loadDashboardStats() {
     if (!data.success) return;
 
     const stats = data.stats;
-    document.getElementById('statTodayUsers').textContent = stats.todayUniqueUsers || 0;
-    document.getElementById('statTodayPunches').textContent = stats.todayRecords || 0;
+    document.getElementById('statTodayUsers').textContent = stats.todayUniqueUsers ?? stats.presentToday ?? 0;
+    document.getElementById('statTodayPunches').textContent = stats.todayRecords ?? stats.todayPunches ?? 0;
     document.getElementById('statTotalRecords').textContent = Number(stats.totalRecords || 0).toLocaleString();
 
     // Device online indicator
-    const isOnline = Boolean(stats.deviceOnline || stats.syncStatus?.deviceOnline || stats.admsConnected);
+    const isOnline = Boolean(stats.deviceOnline || stats.syncStatus?.deviceOnline || stats.admsConnected || window.IS_CLOUD_MODE);
     state.device.online = isOnline;
     const devStatusEl = document.getElementById('statDeviceStatus');
     const miniDot = document.getElementById('miniDeviceStatusDot');
@@ -385,20 +390,34 @@ async function loadDashboardStats() {
     const devOnlineBadge = document.getElementById('devOnlineBadge');
 
     if (devStatusEl) {
-      devStatusEl.textContent = isOnline ? 'Online' : 'Offline / Standby';
-      devStatusEl.className = `stat-value ${isOnline ? 'text-success' : 'text-danger'}`;
+      if (window.IS_CLOUD_MODE) {
+        devStatusEl.textContent = 'Cloud Active';
+        devStatusEl.className = 'stat-value text-success';
+      } else {
+        devStatusEl.textContent = isOnline ? 'Online' : 'Offline / Standby';
+        devStatusEl.className = `stat-value ${isOnline ? 'text-success' : 'text-danger'}`;
+      }
     }
     if (miniDot) {
       miniDot.className = `status-indicator ${isOnline ? 'online' : 'offline'}`;
     }
     if (devSub) {
-      devSub.textContent = isOnline 
-        ? `${stats.deviceIp || '192.168.10.15'}:4370 (Connected)` 
-        : `${stats.deviceIp || '192.168.10.15'}:4370 (Disconnected)`;
+      if (window.IS_CLOUD_MODE) {
+        devSub.textContent = `Firestore: ${stats.orgId || 'DSOFFICE_LUNUGAMWEHERA'} (Cloud Stream)`;
+      } else {
+        devSub.textContent = isOnline 
+          ? `${stats.deviceIp || '192.168.10.15'}:4370 (Connected)` 
+          : `${stats.deviceIp || '192.168.10.15'}:4370 (Disconnected)`;
+      }
     }
     if (devOnlineBadge) {
-      devOnlineBadge.className = `badge ${isOnline ? 'badge-in' : 'badge-out'}`;
-      devOnlineBadge.textContent = isOnline ? '🟢 ONLINE' : '🔴 OFFLINE';
+      if (window.IS_CLOUD_MODE) {
+        devOnlineBadge.className = 'badge badge-in';
+        devOnlineBadge.textContent = '☁️ CLOUD LIVE (FIRESTORE)';
+      } else {
+        devOnlineBadge.className = `badge ${isOnline ? 'badge-in' : 'badge-out'}`;
+        devOnlineBadge.textContent = isOnline ? '🟢 ONLINE' : '🔴 OFFLINE';
+      }
     }
 
     if (stats.deviceInfo) {
@@ -5220,8 +5239,10 @@ async function loadDeviceControlData() {
   } catch (err) {}
 
   // Run connection test to populate live device metrics
-  testDeviceConnection();
-  loadTimeSyncStatus(false);
+  if (!window.IS_CLOUD_MODE) {
+    testDeviceConnection();
+    loadTimeSyncStatus(false);
+  }
   loadSyncLogs();
   loadDataResetSummary();
   loadSystemHealth();
@@ -5260,6 +5281,10 @@ async function loadDataResetSummary() {
 }
 
 async function testDeviceConnection() {
+  if (window.IS_CLOUD_MODE) {
+    showToast('In Cloud Version, direct terminal access is disabled. Data is loaded from Google Cloud Firestore.', 'info');
+    return;
+  }
   const ip = document.getElementById('settingIp')?.value || '192.168.10.15';
   const port = document.getElementById('settingPort')?.value || 4370;
   const interfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
@@ -5704,6 +5729,22 @@ async function loadSyncLogs() {
 
 // 6. Manual Sync Trigger
 async function triggerManualSync() {
+  if (window.IS_CLOUD_MODE) {
+    const quickIcon = document.getElementById('quickSyncIcon');
+    if (quickIcon) quickIcon.classList.add('spin');
+    showToast('Refreshing attendance records from Google Cloud Firestore...', 'info');
+    if (window.refreshCloudData) {
+      await window.refreshCloudData();
+    }
+    await loadDashboardStats();
+    if (state.currentTab === 'tab-records') await loadRecords();
+    if (state.currentTab === 'tab-reports') await loadReportData();
+    if (state.currentTab === 'tab-employees') await loadEmployees();
+    showToast('Dashboard data refreshed from Google Cloud Firestore!', 'success');
+    if (quickIcon) quickIcon.classList.remove('spin');
+    return;
+  }
+
   const quickIcon = document.getElementById('quickSyncIcon');
   if (quickIcon) quickIcon.classList.add('spin');
   const ip = document.getElementById('settingIp')?.value || '192.168.10.15';
@@ -5917,6 +5958,13 @@ async function loadGuideIps() {
 
 // 8. Real-Time WebSockets
 function initWebSocket() {
+  if (window.IS_CLOUD_MODE) {
+    console.log('[WEBSOCKET] Disabled in Cloud Mode. Using Firestore real-time queries.');
+    const banner = document.getElementById('connectionAlertBanner');
+    if (banner) banner.style.display = 'none';
+    return;
+  }
+
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}/ws`;
   let reconnectTimer = null;
