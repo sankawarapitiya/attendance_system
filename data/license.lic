@@ -1,0 +1,17 @@
+{
+  "licenseVersion": "1.0",
+  "licenseId": "LIC-2026-6672710A",
+  "organization": "National Institute of Fisheries and Nautical Engineering",
+  "issuedTo": "Head Office",
+  "licenseType": "Commercial",
+  "features": [
+    "ALL_MODULES",
+    "SPEEDFACE_ADMS",
+    "EXPORTS",
+    "DEVICE_AUDIT",
+    "CLOUD_SYNC"
+  ],
+  "issuedAt": "2026-09-29T09:36:23.250Z",
+  "expiresAt": "2027-09-29T09:36:23.250Z",
+  "signature": "BKU2YD8VKRSQdnjK0TStyUeahJ83JgPSWGYJbJhaFXFV+WVWUsTUJlgxE/ZNhusZGegdJh9azhFKpEG6S7HrBg=="
+}

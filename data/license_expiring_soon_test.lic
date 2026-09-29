@@ -1,0 +1,17 @@
+{
+  "licenseVersion": "1.0",
+  "licenseId": "LIC-2026-917DB2F7",
+  "organization": "Test Expiring Soon Org",
+  "issuedTo": "Testing Division",
+  "licenseType": "Commercial",
+  "features": [
+    "ALL_MODULES",
+    "SPEEDFACE_ADMS",
+    "EXPORTS",
+    "DEVICE_AUDIT",
+    "CLOUD_SYNC"
+  ],
+  "issuedAt": "2026-09-29T09:09:47.716Z",
+  "expiresAt": "2026-10-06T09:09:47.716Z",
+  "signature": "MILa5DHZrelDCCRQ43UcCYW+gGez0Qs3o0cPCdu0nOTfB/sRWKdTIvE6+1rlEUrfo7HhdHftcSWakPoJm5sICw=="
+}
