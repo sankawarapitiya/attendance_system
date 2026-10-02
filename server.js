@@ -178,9 +178,9 @@ app.get(['/health', '/api/health'], async (req, res) => {
   }
 });
 
-// 10. Static Frontend Files with ETag & Revalidation (Prevent Stale Browser Caching)
+// 10. Static Frontend Files with ETag & Revalidation (Efficient browser caching for versioned assets)
 const staticOptions = {
-  maxAge: 0,
+  maxAge: 86400000,
   etag: true,
   lastModified: true,
   setHeaders: (res, filePath) => {
@@ -189,7 +189,7 @@ const staticOptions = {
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
     } else {
-      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
     }
   }
 };

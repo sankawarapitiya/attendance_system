@@ -4684,4 +4684,102 @@ select.form-control {
   background: rgba(255, 255, 255, 0.12) !important;
 }
 
+/* ==========================================================================
+   Modern Loading Spinners & Waiting Indicators
+   ========================================================================== */
+
+/* 1. Global Top In-Flight Network Loading Progress Bar */
+#topProgressBar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #3b82f6 0%, #6366f1 35%, #06b6d4 70%, #10b981 100%);
+  z-index: 1000000;
+  width: 0%;
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.8), 0 0 5px rgba(99, 102, 241, 0.6);
+  pointer-events: none;
+  opacity: 0;
+}
+#topProgressBar.active {
+  opacity: 1;
+}
+
+/* 2. Standard Circular Spinner */
+.app-spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2.5px solid rgba(59, 130, 246, 0.2);
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: appSpinnerRotate 0.75s linear infinite;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.app-spinner-sm {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.app-spinner-xs {
+  width: 12px;
+  height: 12px;
+  border-width: 1.8px;
+}
+
+.app-spinner-lg {
+  width: 32px;
+  height: 32px;
+  border-width: 3.5px;
+}
+
+.app-spinner-white {
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  border-top-color: #ffffff !important;
+}
+
+@keyframes appSpinnerRotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* 3. Standard Table & Card Loading State */
+.table-loading-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px 16px;
+  color: #475569;
+  font-weight: 500;
+  font-size: 0.88rem;
+}
+.table-loading-text {
+  color: #475569;
+  letter-spacing: 0.2px;
+}
+
+/* 4. Button Waiting State */
+.btn.btn-loading {
+  position: relative;
+  pointer-events: none;
+  opacity: 0.85;
+  cursor: wait !important;
+}
+.btn.btn-loading .btn-spinner {
+  margin-right: 6px;
+}
+
+/* 5. Loading Toast */
+.toast.loading {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e40af;
+}
+
+
 

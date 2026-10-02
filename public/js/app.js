@@ -267,20 +267,111 @@ window.isLicenseLocked = false;
 window.licenseModalExplicitlyOpened = false;
 let pendingLicenseContent = null;
 
-// Intercept global fetch calls: If any API returns 403 with licenseRequired, lock UI
+// Global Loading & Fetch Progress Bar Tracker (High-Performance 180ms Debounced)
+let activeVisibleFetchCount = 0;
+let progressShowTimer = null;
+let progressCrawlTimer = null;
+let progressSafetyTimer = null;
+
+function resetTopProgressBar() {
+  activeVisibleFetchCount = 0;
+  if (progressShowTimer) { clearTimeout(progressShowTimer); progressShowTimer = null; }
+  if (progressCrawlTimer) { clearInterval(progressCrawlTimer); progressCrawlTimer = null; }
+  if (progressSafetyTimer) { clearTimeout(progressSafetyTimer); progressSafetyTimer = null; }
+
+  const bar = document.getElementById('topProgressBar');
+  if (bar) {
+    bar.style.width = '100%';
+    setTimeout(() => {
+      bar.classList.remove('active');
+      bar.classList.add('done');
+      setTimeout(() => {
+        bar.style.width = '0%';
+        bar.classList.remove('done');
+      }, 150);
+    }, 100);
+  }
+}
+
+function startTopProgress(isBackground = false) {
+  if (isBackground) return;
+  activeVisibleFetchCount++;
+
+  if (activeVisibleFetchCount === 1) {
+    if (progressShowTimer) clearTimeout(progressShowTimer);
+    if (progressSafetyTimer) clearTimeout(progressSafetyTimer);
+
+    // 180ms threshold: Fast queries (<180ms) do NOT flicker or delay the UI
+    progressShowTimer = setTimeout(() => {
+      const bar = document.getElementById('topProgressBar');
+      if (!bar) return;
+      bar.classList.remove('done');
+      bar.classList.add('active');
+      bar.style.width = '30%';
+
+      if (progressCrawlTimer) clearInterval(progressCrawlTimer);
+      progressCrawlTimer = setInterval(() => {
+        const cur = parseFloat(bar.style.width) || 30;
+        if (cur < 85) {
+          bar.style.width = (cur + Math.random() * 5) + '%';
+        }
+      }, 200);
+    }, 180);
+
+    // Safety timeout: Auto-hide after 7s to prevent any possibility of a stuck bar
+    progressSafetyTimer = setTimeout(() => {
+      resetTopProgressBar();
+    }, 7000);
+  }
+}
+
+function stopTopProgress(isBackground = false) {
+  if (isBackground) return;
+  activeVisibleFetchCount = Math.max(0, activeVisibleFetchCount - 1);
+  if (activeVisibleFetchCount === 0) {
+    resetTopProgressBar();
+  }
+}
+
+// Unified Loading Spinner HTML Generators
+function getLoadingSpinnerHtml(text = 'Loading...', size = '') {
+  const sizeClass = size ? `app-spinner-${size}` : '';
+  const safeText = text ? String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
+  return `<div class="table-loading-state"><span class="app-spinner ${sizeClass}"></span> <span class="table-loading-text">${safeText}</span></div>`;
+}
+
+function createLoadingRow(colspan = 10, text = 'Loading data...') {
+  return `<tr><td colspan="${colspan}" class="text-center py-4">${getLoadingSpinnerHtml(text)}</td></tr>`;
+}
+
+// Intercept global fetch calls: Top progress bar + If any API returns 403 with licenseRequired, lock UI
 const originalFetch = window.fetch;
 window.fetch = async function(...args) {
-  const response = await originalFetch.apply(this, args);
-  if (response.status === 403) {
-    try {
-      const clone = response.clone();
-      const data = await clone.json();
-      if (data && (data.licenseRequired || data.code === 'LICENSE_REQUIRED' || data.code === 'LICENSE_EXPIRED')) {
-        handleLicenseLockout(data);
-      }
-    } catch (e) {}
+  const options = args[1];
+  const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+  const isBackground = Boolean(
+    options?.isBackground ||
+    options?.background ||
+    url.includes('background=true') ||
+    url.includes('/api/health')
+  );
+
+  startTopProgress(isBackground);
+  try {
+    const response = await originalFetch.apply(this, args);
+    if (response && response.status === 403) {
+      try {
+        const clone = response.clone();
+        const data = await clone.json();
+        if (data && (data.licenseRequired || data.code === 'LICENSE_REQUIRED' || data.code === 'LICENSE_EXPIRED')) {
+          handleLicenseLockout(data);
+        }
+      } catch (e) {}
+    }
+    return response;
+  } finally {
+    stopTopProgress(isBackground);
   }
-  return response;
 };
 
 async function fetchLicenseStatus() {
@@ -726,25 +817,52 @@ document.addEventListener('DOMContentLoaded', () => {
   initDeviceControl();
   initGuide();
   initWebSocket();
-  setTimeout(loadDeviceControlData, 1000);
   updateStopSyncButtonsUI();
-  initApiServiceTab();
 });
 
 // Toast Notifications
 function showToast(message, type = 'info', duration = 4000) {
   const container = document.getElementById('toastContainer');
+  if (!container) return null;
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
-  toast.innerHTML = `<span>${message}</span>`;
+  const spinner = type === 'loading' ? '<span class="app-spinner app-spinner-sm" style="flex-shrink:0;margin-right:8px;"></span>' : '';
+  toast.innerHTML = `<div style="display:flex;align-items:center;gap:8px;">${spinner}<span>${message}</span></div>`;
   container.appendChild(toast);
 
-  setTimeout(() => {
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
     toast.style.opacity = '0';
     toast.style.transform = 'translateX(30px)';
     toast.style.transition = 'all 0.3s ease';
-    setTimeout(() => toast.remove(), 300);
-  }, duration);
+    setTimeout(() => {
+      try { toast.remove(); } catch (e) {}
+    }, 300);
+  };
+
+  let timer = null;
+  if (duration > 0) {
+    timer = setTimeout(dismiss, duration);
+  }
+
+  return {
+    element: toast,
+    dismiss: () => {
+      if (timer) clearTimeout(timer);
+      dismiss();
+    },
+    update: (newMessage, newType = type, newDuration = 4000) => {
+      toast.className = `toast ${newType}`;
+      const newSpinner = newType === 'loading' ? '<span class="app-spinner app-spinner-sm" style="flex-shrink:0;margin-right:8px;"></span>' : '';
+      toast.innerHTML = `<div style="display:flex;align-items:center;gap:8px;">${newSpinner}<span>${newMessage}</span></div>`;
+      if (timer) clearTimeout(timer);
+      if (newDuration > 0) {
+        timer = setTimeout(dismiss, newDuration);
+      }
+    }
+  };
 }
 
 // 1. Navigation & Tabs
@@ -840,7 +958,10 @@ function switchTab(tabId) {
   // Load relevant data when opening tab
   if (tabId === 'tab-dashboard') loadDashboardStats();
   if (tabId === 'tab-records') loadRecords();
-  if (tabId === 'tab-reports') loadReportData();
+  if (tabId === 'tab-reports') {
+    populateReportEmployeeDropdown();
+    loadReportData();
+  }
   if (tabId === 'tab-employees') loadEmployees();
   if (tabId === 'tab-shifts') loadShiftsAndHolidays();
   if (tabId === 'tab-device') loadDeviceControlData();
@@ -850,17 +971,19 @@ function switchTab(tabId) {
 
 window.switchTab = switchTab;
 
-// 2. Dashboard
+// 2. Dashboard - Concurrent Fast Startup
 async function initDashboard() {
-  await loadDashboardStats();
-  await loadLiveFeed();
-  // Poll stats every 15s
-  setInterval(loadDashboardStats, 15000);
+  await Promise.allSettled([
+    loadDashboardStats(false),
+    loadLiveFeed(false)
+  ]);
+  // Background telemetry poll every 15s (does not trigger top progress bar)
+  setInterval(() => loadDashboardStats(true), 15000);
 }
 
-async function loadDashboardStats() {
+async function loadDashboardStats(isBackground = false) {
   try {
-    const res = await fetch('/api/stats');
+    const res = await fetch('/api/stats', { isBackground });
     const data = await res.json();
     if (!data.success) return;
 
@@ -910,21 +1033,26 @@ async function loadDashboardStats() {
       }
     }
 
-    // Load today's recent logs
-    loadTodayPreview();
+    // Load today's recent logs concurrently
+    loadTodayPreview(isBackground);
   } catch (err) {
     console.error('Failed to load stats:', err);
   }
 }
 
-async function loadTodayPreview() {
+async function loadTodayPreview(isBackground = false) {
+  const tbody = document.getElementById('todayLogsTableBody');
+  if (tbody && (!tbody.children.length || tbody.querySelector('.table-loading-state'))) {
+    tbody.innerHTML = createLoadingRow(5, "Loading today's punches...");
+  }
   try {
     const today = new Date().toISOString().split('T')[0];
-    const res = await fetch(`/api/records?startDate=${today}&endDate=${today}&limit=10`);
+    const res = await fetch(`/api/records?startDate=${today}&endDate=${today}&limit=10`, { isBackground });
     const data = await res.json();
 
-    const tbody = document.getElementById('todayLogsTableBody');
-    document.getElementById('todayActivityBadge').textContent = `${data.pagination.total} records today`;
+    if (document.getElementById('todayActivityBadge') && data.pagination) {
+      document.getElementById('todayActivityBadge').textContent = `${data.pagination.total} records today`;
+    }
 
     if (!data.records || data.records.length === 0) {
       tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-muted">No attendance punches recorded today yet</td></tr>`;
@@ -956,9 +1084,9 @@ async function loadTodayPreview() {
   }
 }
 
-async function loadLiveFeed() {
+async function loadLiveFeed(isBackground = false) {
   try {
-    const res = await fetch('/api/records?limit=15');
+    const res = await fetch('/api/records?limit=15', { isBackground });
     const data = await res.json();
     const list = document.getElementById('liveFeedList');
     if (!list) return;
@@ -1237,7 +1365,7 @@ async function loadRecords() {
 
 async function loadDailyRecords() {
   const tbody = document.getElementById('dailyTableBody');
-  tbody.innerHTML = `<tr><td colspan="12" class="text-center py-4">Loading daily attendance records for all users...</td></tr>`;
+  if (tbody) tbody.innerHTML = createLoadingRow(12, 'Loading daily attendance records for all users...');
 
   try {
     const q = new URLSearchParams();
@@ -1354,7 +1482,7 @@ function renderDailyTable(records) {
 
 async function loadPunchRecords() {
   const tbody = document.getElementById('recordsTableBody');
-  tbody.innerHTML = `<tr><td colspan="10" class="text-center py-4">Loading punch records...</td></tr>`;
+  if (tbody) tbody.innerHTML = createLoadingRow(10, 'Loading punch records...');
 
   try {
     const res = await fetch(`/api/records?${buildQueryString()}`);
@@ -1457,7 +1585,7 @@ function triggerExport(format) {
     }
     q.set('format', format);
 
-    showToast(`Generating Daily Attendance ${format.toUpperCase()} export for ${state.daily.date}...`, 'info');
+    showToast(`Generating Daily Attendance ${format.toUpperCase()} export for ${state.daily.date}...`, 'loading');
     window.location.href = `/api/records/daily/export?${q.toString()}`;
   } else {
     const q = new URLSearchParams();
@@ -1468,7 +1596,7 @@ function triggerExport(format) {
     if (state.records.punchState !== 'all') q.set('punchState', state.records.punchState);
     q.set('format', format);
 
-    showToast(`Generating Punch Logs ${format.toUpperCase()} export...`, 'info');
+    showToast(`Generating Punch Logs ${format.toUpperCase()} export...`, 'loading');
     window.location.href = `/api/records/export?${q.toString()}`;
   }
 }
@@ -2061,8 +2189,7 @@ function prepareReportForPrint() {
 }
 
 async function initReports() {
-  // Populate employee dropdown in background
-  populateReportEmployeeDropdown();
+  // Initialize Report Column Visibility Selector
 
   // Initialize Report Column Visibility Selector
   loadSavedReportColumns();
@@ -2462,9 +2589,9 @@ async function initReports() {
   document.getElementById('btnExportReportCsv')?.addEventListener('click', () => triggerReportExport('csv'));
 }
 
-async function populateReportEmployeeDropdown() {
+async function populateReportEmployeeDropdown(force = false) {
   const select = document.getElementById('selectReportEmployee');
-  if (!select) return;
+  if (!select || (!force && select.children.length > 1)) return;
   try {
     const res = await fetch('/api/employees?simple=true&status=active');
     const data = await res.json();
@@ -2494,9 +2621,14 @@ async function populateReportEmployeeDropdown() {
 async function loadReportData() {
   const tbody = document.getElementById('reportTableBody');
   const matrixBody = document.getElementById('reportMatrixBody');
-  if (tbody) tbody.innerHTML = `<tr><td colspan="14" class="text-center py-4">Generating ${state.report.type} report...</td></tr>`;
+  const btnGen = document.getElementById('btnGenerateReport');
+  if (btnGen) {
+    btnGen.classList.add('btn-loading');
+    btnGen.disabled = true;
+  }
+  if (tbody) tbody.innerHTML = createLoadingRow(14, `Generating ${state.report.type || 'attendance'} report...`);
   if (matrixBody && state.report.scope === 'monthly_matrix') {
-    matrixBody.innerHTML = `<tr><td colspan="45" class="text-center py-4">Generating full calendar month attendance matrix...</td></tr>`;
+    matrixBody.innerHTML = createLoadingRow(45, 'Generating full calendar month attendance matrix...');
   }
 
   try {
@@ -2537,6 +2669,11 @@ async function loadReportData() {
     if (tbody) tbody.innerHTML = `<tr><td colspan="14" class="text-center py-4 text-danger">Error loading report: ${err.message}</td></tr>`;
     if (matrixBody && state.report.scope === 'monthly_matrix') {
       matrixBody.innerHTML = `<tr><td colspan="45" class="text-center py-4 text-danger">Error loading matrix: ${err.message}</td></tr>`;
+    }
+  } finally {
+    if (btnGen) {
+      btnGen.classList.remove('btn-loading');
+      btnGen.disabled = false;
     }
   }
 }
@@ -3986,25 +4123,25 @@ function triggerReportExport(format) {
     q.set('activeOnly', state.report.activeOnly !== false ? 'true' : 'false');
   }
 
-  showToast(`Generating ${state.report.type.toUpperCase()} Report ${format.toUpperCase()} export...`, 'info');
+  showToast(`Generating ${state.report.type.toUpperCase()} Report ${format.toUpperCase()} export...`, 'loading');
   window.location.href = `/api/reports/export?${q.toString()}`;
 }
 
 // 4. Employees Management
 async function initEmployees() {
   document.getElementById('btnSyncUsers')?.addEventListener('click', async () => {
-    showToast('Refreshing users from SpeedFace device...', 'info');
+    showToast('Refreshing users from SpeedFace device...', 'loading');
     await triggerManualSync();
     await loadEmployees();
   });
 
   document.getElementById('btnExportEmployeesExcel')?.addEventListener('click', () => {
-    showToast('Generating Employees Excel export...', 'info');
+    showToast('Generating Employees Excel export...', 'loading');
     window.location.href = '/api/employees/export?format=xlsx';
   });
 
   document.getElementById('btnExportEmployeesCsv')?.addEventListener('click', () => {
-    showToast('Generating Employees CSV export...', 'info');
+    showToast('Generating Employees CSV export...', 'loading');
     window.location.href = '/api/employees/export?format=csv';
   });
 
@@ -5104,7 +5241,7 @@ function attachEmployeeRowListeners() {
 async function loadEmployees() {
   const tbody = document.getElementById('employeesTableBody');
   if (!state.empRegistry.rawList || state.empRegistry.rawList.length === 0) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="18" class="text-center py-4">Loading employee list...</td></tr>`;
+    if (tbody) tbody.innerHTML = createLoadingRow(18, 'Loading employee list...');
   }
 
   try {
@@ -5705,10 +5842,7 @@ async function loadDeviceAuditLogs(page = 1) {
   const totalBadge = document.getElementById('auditTotalBadge');
 
   if (tbody) {
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4" style="color:#64748b;">
-      <span class="spin" style="display:inline-block;width:16px;height:16px;border:2px solid #0284c7;border-top-color:transparent;border-radius:50%;margin-right:8px;vertical-align:middle;"></span>
-      Loading audit logs...
-    </td></tr>`;
+    tbody.innerHTML = createLoadingRow(7, 'Loading device audit logs...');
   }
 
   try {
@@ -5842,12 +5976,18 @@ async function triggerFetchAuditLogs() {
   const btnAction = document.getElementById('btnActionFetchAuditLogs');
 
   const prevText = btnText ? btnText.textContent : 'Fetch from Device';
-  if (btnCard) btnCard.disabled = true;
-  if (btnAction) btnAction.disabled = true;
-  if (btnText) btnText.textContent = 'Fetching...';
+  if (btnCard) {
+    btnCard.disabled = true;
+    btnCard.classList.add('btn-loading');
+  }
+  if (btnAction) {
+    btnAction.disabled = true;
+    btnAction.classList.add('btn-loading');
+  }
+  if (btnText) btnText.innerHTML = '<span class="app-spinner app-spinner-xs"></span> Fetching...';
 
   try {
-    showToast('Connecting to SpeedFace to pull device audit logs...', 'info');
+    showToast('Connecting to SpeedFace to pull device audit logs...', 'loading');
     const ip = document.getElementById('settingIp')?.value || '192.168.10.15';
     const port = document.getElementById('settingPort')?.value || 4370;
     const ifaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
@@ -5870,8 +6010,14 @@ async function triggerFetchAuditLogs() {
   } catch (err) {
     showToast(`Fetch Audit Log Error: ${err.message}`, 'error', 7000);
   } finally {
-    if (btnCard) btnCard.disabled = false;
-    if (btnAction) btnAction.disabled = false;
+    if (btnCard) {
+      btnCard.disabled = false;
+      btnCard.classList.remove('btn-loading');
+    }
+    if (btnAction) {
+      btnAction.disabled = false;
+      btnAction.classList.remove('btn-loading');
+    }
     if (btnText) btnText.textContent = prevText;
   }
 }
@@ -5888,7 +6034,7 @@ function exportDeviceAuditLogs(format = 'excel') {
   if (state.auditLogs.endDate) params.set('endDate', state.auditLogs.endDate);
 
   const url = `/api/device/audit-logs/export?${params.toString()}`;
-  showToast(`Preparing ${format.toUpperCase()} export of audit logs...`, 'info');
+  showToast(`Preparing ${format.toUpperCase()} export of audit logs...`, 'loading');
   window.open(url, '_blank');
 }
 
@@ -6168,6 +6314,11 @@ async function loadDataResetSummary() {
 }
 
 async function testDeviceConnection() {
+  const btnTest = document.getElementById('btnTestConn');
+  if (btnTest) {
+    btnTest.classList.add('btn-loading');
+    btnTest.disabled = true;
+  }
   const ip = document.getElementById('settingIp')?.value || '192.168.10.15';
   const port = document.getElementById('settingPort')?.value || 4370;
   const interfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
@@ -6221,6 +6372,11 @@ async function testDeviceConnection() {
     }
   } catch (err) {
     showToast(err.message, 'error');
+  } finally {
+    if (btnTest) {
+      btnTest.classList.remove('btn-loading');
+      btnTest.disabled = false;
+    }
   }
 }
 
@@ -6613,10 +6769,27 @@ async function loadSyncLogs() {
 // 6. Manual Sync Trigger
 async function triggerManualSync() {
   const quickIcon = document.getElementById('quickSyncIcon');
+  const quickBtn = document.getElementById('quickSyncBtn');
+  const btnSyncHeader = document.getElementById('btnSyncHeader');
+  const btnActionSync = document.getElementById('btnActionSync');
+
   if (quickIcon) quickIcon.classList.add('spin');
+  if (quickBtn) {
+    quickBtn.classList.add('btn-loading');
+    quickBtn.disabled = true;
+  }
+  if (btnSyncHeader) {
+    btnSyncHeader.classList.add('btn-loading');
+    btnSyncHeader.disabled = true;
+  }
+  if (btnActionSync) {
+    btnActionSync.classList.add('btn-loading');
+    btnActionSync.disabled = true;
+  }
+
   const ip = document.getElementById('settingIp')?.value || '192.168.10.15';
   const interfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
-  showToast(`Pulling attendance records from SpeedFace (${ip})...`, 'info');
+  showToast(`Pulling attendance records from SpeedFace (${ip})...`, 'loading');
 
   state.deviceSyncing = true;
   updateStopSyncButtonsUI();
@@ -6645,6 +6818,18 @@ async function triggerManualSync() {
     state.deviceSyncing = false;
     updateStopSyncButtonsUI();
     if (quickIcon) quickIcon.classList.remove('spin');
+    if (quickBtn) {
+      quickBtn.classList.remove('btn-loading');
+      quickBtn.disabled = false;
+    }
+    if (btnSyncHeader) {
+      btnSyncHeader.classList.remove('btn-loading');
+      btnSyncHeader.disabled = false;
+    }
+    if (btnActionSync) {
+      btnActionSync.classList.remove('btn-loading');
+      btnActionSync.disabled = false;
+    }
   }
 }
 
@@ -6801,8 +6986,8 @@ async function stopCloudSync() {
 }
 
 // 7. SpeedFace Setup Guide
-async function initGuide() {
-  await loadGuideIps();
+function initGuide() {
+  // Guide tab IPs are loaded on-demand when switching to tab-guide
 }
 
 async function loadGuideIps() {
@@ -7406,6 +7591,9 @@ async function loadShiftsAndHolidays() {
 async function loadShifts() {
   const container = document.getElementById('shiftsContainer');
   if (!container) return;
+  if (!state.shifts || state.shifts.length === 0) {
+    container.innerHTML = getLoadingSpinnerHtml('Loading working shifts...');
+  }
 
   try {
     const res = await fetch('/api/shifts');
@@ -7546,6 +7734,9 @@ async function loadShifts() {
 async function loadHolidays() {
   const tbody = document.getElementById('holidaysTableBody');
   if (!tbody) return;
+  if (!state.holidays || state.holidays.length === 0) {
+    tbody.innerHTML = createLoadingRow(6, 'Loading holidays...');
+  }
 
   try {
     const res = await fetch('/api/holidays');
