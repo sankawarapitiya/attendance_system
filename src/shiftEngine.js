@@ -341,7 +341,7 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
             otStepMins: parseInt(shift.ot_step_mins, 10) || 15
           });
         }
-        const baseLabel = 'Full Day Completed';
+        const baseLabel = 'Full Day (P)';
         const displayLabel = otHours > 0 ? `${baseLabel} (+${otHours}H OT)` : baseLabel;
         return {
           status: 'ON_TIME',
@@ -380,8 +380,8 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
       if (punchMins >= shiftEndMins) {
         return {
           status: 'ON_TIME_SHORT_LEAVE',
-          label: `Full Day (Short Leave Morning ${slOrd}/${maxMonthlyShortLeaves})`,
-          baseLabel: `Full Day (Short Leave Morning ${slOrd}/${maxMonthlyShortLeaves})`,
+          label: `Full Day (P) (Short Leave Morning ${slOrd}/${maxMonthlyShortLeaves})`,
+          baseLabel: `Full Day (P) (Short Leave Morning ${slOrd}/${maxMonthlyShortLeaves})`,
           role: 'CHECK_OUT',
           roleLabel: 'Check-Out',
           roleBadge: 'badge-out',
@@ -424,8 +424,8 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
       const slOrd = context.shortLeaveOrdinal || 1;
       return {
         status: 'ON_TIME_SHORT_LEAVE',
-        label: `Full Day (Short Leave Evening ${slOrd}/${maxMonthlyShortLeaves})`,
-        baseLabel: `Full Day (Short Leave Evening ${slOrd}/${maxMonthlyShortLeaves})`,
+        label: `Full Day (P) (Short Leave Evening ${slOrd}/${maxMonthlyShortLeaves})`,
+        baseLabel: `Full Day (P) (Short Leave Evening ${slOrd}/${maxMonthlyShortLeaves})`,
         role: 'CHECK_OUT',
         roleLabel: 'Check-Out',
         roleBadge: 'badge-out',
@@ -479,9 +479,7 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
 
     // Full Day
     if (punchMins >= requiredFullDayEndMins) {
-      const baseLabel = effectiveMorningLateMins > 0 
-        ? 'Full Day (Late Covered)' 
-        : 'Full Day Completed';
+      const baseLabel = 'Full Day (P)';
 
       // OT Calculation:
       let otHours = 0;
@@ -976,13 +974,13 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
       if (checkOutEval.status === 'ON_TIME' || checkOutEval.status === 'ON_TIME_SHORT_LEAVE') {
         if (checkInEval.status === 'ON_TIME_GRACE') {
           const otText = otHours > 0 ? ` (+${otHours}H OT)` : '';
-          dailyStatus = `Full Day (Grace Used ${context.graceOrdinal || 1}/${shiftObj.monthly_grace_days || 2})${otText}`;
+          dailyStatus = `Full Day (P) (Grace Used ${context.graceOrdinal || 1}/${shiftObj.monthly_grace_days || 2})${otText}`;
           dailyBadge = 'badge-on-time';
         } else if (context.isMorningShortLeave) {
-          dailyStatus = `Full Day (Short Leave Morning ${context.shortLeaveOrdinal || 1}/${shiftObj.monthly_short_leaves || 2})`;
+          dailyStatus = `Full Day (P) (Short Leave Morning ${context.shortLeaveOrdinal || 1}/${shiftObj.monthly_short_leaves || 2})`;
           dailyBadge = 'badge-on-time';
         } else if (context.isEveningShortLeave) {
-          dailyStatus = `Full Day (Short Leave Evening ${context.shortLeaveOrdinal || 1}/${shiftObj.monthly_short_leaves || 2})`;
+          dailyStatus = `Full Day (P) (Short Leave Evening ${context.shortLeaveOrdinal || 1}/${shiftObj.monthly_short_leaves || 2})`;
           dailyBadge = 'badge-on-time';
         } else {
           dailyStatus = checkOutEval.label;

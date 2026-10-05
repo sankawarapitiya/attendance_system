@@ -625,7 +625,7 @@ router.get('/records/daily', async (req, res) => {
       totalEnrolled: allEmployees.length > 0 ? allEmployees.length : allDailyRows.length,
       present: allDailyRows.filter(r => r.punch_count > 0).length,
       absent: allDailyRows.filter(r => r.punch_count === 0).length,
-      onTime: allDailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.includes('Full Day'))).length,
+      onTime: allDailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.toLowerCase().includes('full day'))).length,
       lateOrGrace: allDailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace'))).length,
       otCount: allDailyRows.filter(r => r.ot_hours > 0).length
     };
@@ -639,7 +639,7 @@ router.get('/records/daily', async (req, res) => {
     } else if (statusFilter === 'late') {
       allDailyRows = allDailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace')));
     } else if (statusFilter === 'ontime') {
-      allDailyRows = allDailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.includes('Full Day')));
+      allDailyRows = allDailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.toLowerCase().includes('full day')));
     }
 
     // Filter by search
@@ -775,7 +775,7 @@ router.get('/records/daily/export', async (req, res) => {
     } else if (statusFilter === 'late') {
       dailyRows = dailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace')));
     } else if (statusFilter === 'ontime') {
-      dailyRows = dailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.includes('Full Day')));
+      dailyRows = dailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.toLowerCase().includes('full day')));
     }
 
     // Filter by search

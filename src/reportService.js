@@ -108,7 +108,7 @@ async function generateDailyReport(targetDate, { userId = null, search = '', sta
     totalEnrolled: allEmployees.length,
     present: dailyRows.filter(r => r.punch_count > 0).length,
     absent: dailyRows.filter(r => r.punch_count === 0).length,
-    onTime: dailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.includes('Full Day'))).length,
+    onTime: dailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.toLowerCase().includes('full day'))).length,
     lateOrGrace: dailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace') || r.daily_status.includes('Short Leave'))).length,
     otCount: dailyRows.filter(r => r.ot_hours > 0).length
   };
@@ -120,7 +120,7 @@ async function generateDailyReport(targetDate, { userId = null, search = '', sta
   } else if (statusFilter === 'late') {
     dailyRows = dailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace') || r.daily_status.includes('Short Leave')));
   } else if (statusFilter === 'ontime') {
-    dailyRows = dailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.includes('Full Day')));
+    dailyRows = dailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.toLowerCase().includes('full day')));
   }
 
   return {
@@ -597,7 +597,7 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
             check_in_label: r.check_in_label || 'On Time',
             check_out_time: (r.punch_count > 0 && r.check_out_time && r.check_out_time !== '-') ? r.check_out_time : '-',
             check_out_badge: r.check_out_badge || 'badge-on-time',
-            check_out_label: r.check_out_label || 'Full Day',
+            check_out_label: r.check_out_label || 'Full Day (P)',
             punch_count: r.punch_count || 0,
             worked_minutes: r.worked_minutes || 0,
             worked_formatted: r.worked_formatted !== '-' ? r.worked_formatted : '-',

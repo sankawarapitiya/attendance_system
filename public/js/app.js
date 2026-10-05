@@ -1431,7 +1431,7 @@ function renderDailyTable(records) {
       checkOutPill = `
         <div style="display:flex; flex-direction:column; gap:2px;">
           <span class="font-mono font-bold" style="color:var(--text-main); font-size:0.9rem;">${r.check_out_time}</span>
-          <span class="${r.check_out_badge || 'badge-on-time'}" style="width:fit-content; font-size:0.75rem;">${escapeHtml(r.check_out_label || 'Full Day')}</span>
+          <span class="${r.check_out_badge || 'badge-on-time'}" style="width:fit-content; font-size:0.75rem;">${escapeHtml(r.check_out_label || 'Full Day (P)')}</span>
         </div>
       `;
     } else {
@@ -3862,7 +3862,7 @@ function renderReportTable(data) {
         : (r.check_out_time && r.check_out_time !== '-')
           ? `<div style="display:flex; flex-direction:column; gap:2px;">
                <span class="font-mono font-bold" style="color:var(--text-main); font-size:0.88rem;">${r.check_out_time}</span>
-               <span class="${r.check_out_badge || 'badge-on-time'}" style="width:fit-content; font-size:0.75rem;">${escapeHtml(r.check_out_label || 'Full Day')}</span>
+               <span class="${r.check_out_badge || 'badge-on-time'}" style="width:fit-content; font-size:0.75rem;">${escapeHtml(r.check_out_label || 'Full Day (P)')}</span>
              </div>`
           : `<span class="badge-tag" style="background:#f1f5f9;color:#64748b;font-size:0.75rem;">Pending / Missing</span>`;
 
