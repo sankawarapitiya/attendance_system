@@ -332,10 +332,14 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
   if (punchRole === 'CHECK_OUT') {
     // If Half Day / Custom calculation is DISABLED -> standard simple departure
     if (!isHalfDayCalcEnabled) {
-      if (punchMins >= shiftEndMins) {
+      const requireLateCover = shift.late_cover_end !== 0 && shift.late_cover_end !== '0';
+      const effectiveMorningLateMins = requireLateCover ? morningLateMins : 0;
+      const requiredFullDayEndMins = shiftEndMins + effectiveMorningLateMins;
+
+      if (punchMins >= requiredFullDayEndMins) {
         let otHours = 0;
         if (isOvertimeEnabled) {
-          const extraMins = punchMins - shiftEndMins;
+          const extraMins = punchMins - requiredFullDayEndMins;
           otHours = calculateOvertimeHours(extraMins, true, {
             minOtMins: parseInt(shift.ot_min_mins, 10) || 60,
             otStepMins: parseInt(shift.ot_step_mins, 10) || 15
@@ -355,7 +359,25 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
           icon: '✓'
         };
       }
-      const earlyMins = Math.max(1, shiftEndMins - punchMins);
+
+      if (effectiveMorningLateMins > 0 && punchMins >= shiftEndMins) {
+        const uncoveredMins = requiredFullDayEndMins - punchMins;
+        const baseLabel = 'Late (L)';
+        return {
+          status: 'LATE_NOT_COVERED',
+          label: baseLabel,
+          baseLabel,
+          role: 'CHECK_OUT',
+          roleLabel: 'Check-Out',
+          roleBadge: 'badge-out',
+          otHours: 0,
+          uncoveredMinutes: uncoveredMins,
+          badgeClass: 'badge-late-in',
+          icon: '⚠️'
+        };
+      }
+
+      const earlyMins = Math.max(1, requiredFullDayEndMins - punchMins);
       return {
         status: 'EARLY_OUT',
         label: `Early Out (${earlyMins}m)`,
@@ -506,8 +528,26 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
       };
     }
 
+    // Check if employee reached standard shift end, but did not cover morning late
+    if (effectiveMorningLateMins > 0 && punchMins >= shiftEndMins && punchMins < requiredFullDayEndMins) {
+      const uncoveredMins = requiredFullDayEndMins - punchMins;
+      const baseLabel = 'Late (L)';
+      return {
+        status: 'LATE_NOT_COVERED',
+        label: baseLabel,
+        baseLabel,
+        role: 'CHECK_OUT',
+        roleLabel: 'Check-Out',
+        roleBadge: 'badge-out',
+        otHours: 0,
+        uncoveredMinutes: uncoveredMins,
+        badgeClass: 'badge-late-in',
+        icon: '⚠️'
+      };
+    }
+
     // Half Day -> NO OT
-    if (punchMins >= requiredHalfDayEndMins) {
+    if (punchMins >= requiredHalfDayEndMins && punchMins < shiftEndMins) {
       const label = effectiveMorningLateMins > 0 
         ? 'Half Day (Late Covered)' 
         : 'Half Day Completed';
@@ -603,7 +643,7 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
 
   // TIER 3: Half Day & Full Day Calculation Rules (Finally) - Late Arrival
   const lateMins = punchMins - shiftStartMins;
-  let lateLabel = `Late (${lateMins}m)`;
+  let lateLabel = `Late (L) (${lateMins}m)`;
   let badgeClass = 'badge-late-in';
   let icon = '⚠️';
 
@@ -612,9 +652,9 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
     badgeClass = 'badge-on-time';
     icon = '✓';
   } else if (punchMins <= shiftStartMins + graceMins && isMorningGraceEnabled) {
-    lateLabel = `Late (${lateMins}m - Grace Exceeded)`;
+    lateLabel = `Late (L) (${lateMins}m - Grace Exceeded)`;
   } else if (punchMins <= mShortEndMins && isShortLeaveEnabled) {
-    lateLabel = `Late (${lateMins}m - Short Leave Exceeded)`;
+    lateLabel = `Late (L) (${lateMins}m - Short Leave Exceeded)`;
   }
 
   return {
@@ -963,7 +1003,7 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
         dailyStatus = `Short Leave Morning (${context.shortLeaveOrdinal || 1}/${shiftObj.monthly_short_leaves || 2}) - Single Punch`;
         dailyBadge = 'badge-on-time';
       } else if (checkInEval.status === 'LATE_IN' || checkInEval.status === 'LATE_IN_COVERED') {
-        dailyStatus = `Late (${checkInEval.lateMinutes || 0}m) - Single Punch`;
+        dailyStatus = 'Late (L)';
         dailyBadge = 'badge-late-in';
       } else {
         dailyStatus = 'Single Punch (Check-In Only)';
@@ -986,6 +1026,17 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
           dailyStatus = checkOutEval.label;
           dailyBadge = 'badge-on-time';
         }
+      } else if (checkOutEval.status === 'LATE_NOT_COVERED') {
+        if (checkInEval.status === 'ON_TIME_GRACE') {
+          dailyStatus = `Full Day (P) (Grace Used ${context.graceOrdinal || 1}/${shiftObj.monthly_grace_days || 2})`;
+          dailyBadge = 'badge-on-time';
+        } else if (context.isMorningShortLeave) {
+          dailyStatus = `Full Day (P) (Short Leave Morning ${context.shortLeaveOrdinal || 1}/${shiftObj.monthly_short_leaves || 2})`;
+          dailyBadge = 'badge-on-time';
+        } else {
+          dailyStatus = 'Late (L)';
+          dailyBadge = 'badge-late-in';
+        }
       } else if (checkOutEval.status === 'HALF_DAY') {
         if (checkInEval.status === 'ON_TIME_GRACE') {
           dailyStatus = `${checkOutEval.label} (Grace Used ${context.graceOrdinal || 1}/${shiftObj.monthly_grace_days || 2})`;
@@ -993,6 +1044,9 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
         } else if (context.isMorningShortLeave) {
           dailyStatus = `Half Day (Short Leave Morning ${context.shortLeaveOrdinal || 1}/${shiftObj.monthly_short_leaves || 2})`;
           dailyBadge = 'badge-half-day';
+        } else if (checkInEval.status === 'LATE_IN') {
+          dailyStatus = 'Late (L)';
+          dailyBadge = 'badge-late-in';
         } else {
           dailyStatus = checkOutEval.label;
           dailyBadge = 'badge-half-day';
@@ -1004,6 +1058,9 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
         } else if (context.isMorningShortLeave) {
           dailyStatus = `Early Out (${checkOutEval.earlyMinutes || ''}m) - Short Leave (${context.shortLeaveOrdinal || 1}/${shiftObj.monthly_short_leaves || 2})`;
           dailyBadge = 'badge-early-out';
+        } else if (checkInEval.status === 'LATE_IN') {
+          dailyStatus = 'Late (L)';
+          dailyBadge = 'badge-late-in';
         } else {
           dailyStatus = checkOutEval.label;
           dailyBadge = 'badge-early-out';
@@ -1015,7 +1072,7 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
         dailyStatus = `Short Leave Morning (${context.shortLeaveOrdinal || 1}/${shiftObj.monthly_short_leaves || 2})`;
         dailyBadge = 'badge-on-time';
       } else if (checkInEval.status === 'LATE_IN') {
-        dailyStatus = checkInEval.label;
+        dailyStatus = 'Late (L)';
         dailyBadge = 'badge-late-in';
       }
     }
