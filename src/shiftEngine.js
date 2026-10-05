@@ -1032,8 +1032,8 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
       dailyStatus = dayClass.label;
       dailyBadge = 'badge-worked-off';
     } else if (dayRecords.length === 1) {
-      // Single Punch (Check-In Only) -> Goes to Absent
-      dailyStatus = 'Absent';
+      // Single Punch (Check-In Only) -> Goes to Absent (A)
+      dailyStatus = 'Absent (A)';
       dailyBadge = 'badge-absent';
     } else {
       // Multiple Punches (Check-In and Check-Out available)
@@ -1164,7 +1164,7 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
             first_punch_state: null,
             check_in_time: '-',
             check_in_status: (dateStr > (new Date().toISOString().split('T')[0])) ? (isWorkingDay ? 'FUTURE' : (dayClass.type === 'WEEKEND' ? 'WEEKEND' : 'HOLIDAY')) : (isWorkingDay ? 'ABSENT' : (dayClass.type === 'WEEKEND' ? 'WEEKEND' : 'HOLIDAY')),
-            check_in_label: (dateStr > (new Date().toISOString().split('T')[0])) ? (isWorkingDay ? 'Scheduled' : dayClass.label) : (isWorkingDay ? 'Absent (No Punch)' : dayClass.label),
+            check_in_label: (dateStr > (new Date().toISOString().split('T')[0])) ? (isWorkingDay ? 'Scheduled' : dayClass.label) : (isWorkingDay ? 'Absent (A)' : dayClass.label),
             check_in_badge: (dateStr > (new Date().toISOString().split('T')[0])) ? 'badge-tag' : (isWorkingDay ? 'badge-absent' : 'badge-worked-off'),
             last_punch_time: null,
             last_punch_state: null,
@@ -1176,7 +1176,7 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
             worked_minutes: 0,
             worked_formatted: '-',
             ot_hours: 0,
-            daily_status: (dateStr > (new Date().toISOString().split('T')[0])) ? (isWorkingDay ? 'Scheduled / Future' : dayClass.label) : (isWorkingDay ? 'Absent' : dayClass.label),
+            daily_status: (dateStr > (new Date().toISOString().split('T')[0])) ? (isWorkingDay ? 'Scheduled / Future' : dayClass.label) : (isWorkingDay ? 'Absent (A)' : dayClass.label),
             daily_badge: (dateStr > (new Date().toISOString().split('T')[0])) ? (isWorkingDay ? 'badge-tag' : 'badge-worked-off') : (isWorkingDay ? 'badge-absent' : 'badge-worked-off'),
             is_late_covered: false,
             is_grace_applied: false,

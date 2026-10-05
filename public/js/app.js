@@ -3019,10 +3019,10 @@ function renderMonthlyBookReport(data) {
         statusText = 'Scheduled / Future';
       } else if (isAbsent && isWorkingDay) {
         statusBadge = 'badge-absent';
-        statusText = '🔴 Absent (No Punch)';
-      } else if (r.daily_status === 'Absent' || r.punch_count === 1) {
+        statusText = '🔴 Absent (A)';
+      } else if ((r.daily_status && r.daily_status.includes('Absent')) || r.punch_count === 1) {
         statusBadge = 'badge-absent';
-        statusText = '🔴 Absent (Single Punch)';
+        statusText = '🔴 Absent (A)';
       } else if (r.punch_count > 1 && r.check_in_label && !statusText.includes(r.check_in_label)) {
         statusText = `${statusText} (${r.check_in_label})`;
       }
@@ -3341,7 +3341,7 @@ function renderMonthlyMatrixTable(data) {
           `;
         }
 
-        if (d.punch_count > 0 && d.daily_status !== 'Absent') {
+        if (d.punch_count > 0 && (!d.daily_status || !d.daily_status.includes('Absent'))) {
           let badgeClass = 'matrix-badge-p';
           let badgeText = 'P';
 
@@ -3410,7 +3410,7 @@ function renderMonthlyMatrixTable(data) {
           `;
         } else {
           return `
-            <td class="matrix-cell-max" style="background: #fff5f5;" title="${dStr} (${dName}): Absent${d.punch_count === 1 ? ' (Single Punch: In ' + d.check_in_time + ')' : ' (No Punch)'}">
+            <td class="matrix-cell-max" style="background: #fff5f5;" title="${dStr} (${dName}): Absent (A)${d.punch_count === 1 ? ' (Single Punch: In ' + d.check_in_time + ')' : ' (No Punch)'}">
               <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
               <div class="matrix-time-absent-max">
                 <span class="matrix-badge matrix-badge-a" style="font-size:0.75rem; padding: 2px 6px;">ABSENT</span>
@@ -3462,7 +3462,7 @@ function renderMonthlyMatrixTable(data) {
           return `<td class="matrix-cell ${isWeekend ? 'matrix-day-weekend' : ''}"><span class="text-muted">-</span></td>`;
         }
 
-        if (d.punch_count > 0 && d.daily_status !== 'Absent') {
+        if (d.punch_count > 0 && (!d.daily_status || !d.daily_status.includes('Absent'))) {
           let badgeClass = 'matrix-badge-p';
           let badgeText = 'P';
 

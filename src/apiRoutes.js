@@ -623,8 +623,8 @@ router.get('/records/daily', async (req, res) => {
     const stats = {
       date: targetDate || (startDate && endDate && startDate === endDate ? startDate : 'Selected Period'),
       totalEnrolled: allEmployees.length > 0 ? allEmployees.length : allDailyRows.length,
-      present: allDailyRows.filter(r => r.punch_count > 0).length,
-      absent: allDailyRows.filter(r => r.punch_count === 0).length,
+      present: allDailyRows.filter(r => r.punch_count > 0 && (!r.daily_status || !r.daily_status.includes('Absent'))).length,
+      absent: allDailyRows.filter(r => (r.daily_status && r.daily_status.includes('Absent')) || r.punch_count === 0).length,
       onTime: allDailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.toLowerCase().includes('full day'))).length,
       lateOrGrace: allDailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace'))).length,
       otCount: allDailyRows.filter(r => r.ot_hours > 0).length
@@ -633,9 +633,9 @@ router.get('/records/daily', async (req, res) => {
     // Filter by statusFilter
     const statusFilter = req.query.statusFilter || 'all';
     if (statusFilter === 'present') {
-      allDailyRows = allDailyRows.filter(r => r.punch_count > 0);
+      allDailyRows = allDailyRows.filter(r => r.punch_count > 0 && (!r.daily_status || !r.daily_status.includes('Absent')));
     } else if (statusFilter === 'absent') {
-      allDailyRows = allDailyRows.filter(r => r.punch_count === 0);
+      allDailyRows = allDailyRows.filter(r => (r.daily_status && r.daily_status.includes('Absent')) || r.punch_count === 0);
     } else if (statusFilter === 'late') {
       allDailyRows = allDailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace')));
     } else if (statusFilter === 'ontime') {
@@ -769,9 +769,9 @@ router.get('/records/daily/export', async (req, res) => {
     // Filter by statusFilter
     const statusFilter = req.query.statusFilter || 'all';
     if (statusFilter === 'present') {
-      dailyRows = dailyRows.filter(r => r.punch_count > 0);
+      dailyRows = dailyRows.filter(r => r.punch_count > 0 && (!r.daily_status || !r.daily_status.includes('Absent')));
     } else if (statusFilter === 'absent') {
-      dailyRows = dailyRows.filter(r => r.punch_count === 0);
+      dailyRows = dailyRows.filter(r => (r.daily_status && r.daily_status.includes('Absent')) || r.punch_count === 0);
     } else if (statusFilter === 'late') {
       dailyRows = dailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace')));
     } else if (statusFilter === 'ontime') {
