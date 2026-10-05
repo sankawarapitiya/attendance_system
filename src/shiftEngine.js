@@ -1048,6 +1048,11 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
       ot_hours: otHours,
       daily_status: dailyStatus,
       daily_badge: dailyBadge,
+      is_late_covered: Boolean(context.isLateCovered),
+      is_grace_applied: Boolean(context.isMorningGraceUsed),
+      grace_used: context.isMorningGraceUsed ? 1 : 0,
+      is_short_leave_applied: Boolean(context.isMorningShortLeave || context.isEveningShortLeave),
+      short_leave_used: (context.isMorningShortLeave || context.isEveningShortLeave) ? 1 : 0,
       day_type: dayClass.type,
       day_name: dayClass.name
     });
@@ -1095,6 +1100,11 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
             ot_hours: 0,
             daily_status: (dateStr > (new Date().toISOString().split('T')[0])) ? (isWorkingDay ? 'Scheduled / Future' : dayClass.label) : (isWorkingDay ? 'Absent' : dayClass.label),
             daily_badge: (dateStr > (new Date().toISOString().split('T')[0])) ? (isWorkingDay ? 'badge-tag' : 'badge-worked-off') : (isWorkingDay ? 'badge-absent' : 'badge-worked-off'),
+            is_late_covered: false,
+            is_grace_applied: false,
+            grace_used: 0,
+            is_short_leave_applied: false,
+            short_leave_used: 0,
             day_type: dayClass.type,
             day_name: dayClass.name
           });

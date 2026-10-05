@@ -427,8 +427,8 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
       }
       if (r.day_type === 'WEEKDAY') scheduledWorkDays++;
       if (r.daily_status && r.daily_status.includes('Half Day')) halfDays++;
-      if (r.check_in_status === 'ON_TIME_GRACE' || (r.daily_status && r.daily_status.includes('Grace'))) graceUsed++;
-      if (r.daily_status && r.daily_status.includes('Short Leave')) shortLeaveUsed++;
+      if (r.grace_used > 0 || (r.check_in_status === 'ON_TIME_GRACE' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Grace Used'))) graceUsed++;
+      if (r.short_leave_used > 0 || (r.check_in_status === 'SHORT_LEAVE_MORNING' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Short Leave'))) shortLeaveUsed++;
     });
 
     const hours = Math.floor(totalWorkedMins / 60);
@@ -500,8 +500,8 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
           if (!isFuture) elapsedWorkDays++;
         }
         if (r.daily_status && r.daily_status.includes('Half Day')) halfDays++;
-        if (r.check_in_status === 'ON_TIME_GRACE' || (r.daily_status && r.daily_status.includes('Grace'))) graceUsed++;
-        if (r.daily_status && r.daily_status.includes('Short Leave')) shortLeaveUsed++;
+        if (r.grace_used > 0 || (r.check_in_status === 'ON_TIME_GRACE' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Grace Used'))) graceUsed++;
+        if (r.short_leave_used > 0 || (r.check_in_status === 'SHORT_LEAVE_MORNING' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Short Leave'))) shortLeaveUsed++;
       });
 
       const hours = Math.floor(totalWorkedMins / 60);
@@ -585,8 +585,8 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
           }
           if (r.day_type === 'WEEKDAY') scheduledWorkDays++;
           if (r.daily_status && r.daily_status.includes('Half Day')) halfDays++;
-          if (r.check_in_status === 'ON_TIME_GRACE' || (r.daily_status && r.daily_status.includes('Grace'))) graceUsed++;
-          if (r.daily_status && r.daily_status.includes('Short Leave')) shortLeaveUsed++;
+          if (r.grace_used > 0 || (r.check_in_status === 'ON_TIME_GRACE' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Grace Used'))) graceUsed++;
+          if (r.short_leave_used > 0 || (r.check_in_status === 'SHORT_LEAVE_MORNING' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Short Leave'))) shortLeaveUsed++;
 
           days[dStr] = {
             date: dStr,
@@ -712,8 +712,8 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
       item.total_worked_mins += r.worked_minutes || 0;
       item.total_ot_hours += r.ot_hours || 0;
       if (r.daily_status && r.daily_status.includes('Half Day')) item.half_days++;
-      if (r.check_in_status === 'ON_TIME_GRACE' || (r.daily_status && r.daily_status.includes('Grace'))) item.grace_used++;
-      if (r.check_in_status === 'SHORT_LEAVE_MORNING' || (r.daily_status && r.daily_status.includes('Short Leave'))) item.short_leave_used++;
+      if (r.grace_used > 0 || (r.check_in_status === 'ON_TIME_GRACE' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Grace Used'))) item.grace_used++;
+      if (r.short_leave_used > 0 || (r.check_in_status === 'SHORT_LEAVE_MORNING' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Short Leave'))) item.short_leave_used++;
     } else if (r.daily_status === 'Absent') {
       item.days_absent++;
     }
@@ -897,11 +897,13 @@ async function getUserCalculatedAttendance(userId, options = {}) {
     const isPresent = row.punch_count > 0;
     const isAbsent = !isPresent && isWorkingDay && !isFuture;
     const isHalfDay = isPresent && (row.check_out_status === 'HALF_DAY' || (row.daily_status && row.daily_status.includes('Half Day')));
-    const isGrace = isPresent && (row.check_in_status === 'ON_TIME_GRACE' || (row.daily_status && row.daily_status.includes('Grace')));
+    const isGrace = isPresent && Boolean(row.grace_used > 0 || (row.check_in_status === 'ON_TIME_GRACE' && !row.is_late_covered) || (row.daily_status && row.daily_status.includes('Grace Used')));
     const isLate = isPresent && (row.check_in_status === 'LATE_IN' || (row.daily_status && row.daily_status.includes('Late')));
-    const isShortLeave = isPresent && (
+    const isShortLeave = isPresent && Boolean(
+      row.short_leave_used > 0 ||
       (row.check_out_status && row.check_out_status.includes('SHORT_LEAVE')) || 
-      (row.daily_status && row.daily_status.includes('Short Leave'))
+      (row.daily_status && row.daily_status.includes('Short Leave')) ||
+      (row.check_in_status === 'SHORT_LEAVE_MORNING' && !row.is_late_covered)
     );
 
     if (isWorkingDay) scheduledWorkDays++;
