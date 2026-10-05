@@ -109,7 +109,7 @@ async function generateDailyReport(targetDate, { userId = null, search = '', sta
     present: dailyRows.filter(r => r.punch_count > 0).length,
     absent: dailyRows.filter(r => r.punch_count === 0).length,
     onTime: dailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.includes('Full Day'))).length,
-    lateOrGrace: dailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace'))).length,
+    lateOrGrace: dailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace') || r.daily_status.includes('Short Leave'))).length,
     otCount: dailyRows.filter(r => r.ot_hours > 0).length
   };
 
@@ -118,7 +118,7 @@ async function generateDailyReport(targetDate, { userId = null, search = '', sta
   } else if (statusFilter === 'absent') {
     dailyRows = dailyRows.filter(r => r.punch_count === 0);
   } else if (statusFilter === 'late') {
-    dailyRows = dailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace')));
+    dailyRows = dailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace') || r.daily_status.includes('Short Leave')));
   } else if (statusFilter === 'ontime') {
     dailyRows = dailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.includes('Full Day')));
   }
@@ -297,7 +297,7 @@ async function generateWeeklyReport(startDateStr, endDateStr, { userId = null, s
       item.total_worked_mins += r.worked_minutes || 0;
       item.total_ot_hours += r.ot_hours || 0;
       if (r.daily_status && r.daily_status.includes('Half Day')) item.half_days++;
-      if (r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace'))) item.late_or_grace++;
+      if (r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace') || r.daily_status.includes('Short Leave'))) item.late_or_grace++;
     } else if (r.daily_status === 'Absent') {
       item.days_absent++;
     }
@@ -713,7 +713,7 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
       item.total_ot_hours += r.ot_hours || 0;
       if (r.daily_status && r.daily_status.includes('Half Day')) item.half_days++;
       if (r.check_in_status === 'ON_TIME_GRACE' || (r.daily_status && r.daily_status.includes('Grace'))) item.grace_used++;
-      if (r.daily_status && r.daily_status.includes('Short Leave')) item.short_leave_used++;
+      if (r.check_in_status === 'SHORT_LEAVE_MORNING' || (r.daily_status && r.daily_status.includes('Short Leave'))) item.short_leave_used++;
     } else if (r.daily_status === 'Absent') {
       item.days_absent++;
     }
