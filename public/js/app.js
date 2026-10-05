@@ -3020,9 +3020,9 @@ function renderMonthlyBookReport(data) {
       } else if (isAbsent && isWorkingDay) {
         statusBadge = 'badge-absent';
         statusText = '🔴 Absent (No Punch)';
-      } else if (r.punch_count === 1) {
-        statusBadge = 'badge-tag';
-        statusText = `Single Punch (${r.check_in_label || 'Check-In'})`;
+      } else if (r.daily_status === 'Absent' || r.punch_count === 1) {
+        statusBadge = 'badge-absent';
+        statusText = '🔴 Absent (Single Punch)';
       } else if (r.punch_count > 1 && r.check_in_label && !statusText.includes(r.check_in_label)) {
         statusText = `${statusText} (${r.check_in_label})`;
       }
@@ -3341,7 +3341,7 @@ function renderMonthlyMatrixTable(data) {
           `;
         }
 
-        if (d.punch_count > 0) {
+        if (d.punch_count > 0 && d.daily_status !== 'Absent') {
           let badgeClass = 'matrix-badge-p';
           let badgeText = 'P';
 
@@ -3410,12 +3410,12 @@ function renderMonthlyMatrixTable(data) {
           `;
         } else {
           return `
-            <td class="matrix-cell-max" style="background: #fff5f5;" title="${dStr} (${dName}): Absent (No Punch)">
+            <td class="matrix-cell-max" style="background: #fff5f5;" title="${dStr} (${dName}): Absent${d.punch_count === 1 ? ' (Single Punch: In ' + d.check_in_time + ')' : ' (No Punch)'}">
               <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
               <div class="matrix-time-absent-max">
                 <span class="matrix-badge matrix-badge-a" style="font-size:0.75rem; padding: 2px 6px;">ABSENT</span>
               </div>
-              <div class="matrix-max-badge-row"><span class="text-muted">-</span></div>
+              <div class="matrix-max-badge-row">${d.punch_count === 1 && d.check_in_time !== '-' ? `<small class="text-muted" style="font-size:0.65rem; color:#991b1b;">In ${d.check_in_time.slice(0, 5)}</small>` : '<span class="text-muted">-</span>'}</div>
             </td>
           `;
         }
@@ -3462,7 +3462,7 @@ function renderMonthlyMatrixTable(data) {
           return `<td class="matrix-cell ${isWeekend ? 'matrix-day-weekend' : ''}"><span class="text-muted">-</span></td>`;
         }
 
-        if (d.punch_count > 0) {
+        if (d.punch_count > 0 && d.daily_status !== 'Absent') {
           let badgeClass = 'matrix-badge-p';
           let badgeText = 'P';
 
@@ -3517,10 +3517,11 @@ function renderMonthlyMatrixTable(data) {
             </td>
           `;
         } else {
+          const inNote = d.punch_count === 1 && d.check_in_time !== '-' ? ` title="${dStr}: In ${d.check_in_time} • Absent (Single Punch)"` : ` title="${dStr}: Absent (No Punch)"`;
           return `
-            <td class="matrix-cell" style="background: #fff5f5;" title="${dStr}: Absent (No Punch)">
+            <td class="matrix-cell" style="background: #fff5f5;"${inNote}>
               <span class="matrix-badge matrix-badge-a">A</span>
-              <div class="matrix-cell-empty-line">-</div>
+              <div class="matrix-cell-empty-line">${d.punch_count === 1 && d.check_in_time !== '-' ? `<small style="font-size:0.6rem; color:#991b1b;">In ${d.check_in_time.slice(0, 5)}</small>` : '-'}</div>
             </td>
           `;
         }

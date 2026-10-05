@@ -747,6 +747,30 @@ function buildMonthlyGraceAndLateMap(records, holidays = []) {
     const lastMins = timeToMinutes(String(lastPunch.punch_time).slice(11, 16));
     const shiftStartMins = timeToMinutes(shift.start_time);
     const shiftEndMins = timeToMinutes(shift.end_time);
+
+    // Single punch on working day -> goes to Absent!
+    // Strictly does NOT consume Grace period days or Short Leaves.
+    if (dayRecords.length === 1) {
+      userDateInfo[key] = {
+        firstPunchId: firstPunch.id,
+        lastPunchId: lastPunch.id,
+        firstPunchTime: firstPunch.punch_time,
+        lastPunchTime: lastPunch.punch_time,
+        totalPunches: 1,
+        firstMins,
+        lastMins: firstMins,
+        morningStatus: 'ABSENT',
+        morningLateMinutes: 0,
+        rawMorningLateMins: 0,
+        isLateCovered: false,
+        isMorningGraceUsed: false,
+        graceOrdinal: 0,
+        isMorningShortLeave: false,
+        isEveningShortLeave: false,
+        shortLeaveOrdinal: 0
+      };
+      return;
+    }
     const graceMins = parseInt(shift.grace_period_mins, 10) || 30;
     const maxMonthlyGraceDays = parseInt(shift.monthly_grace_days, 10) || 2;
     const maxMonthlyShortLeaves = parseInt(shift.monthly_short_leaves, 10) || 2;
@@ -1008,20 +1032,9 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
       dailyStatus = dayClass.label;
       dailyBadge = 'badge-worked-off';
     } else if (dayRecords.length === 1) {
-      // Single Punch (Check-In Only)
-      if (checkInEval.status === 'ON_TIME_GRACE') {
-        dailyStatus = `Grace Used (${context.graceOrdinal || 1}/${shiftObj.monthly_grace_days || 2}) - Single Punch`;
-        dailyBadge = 'badge-on-time';
-      } else if (checkInEval.status === 'SHORT_LEAVE_MORNING') {
-        dailyStatus = `Short Leave Morning (${context.shortLeaveOrdinal || 1}/${shiftObj.monthly_short_leaves || 2}) - Single Punch`;
-        dailyBadge = 'badge-on-time';
-      } else if (checkInEval.status === 'LATE_IN' || checkInEval.status === 'LATE_IN_COVERED') {
-        dailyStatus = 'Late (L)';
-        dailyBadge = 'badge-late-in';
-      } else {
-        dailyStatus = 'Single Punch (Check-In Only)';
-        dailyBadge = 'badge-tag';
-      }
+      // Single Punch (Check-In Only) -> Goes to Absent
+      dailyStatus = 'Absent';
+      dailyBadge = 'badge-absent';
     } else {
       // Multiple Punches (Check-In and Check-Out available)
       if (checkOutEval.status === 'ON_TIME' || checkOutEval.status === 'ON_TIME_SHORT_LEAVE') {

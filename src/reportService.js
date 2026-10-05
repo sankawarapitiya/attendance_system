@@ -106,17 +106,17 @@ async function generateDailyReport(targetDate, { userId = null, search = '', sta
   const stats = {
     date: dateStr,
     totalEnrolled: allEmployees.length,
-    present: dailyRows.filter(r => r.punch_count > 0).length,
-    absent: dailyRows.filter(r => r.punch_count === 0).length,
+    present: dailyRows.filter(r => r.punch_count > 0 && r.daily_status !== 'Absent').length,
+    absent: dailyRows.filter(r => r.daily_status === 'Absent' || r.punch_count === 0).length,
     onTime: dailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.toLowerCase().includes('full day'))).length,
     lateOrGrace: dailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace') || r.daily_status.includes('Short Leave'))).length,
     otCount: dailyRows.filter(r => r.ot_hours > 0).length
   };
 
   if (statusFilter === 'present') {
-    dailyRows = dailyRows.filter(r => r.punch_count > 0);
+    dailyRows = dailyRows.filter(r => r.punch_count > 0 && r.daily_status !== 'Absent');
   } else if (statusFilter === 'absent') {
-    dailyRows = dailyRows.filter(r => r.punch_count === 0);
+    dailyRows = dailyRows.filter(r => r.daily_status === 'Absent' || r.punch_count === 0);
   } else if (statusFilter === 'late') {
     dailyRows = dailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace') || r.daily_status.includes('Short Leave')));
   } else if (statusFilter === 'ontime') {
@@ -223,7 +223,7 @@ async function generateWeeklyReport(startDateStr, endDateStr, { userId = null, s
     userRows.forEach(r => {
       totalWorkedMins += r.worked_minutes || 0;
       totalOtHours += r.ot_hours || 0;
-      if (r.punch_count > 0) {
+      if (r.punch_count > 0 && r.daily_status !== 'Absent') {
         daysPresent++;
       } else if (r.daily_status === 'Absent') {
         daysAbsent++;
@@ -292,11 +292,11 @@ async function generateWeeklyReport(startDateStr, endDateStr, { userId = null, s
     }
     const item = userMap[uid];
     if (r.day_type === 'WEEKDAY') item.scheduled_days++;
-    if (r.punch_count > 0) {
+    if (r.punch_count > 0 && r.daily_status !== 'Absent') {
       item.days_present++;
       item.total_worked_mins += r.worked_minutes || 0;
       item.total_ot_hours += r.ot_hours || 0;
-      if (r.daily_status && r.daily_status.includes('Half Day')) item.half_days++;
+      if (r.daily_status && (r.daily_status.includes('Half Day') || r.daily_status.includes('HD'))) item.half_days++;
       if (r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace') || r.daily_status.includes('Short Leave'))) item.late_or_grace++;
     } else if (r.daily_status === 'Absent') {
       item.days_absent++;
@@ -420,13 +420,13 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
     userRows.forEach(r => {
       totalWorkedMins += r.worked_minutes || 0;
       totalOtHours += r.ot_hours || 0;
-      if (r.punch_count > 0) {
+      if (r.punch_count > 0 && r.daily_status !== 'Absent') {
         daysPresent++;
       } else if (r.daily_status === 'Absent') {
         daysAbsent++;
       }
       if (r.day_type === 'WEEKDAY') scheduledWorkDays++;
-      if (r.daily_status && r.daily_status.includes('Half Day')) halfDays++;
+      if (r.daily_status && (r.daily_status.includes('Half Day') || r.daily_status.includes('HD'))) halfDays++;
       if (r.grace_used > 0 || (r.check_in_status === 'ON_TIME_GRACE' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Grace Used'))) graceUsed++;
       if (r.short_leave_used > 0 || (r.check_in_status === 'SHORT_LEAVE_MORNING' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Short Leave'))) shortLeaveUsed++;
     });
@@ -490,7 +490,7 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
         totalWorkedMins += r.worked_minutes || 0;
         totalOtHours += r.ot_hours || 0;
         const isFuture = r.date > todayStr;
-        if (r.punch_count > 0) {
+        if (r.punch_count > 0 && r.daily_status !== 'Absent') {
           daysPresent++;
         } else if (r.daily_status === 'Absent' || (!isFuture && r.day_type === 'WEEKDAY' && r.punch_count === 0)) {
           daysAbsent++;
@@ -499,7 +499,7 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
           totalMonthWorkDays++;
           if (!isFuture) elapsedWorkDays++;
         }
-        if (r.daily_status && r.daily_status.includes('Half Day')) halfDays++;
+        if (r.daily_status && (r.daily_status.includes('Half Day') || r.daily_status.includes('HD'))) halfDays++;
         if (r.grace_used > 0 || (r.check_in_status === 'ON_TIME_GRACE' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Grace Used'))) graceUsed++;
         if (r.short_leave_used > 0 || (r.check_in_status === 'SHORT_LEAVE_MORNING' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Short Leave'))) shortLeaveUsed++;
       });
@@ -578,13 +578,13 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
         if (r) {
           totalWorkedMins += r.worked_minutes || 0;
           totalOtHours += r.ot_hours || 0;
-          if (r.punch_count > 0) {
+          if (r.punch_count > 0 && r.daily_status !== 'Absent') {
             daysPresent++;
           } else if (r.daily_status === 'Absent') {
             daysAbsent++;
           }
           if (r.day_type === 'WEEKDAY') scheduledWorkDays++;
-          if (r.daily_status && r.daily_status.includes('Half Day')) halfDays++;
+          if (r.daily_status && (r.daily_status.includes('Half Day') || r.daily_status.includes('HD'))) halfDays++;
           if (r.grace_used > 0 || (r.check_in_status === 'ON_TIME_GRACE' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Grace Used'))) graceUsed++;
           if (r.short_leave_used > 0 || (r.check_in_status === 'SHORT_LEAVE_MORNING' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Short Leave'))) shortLeaveUsed++;
 
@@ -707,11 +707,11 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
     }
     const item = userMap[uid];
     if (r.day_type === 'WEEKDAY') item.month_working_days++;
-    if (r.punch_count > 0) {
+    if (r.punch_count > 0 && r.daily_status !== 'Absent') {
       item.days_present++;
       item.total_worked_mins += r.worked_minutes || 0;
       item.total_ot_hours += r.ot_hours || 0;
-      if (r.daily_status && r.daily_status.includes('Half Day')) item.half_days++;
+      if (r.daily_status && (r.daily_status.includes('Half Day') || r.daily_status.includes('HD'))) item.half_days++;
       if (r.grace_used > 0 || (r.check_in_status === 'ON_TIME_GRACE' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Grace Used'))) item.grace_used++;
       if (r.short_leave_used > 0 || (r.check_in_status === 'SHORT_LEAVE_MORNING' && !r.is_late_covered) || (r.daily_status && r.daily_status.includes('Short Leave'))) item.short_leave_used++;
     } else if (r.daily_status === 'Absent') {
@@ -894,9 +894,9 @@ async function getUserCalculatedAttendance(userId, options = {}) {
   const enrichedRecords = filteredRows.map(row => {
     const isFuture = row.date > todayStr;
     const isWorkingDay = row.day_type === 'WEEKDAY';
-    const isPresent = row.punch_count > 0;
+    const isPresent = row.punch_count > 0 && row.daily_status !== 'Absent';
     const isAbsent = !isPresent && isWorkingDay && !isFuture;
-    const isHalfDay = isPresent && (row.check_out_status === 'HALF_DAY' || (row.daily_status && row.daily_status.includes('Half Day')));
+    const isHalfDay = isPresent && (row.check_out_status === 'HALF_DAY' || (row.daily_status && (row.daily_status.includes('Half Day') || row.daily_status.includes('HD'))));
     const isGrace = isPresent && Boolean(row.grace_used > 0 || (row.check_in_status === 'ON_TIME_GRACE' && !row.is_late_covered) || (row.daily_status && row.daily_status.includes('Grace Used')));
     const isLate = isPresent && (row.check_in_status === 'LATE_IN' || (row.daily_status && row.daily_status.includes('Late')));
     const isShortLeave = isPresent && Boolean(
