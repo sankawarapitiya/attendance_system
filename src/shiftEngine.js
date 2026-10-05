@@ -561,11 +561,10 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
   }
 
   // TIER 1: Morning Grace Period Rules (First)
-  // Qualified if Grace is enabled and either context marked Grace used, OR
-  // fallback arrival is within Grace window (08:30 - 09:00) and within monthly grace quota.
+  // Grace applies ONLY if late was NOT covered!
   const isGraceQualified = isMorningGraceEnabled && (
     context.isMorningGraceUsed ||
-    (context.isMorningGraceUsed === undefined && punchMins <= shiftStartMins + graceMins && (parseInt(context.graceOrdinal, 10) || 1) <= maxMonthlyGraceDays)
+    (context.isMorningGraceUsed === undefined && !context.isLateCovered && punchMins <= shiftStartMins + graceMins && (parseInt(context.graceOrdinal, 10) || 1) <= maxMonthlyGraceDays)
   );
 
   if (isGraceQualified) {
@@ -584,11 +583,9 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
   }
 
   // TIER 2: Short Leave Conditions & Rules (Next)
-  // Qualified if Short Leave is enabled and either context marked Short Leave used, OR
-  // fallback arrival is within Morning Short Leave window (up to 10:00) and within monthly quota.
   const isShortLeaveQualified = isShortLeaveEnabled && (
     context.isMorningShortLeave ||
-    (context.isMorningShortLeave === undefined && punchMins <= mShortEndMins && (parseInt(context.shortLeaveOrdinal, 10) || 1) <= maxMonthlyShortLeaves)
+    (context.isMorningShortLeave === undefined && !context.isLateCovered && punchMins <= mShortEndMins && (parseInt(context.shortLeaveOrdinal, 10) || 1) <= maxMonthlyShortLeaves)
   );
 
   if (isShortLeaveQualified) {
@@ -606,25 +603,32 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
     };
   }
 
-  // TIER 3: Half Day & Full Day Calculation Rules (Finally) - Unexcused Late Arrival
+  // TIER 3: Half Day & Full Day Calculation Rules (Finally) - Late Arrival
   const lateMins = punchMins - shiftStartMins;
   let lateLabel = `Late (${lateMins}m)`;
-  if (punchMins <= shiftStartMins + graceMins && isMorningGraceEnabled) {
+  let badgeClass = 'badge-late-in';
+  let icon = '⚠️';
+
+  if (context.isLateCovered) {
+    lateLabel = `Late (${lateMins}m - Covered)`;
+    badgeClass = 'badge-on-time';
+    icon = '✓';
+  } else if (punchMins <= shiftStartMins + graceMins && isMorningGraceEnabled) {
     lateLabel = `Late (${lateMins}m - Grace Exceeded)`;
   } else if (punchMins <= mShortEndMins && isShortLeaveEnabled) {
     lateLabel = `Late (${lateMins}m - Short Leave Exceeded)`;
   }
 
   return {
-    status: 'LATE_IN',
+    status: context.isLateCovered ? 'LATE_IN_COVERED' : 'LATE_IN',
     label: lateLabel,
     lateMinutes: lateMins,
     role: 'CHECK_IN',
     roleLabel: 'Check-In',
     roleBadge: 'badge-in',
     otHours: 0,
-    badgeClass: 'badge-late-in',
-    icon: '⚠️'
+    badgeClass,
+    icon
   };
 }
 
@@ -722,22 +726,34 @@ function buildMonthlyGraceAndLateMap(records, holidays = []) {
     let graceOrdinal = 0;
     let shortLeaveOrdinal = 0;
 
+    const rawMorningLateMins = Math.max(0, firstMins - shiftStartMins);
+    const isLateCoverEnabled = shift.late_cover_end !== 0 && shift.late_cover_end !== '0';
+    const requiredFullDayEndMins = shiftEndMins + rawMorningLateMins;
+    const isLateCovered = isLateCoverEnabled && rawMorningLateMins > 0 && dayRecords.length > 1 && lastMins >= requiredFullDayEndMins;
+
     // =========================================================================
     // TIER 1: Morning Grace Period Rules (First)
     // =========================================================================
-    // Checks arrival against shift.start_time (08:30) and grace_period_mins (09:00).
-    // Quota: monthly_grace_days (default 2 days/month).
-    // If qualified:
-    //   - Granted as On-Time Grace (ON_TIME_GRACE).
-    //   - Excuses late arrival: morningLateMinutes = 0 (no late penalty/covering).
-    //   - Increments monthly grace counter.
-    //   - Mutual exclusion: Cannot use Evening Short Leave on the same day.
+    // Policy: Grace applies ONLY if late was NOT covered!
+    // - If the employee arrived during morning grace window (08:30 - 09:00),
+    //   and stayed late to cover their late arrival (isLateCovered === true):
+    //   -> Late is covered! Grace is NOT consumed/applied, preserving grace quota.
+    // - If late was NOT covered (left before required full day, or single punch):
+    //   -> Grace applies (if quota available)! Excuses the late arrival.
     // =========================================================================
     if (firstMins <= shiftStartMins) {
-      // Arrived on-time / early (<= 08:30)
+      // Arrived on-time / early (<= 08:30). Grace is not needed.
       morningStatus = 'ON_TIME';
       morningLateMinutes = 0;
+    } else if (isLateCovered) {
+      // Arrived late, BUT stayed late and fully covered late minutes!
+      // Grace should apply ONLY IF LATE NOT COVERED.
+      // Since late is covered, Grace is NOT applied, preserving the monthly grace allowance.
+      morningStatus = 'LATE_IN';
+      morningLateMinutes = rawMorningLateMins;
     } else if (isMorningGraceEnabled && firstMins <= shiftStartMins + graceMins) {
+      // Late was NOT covered, and arrival is within Grace window (08:30 - 09:00).
+      // Grace applies if monthly quota has not been exceeded!
       if (userMonthGraceMap[monthKey].length < maxMonthlyGraceDays) {
         userMonthGraceMap[monthKey].push(dateStr);
         isMorningGraceUsed = true;
@@ -752,9 +768,7 @@ function buildMonthlyGraceAndLateMap(records, holidays = []) {
     // =========================================================================
     // Quota: monthly_short_leaves (default 2 days/month).
     // 1. Morning Short Leave:
-    //    - Applied if Morning Grace was NOT used (e.g. arrival > 09:00, or
-    //      arrival was 08:30-09:00 but grace was exhausted/disabled).
-    //    - Arrival must be <= morning_short_leave_end (10:00).
+    //    - Applied if Morning Grace was NOT used, late was NOT covered, and arrival <= 10:00.
     //    - If short leave quota available:
     //      -> Apply Morning Short Leave!
     //      -> Excuses late arrival: morningLateMinutes = 0.
@@ -771,7 +785,7 @@ function buildMonthlyGraceAndLateMap(records, holidays = []) {
     // =========================================================================
     if (isShortLeaveEnabled) {
       // 1. Morning Short Leave:
-      if (!isMorningGraceUsed && firstMins > shiftStartMins) {
+      if (!isMorningGraceUsed && !isLateCovered && firstMins > shiftStartMins) {
         if (firstMins <= mShortEndMins) {
           if (userMonthShortLeaveMap[monthKey].length < maxMonthlyShortLeaves) {
             userMonthShortLeaveMap[monthKey].push(dateStr);
@@ -799,12 +813,9 @@ function buildMonthlyGraceAndLateMap(records, holidays = []) {
     // TIER 3: Half Day & Full Day Calculation Rules (Finally)
     // =========================================================================
     // If arrival was late (> shiftStartMins) and neither Grace nor Short Leave applied:
-    // Unexcused late arrival: morningLateMinutes = firstMins - shiftStartMins.
-    // This feeds into required departure times (pushing departure if late_cover_end is active).
-    // =========================================================================
     if (!isMorningGraceUsed && !isMorningShortLeave && firstMins > shiftStartMins) {
       morningStatus = 'LATE_IN';
-      morningLateMinutes = firstMins - shiftStartMins;
+      morningLateMinutes = rawMorningLateMins;
     }
 
     userDateInfo[key] = {
@@ -817,6 +828,8 @@ function buildMonthlyGraceAndLateMap(records, holidays = []) {
       lastMins,
       morningStatus,
       morningLateMinutes,
+      rawMorningLateMins,
+      isLateCovered,
       isMorningGraceUsed,
       graceOrdinal,
       isMorningShortLeave,
@@ -951,7 +964,7 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
       } else if (checkInEval.status === 'SHORT_LEAVE_MORNING') {
         dailyStatus = `Short Leave Morning (${context.shortLeaveOrdinal || 1}/${shiftObj.monthly_short_leaves || 2}) - Single Punch`;
         dailyBadge = 'badge-on-time';
-      } else if (checkInEval.status === 'LATE_IN') {
+      } else if (checkInEval.status === 'LATE_IN' || checkInEval.status === 'LATE_IN_COVERED') {
         dailyStatus = `Late (${checkInEval.lateMinutes || 0}m) - Single Punch`;
         dailyBadge = 'badge-late-in';
       } else {
