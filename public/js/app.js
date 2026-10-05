@@ -3345,7 +3345,7 @@ function renderMonthlyMatrixTable(data) {
           let badgeClass = 'matrix-badge-p';
           let badgeText = 'P';
 
-          if (d.daily_status && d.daily_status.includes('Half Day')) {
+          if (d.daily_status && (d.daily_status.includes('Half Day') || d.daily_status.includes('HD'))) {
             badgeClass = 'matrix-badge-hd';
             badgeText = 'HD';
           } else if (d.daily_status && d.daily_status.includes('Grace')) {
@@ -3466,7 +3466,7 @@ function renderMonthlyMatrixTable(data) {
           let badgeClass = 'matrix-badge-p';
           let badgeText = 'P';
 
-          if (d.daily_status && d.daily_status.includes('Half Day')) {
+          if (d.daily_status && (d.daily_status.includes('Half Day') || d.daily_status.includes('HD'))) {
             badgeClass = 'matrix-badge-hd';
             badgeText = 'HD';
           } else if (d.daily_status && d.daily_status.includes('Grace')) {

@@ -415,8 +415,8 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
       if (punchMins >= firstMins + 240) { // Covered 4 hours
         return {
           status: 'HALF_DAY',
-          label: `Half Day (Short Leave Morning ${slOrd}/${maxMonthlyShortLeaves})`,
-          baseLabel: `Half Day (Short Leave Morning ${slOrd}/${maxMonthlyShortLeaves})`,
+          label: `Half Day (HD) (Short Leave Morning ${slOrd}/${maxMonthlyShortLeaves})`,
+          baseLabel: `Half Day (HD) (Short Leave Morning ${slOrd}/${maxMonthlyShortLeaves})`,
           role: 'CHECK_OUT',
           roleLabel: 'Check-Out',
           roleBadge: 'badge-out',
@@ -464,8 +464,8 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
       if (punchMins >= required4hMins) {
         return {
           status: 'HALF_DAY',
-          label: 'Half Day (4h Covered)',
-          baseLabel: 'Half Day (4h Covered)',
+          label: 'Half Day (HD) (4h Covered)',
+          baseLabel: 'Half Day (HD) (4h Covered)',
           role: 'CHECK_OUT',
           roleLabel: 'Check-Out',
           roleBadge: 'badge-out',
@@ -548,12 +548,12 @@ function evaluatePunchPunctuality(punchTimeStr, shift, dayClassification, punchS
 
     // Half Day -> NO OT
     if (punchMins >= requiredHalfDayEndMins && punchMins < shiftEndMins) {
-      const label = effectiveMorningLateMins > 0 
-        ? 'Half Day (Late Covered)' 
-        : 'Half Day Completed';
+      const baseLabel = 'Half Day (HD)';
+      const label = 'Half Day (HD)';
       return {
         status: 'HALF_DAY',
         label,
+        baseLabel,
         role: 'CHECK_OUT',
         roleLabel: 'Check-Out',
         roleBadge: 'badge-out',
@@ -766,8 +766,21 @@ function buildMonthlyGraceAndLateMap(records, holidays = []) {
 
     const rawMorningLateMins = Math.max(0, firstMins - shiftStartMins);
     const isLateCoverEnabled = shift.late_cover_end !== 0 && shift.late_cover_end !== '0';
+    const isHalfDayEnabled = shift.enable_half_day_calc !== 0 && shift.enable_half_day_calc !== '0';
+
+    const standardHalfDayEndMins = shiftStartMins + Math.round((parseFloat(shift.half_day_hours) || 3.5) * 60);
+    const lateHalfDayBaseMins = shiftStartMins + Math.round((parseFloat(shift.late_half_day_hours) || 4.0) * 60);
+    const requiredHalfDayEndMins = rawMorningLateMins > 0 
+      ? (lateHalfDayBaseMins + rawMorningLateMins) 
+      : standardHalfDayEndMins;
+
     const requiredFullDayEndMins = shiftEndMins + rawMorningLateMins;
-    const isLateCovered = isLateCoverEnabled && rawMorningLateMins > 0 && dayRecords.length > 1 && lastMins >= requiredFullDayEndMins;
+
+    const isFullDayCovered = isLateCoverEnabled && rawMorningLateMins > 0 && dayRecords.length > 1 && lastMins >= requiredFullDayEndMins;
+    const isHalfDayCovered = isHalfDayEnabled && rawMorningLateMins > 0 && dayRecords.length > 1 && lastMins >= requiredHalfDayEndMins && lastMins < shiftEndMins;
+    const is4hAfter10Covered = isHalfDayEnabled && firstMins > mShortEndMins && dayRecords.length > 1 && lastMins >= (firstMins + 240);
+
+    const isLateCovered = isFullDayCovered || isHalfDayCovered || is4hAfter10Covered;
 
     // =========================================================================
     // TIER 1: Morning Grace Period Rules (First)
@@ -1042,11 +1055,8 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
           dailyStatus = `${checkOutEval.label} (Grace Used ${context.graceOrdinal || 1}/${shiftObj.monthly_grace_days || 2})`;
           dailyBadge = 'badge-half-day';
         } else if (context.isMorningShortLeave) {
-          dailyStatus = `Half Day (Short Leave Morning ${context.shortLeaveOrdinal || 1}/${shiftObj.monthly_short_leaves || 2})`;
+          dailyStatus = `Half Day (HD) (Short Leave Morning ${context.shortLeaveOrdinal || 1}/${shiftObj.monthly_short_leaves || 2})`;
           dailyBadge = 'badge-half-day';
-        } else if (checkInEval.status === 'LATE_IN') {
-          dailyStatus = 'Late (L)';
-          dailyBadge = 'badge-late-in';
         } else {
           dailyStatus = checkOutEval.label;
           dailyBadge = 'badge-half-day';
