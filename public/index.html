@@ -178,6 +178,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           Reports &amp; Timesheets
         </button>
+        <button class="nav-item" data-tab="tab-user-login">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"></path><path d="M14 13.12c0 2.38 0 6.38-1 8.88"></path><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"></path><path d="M2 12a10 10 0 0 1 18-6"></path><path d="M2 16h.01"></path><path d="M21.8 16c.2-2 .131-5.354 0-6"></path><path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"></path><path d="M8.65 22c.21-.66.45-1.32.57-2"></path><path d="M9 6.8a6 6 0 0 1 9 5.2v2"></path></svg>
+          User Login
+        </button>
         <button class="nav-item" data-tab="tab-employees">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
           Employees
@@ -871,6 +875,248 @@
               <span id="printFooterOrgText">SpeedFace-V5L Automated Biometric Attendance & Payroll System</span>
               <span id="printFooterMeta">Official Record &bull; Confidential</span>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB: USER LOGIN / MONTHLY TIMESHEET SELF-SERVICE -->
+      <section class="tab-content" id="tab-user-login">
+        <!-- 1. Login & Query Card -->
+        <div class="card" style="margin-bottom: 20px;">
+          <div class="card-header" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+            <div class="card-title-group">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="width: 40px; height: 40px; border-radius: 10px; background: #eff6ff; color: #1d4ed8; display: flex; align-items: center; justify-content: center; border: 1px solid #bfdbfe; box-shadow: var(--shadow-xs);">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px;"><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"></path><path d="M14 13.12c0 2.38 0 6.38-1 8.88"></path><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"></path><path d="M2 12a10 10 0 0 1 18-6"></path><path d="M2 16h.01"></path><path d="M21.8 16c.2-2 .131-5.354 0-6"></path><path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"></path><path d="M8.65 22c.21-.66.45-1.32.57-2"></path><path d="M9 6.8a6 6 0 0 1 9 5.2v2"></path></svg>
+                </div>
+                <div>
+                  <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #0f172a;">User Login &amp; Monthly Timesheet</h3>
+                  <p class="subtitle" style="margin: 2px 0 0 0;">Enter your terminal FingerPrint ID to view and download your monthly biometric attendance records</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-body" style="padding: 24px;">
+            <form id="formUserLogin" onsubmit="event.preventDefault(); window.handleUserLoginSubmit();" style="max-width: 840px; margin: 0 auto;">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) auto; gap: 16px; align-items: flex-end; background: #f8fafc; border: 1px solid var(--border); border-radius: 12px; padding: 20px;">
+                
+                <div>
+                  <label for="userLoginFingerprintId" style="display: block; font-weight: 700; font-size: 0.88rem; color: #1e293b; margin-bottom: 6px;">
+                    FingerPrint ID: <span style="color: #ef4444;">*</span>
+                  </label>
+                  <div style="position: relative;">
+                    <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #64748b; font-size: 0.95rem; pointer-events: none;">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;display:block;"><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"></path><path d="M14 13.12c0 2.38 0 6.38-1 8.88"></path><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"></path><path d="M2 12a10 10 0 0 1 18-6"></path><path d="M2 16h.01"></path><path d="M21.8 16c.2-2 .131-5.354 0-6"></path><path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"></path><path d="M8.65 22c.21-.66.45-1.32.57-2"></path><path d="M9 6.8a6 6 0 0 1 9 5.2v2"></path></svg>
+                    </span>
+                    <input type="text" id="userLoginFingerprintId" class="form-control" placeholder="Enter FingerPrint ID (e.g. 47)" required autocomplete="off" style="padding-left: 38px; font-size: 1.05rem; font-weight: 700; height: 42px; border-radius: 8px;">
+                  </div>
+                  <small style="display: block; color: #64748b; font-size: 0.76rem; margin-top: 4px;">Biometric terminal enrolled User ID / PIN</small>
+                </div>
+
+                <div>
+                  <label for="userLoginMonth" style="display: block; font-weight: 700; font-size: 0.88rem; color: #1e293b; margin-bottom: 6px;">
+                    Select Month:
+                  </label>
+                  <input type="month" id="userLoginMonth" class="form-control" style="font-size: 0.95rem; font-weight: 600; height: 42px; border-radius: 8px;">
+                  <small style="display: block; color: #64748b; font-size: 0.76rem; margin-top: 4px;">Calendar month to evaluate</small>
+                </div>
+
+                <div style="display: flex; gap: 8px;">
+                  <button type="submit" id="btnUserLoginSubmit" class="btn btn-primary" style="height: 42px; font-weight: 700; padding: 0 20px; display: flex; align-items: center; gap: 8px; border-radius: 8px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+                    <span>View Timesheet</span>
+                  </button>
+                  <button type="button" onclick="window.resetUserLoginForm()" class="btn btn-outline" title="Clear input" style="height: 42px; padding: 0 14px; border-radius: 8px;">
+                    Reset
+                  </button>
+                </div>
+
+              </div>
+            </form>
+
+            <div id="userLoginAlert" style="display: none; max-width: 840px; margin: 16px auto 0; padding: 12px 16px; border-radius: 8px; font-size: 0.88rem; font-weight: 600;"></div>
+          </div>
+        </div>
+
+        <!-- 2. Empty State / Instructions (Visible before searching) -->
+        <div id="userLoginPlaceholder" class="card" style="text-align: center; padding: 60px 24px; border: 2px dashed #cbd5e1; background: #ffffff; border-radius: 12px;">
+          <div style="width: 76px; height: 76px; margin: 0 auto 16px; border-radius: 50%; background: #eff6ff; color: #1d4ed8; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:42px;height:42px;"><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"></path><path d="M14 13.12c0 2.38 0 6.38-1 8.88"></path><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"></path><path d="M2 12a10 10 0 0 1 18-6"></path><path d="M2 16h.01"></path><path d="M21.8 16c.2-2 .131-5.354 0-6"></path><path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"></path><path d="M8.65 22c.21-.66.45-1.32.57-2"></path><path d="M9 6.8a6 6 0 0 1 9 5.2v2"></path></svg>
+          </div>
+          <h3 style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-bottom: 8px;">Enter Your FingerPrint ID Above</h3>
+          <p style="color: #64748b; max-width: 540px; margin: 0 auto 24px; font-size: 0.92rem; line-height: 1.5;">
+            Type your terminal biometric enrollment ID into the box above and click <strong>View Timesheet</strong> to access your complete monthly records with punch logs, daily durations, and instant Excel / CSV download options.
+          </p>
+          <div style="display: inline-flex; gap: 12px; flex-wrap: wrap; justify-content: center;">
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 9999px; font-size: 0.8rem; color: #334155; font-weight: 600;">
+              ✨ Daily First &amp; Last Punch
+            </span>
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 9999px; font-size: 0.8rem; color: #334155; font-weight: 600;">
+              ⏱️ Worked Hours &amp; OT
+            </span>
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 9999px; font-size: 0.8rem; color: #065f46; font-weight: 700;">
+              📊 Download Excel (.xlsx) &amp; CSV
+            </span>
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 9999px; font-size: 0.8rem; color: #1e40af; font-weight: 700;">
+              🖨️ Official Print &amp; PDF Signatures
+            </span>
+          </div>
+        </div>
+
+        <!-- 3. Timesheet View Container (Initially Hidden) -->
+        <div id="userLoginResultContainer" style="display: none;">
+          <!-- Employee Info Header Card -->
+          <div class="card" style="margin-bottom: 20px; border-left: 4px solid #1d4ed8;">
+            <div class="card-body" style="padding: 20px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+                <div style="display: flex; align-items: center; gap: 16px;">
+                  <div id="userLoginEmpPhoto" style="width: 58px; height: 58px; border-radius: 50%; background: #eff6ff; color: #1d4ed8; display: flex; align-items: center; justify-content: center; font-size: 1.35rem; font-weight: 800; border: 2px solid #bfdbfe; overflow: hidden; flex-shrink: 0;">
+                    <span id="userLoginEmpInitials">EMP</span>
+                  </div>
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                      <h2 id="userLoginEmpName" style="font-size: 1.35rem; font-weight: 800; color: #0f172a; margin: 0;">-</h2>
+                      <span id="userLoginEmpIdBadge" class="badge badge-v5l" style="font-size: 0.8rem; padding: 3px 8px;">FingerPrint ID: #--</span>
+                    </div>
+                    <div id="userLoginEmpMeta" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 6px; font-size: 0.82rem; color: #475569;">
+                      <span id="userLoginEmpDept" style="display: inline-flex; align-items: center; gap: 4px; font-weight: 600;">🏢 Department: -</span>
+                      <span style="color: #cbd5e1;">&bull;</span>
+                      <span id="userLoginEmpRole" style="font-weight: 600;">💼 Role: -</span>
+                      <span style="color: #cbd5e1;">&bull;</span>
+                      <span id="userLoginEmpShift" style="font-weight: 600;">⏰ Shift: -</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Month Quick Switcher Controls -->
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="window.navigateUserLoginMonth(-1)" title="Previous Month" style="font-weight: 700;">
+                    &larr; Prev Month
+                  </button>
+                  <span id="userLoginCurrentMonthLabel" style="font-weight: 800; font-size: 0.95rem; padding: 6px 14px; background: #f1f5f9; border-radius: 6px; color: #0f172a; border: 1px solid #cbd5e1;">-</span>
+                  <button type="button" class="btn btn-outline btn-sm" onclick="window.navigateUserLoginMonth(1)" title="Next Month" style="font-weight: 700;">
+                    Next Month &rarr;
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Monthly Totals KPI Stat Cards -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px;">
+            <div class="stat-card" style="padding: 16px; border-radius: 10px; background: #ffffff; border: 1px solid var(--border); box-shadow: var(--shadow-xs);">
+              <div style="font-size: 0.74rem; font-weight: 700; color: #64748b; text-transform: uppercase;">Scheduled Work Days</div>
+              <div id="kpiScheduledDays" style="font-size: 1.6rem; font-weight: 800; color: #0f172a; margin: 4px 0 2px;">0</div>
+              <div id="kpiMonthTotalDays" style="font-size: 0.76rem; color: #94a3b8;">Out of 31 calendar days</div>
+            </div>
+
+            <div class="stat-card" style="padding: 16px; border-radius: 10px; background: #ffffff; border: 1px solid var(--border); box-shadow: var(--shadow-xs); border-top: 3px solid #10b981;">
+              <div style="font-size: 0.74rem; font-weight: 700; color: #059669; text-transform: uppercase;">Days Present</div>
+              <div id="kpiDaysPresent" style="font-size: 1.6rem; font-weight: 800; color: #059669; margin: 4px 0 2px;">0</div>
+              <div id="kpiAttPct" style="font-size: 0.76rem; color: #059669; font-weight: 600;">Attendance: 0%</div>
+            </div>
+
+            <div class="stat-card" style="padding: 16px; border-radius: 10px; background: #ffffff; border: 1px solid var(--border); box-shadow: var(--shadow-xs); border-top: 3px solid #ef4444;">
+              <div style="font-size: 0.74rem; font-weight: 700; color: #dc2626; text-transform: uppercase;">Days Absent</div>
+              <div id="kpiDaysAbsent" style="font-size: 1.6rem; font-weight: 800; color: #dc2626; margin: 4px 0 2px;">0</div>
+              <div id="kpiHalfDays" style="font-size: 0.76rem; color: #64748b;">Half Days: 0</div>
+            </div>
+
+            <div class="stat-card" style="padding: 16px; border-radius: 10px; background: #ffffff; border: 1px solid var(--border); box-shadow: var(--shadow-xs); border-top: 3px solid #2563eb;">
+              <div style="font-size: 0.74rem; font-weight: 700; color: #2563eb; text-transform: uppercase;">Total Worked Time</div>
+              <div id="kpiTotalWorked" style="font-size: 1.6rem; font-weight: 800; color: #1e40af; margin: 4px 0 2px;">0h 0m</div>
+              <div style="font-size: 0.76rem; color: #64748b;">Recorded punch duration</div>
+            </div>
+
+            <div class="stat-card" style="padding: 16px; border-radius: 10px; background: #ffffff; border: 1px solid var(--border); box-shadow: var(--shadow-xs); border-top: 3px solid #8b5cf6;">
+              <div style="font-size: 0.74rem; font-weight: 700; color: #7c3aed; text-transform: uppercase;">Overtime (OT)</div>
+              <div id="kpiTotalOt" style="font-size: 1.6rem; font-weight: 800; color: #6d28d9; margin: 4px 0 2px;">0 H</div>
+              <div id="kpiGraceShort" style="font-size: 0.76rem; color: #64748b;">Grace: 0 | Short Leaves: 0</div>
+            </div>
+          </div>
+
+          <!-- Timesheet Table Card with Download & Print Options -->
+          <div class="card" id="userLoginPrintArea">
+            <div class="card-header" style="flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center;">
+              <div>
+                <h3 style="margin: 0; font-size: 1.08rem; font-weight: 700;">Monthly Timesheet Breakdown</h3>
+                <p id="userLoginTimesheetSubtitle" class="subtitle" style="margin: 2px 0 0 0;">Day-by-day arrival, departure, and verified terminal punches</p>
+              </div>
+
+              <!-- Download & Action Buttons -->
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <button type="button" class="btn btn-outline btn-sm" id="btnUserLoginExportExcel" onclick="window.downloadUserLoginTimesheet('xlsx')" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 700; border-color: #10b981; color: #047857; background: #ecfdf5; cursor: pointer;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                  <span>Download Excel (.xlsx)</span>
+                </button>
+                <button type="button" class="btn btn-outline btn-sm" id="btnUserLoginExportCsv" onclick="window.downloadUserLoginTimesheet('csv')" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 700; cursor: pointer;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  <span>Download CSV</span>
+                </button>
+                <button type="button" class="btn btn-primary btn-sm" id="btnUserLoginPrint" onclick="window.printUserLoginTimesheet()" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 700; cursor: pointer;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                  <span>Print / PDF</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Timesheet Data Table -->
+            <div class="table-container" style="overflow-x: auto;">
+              <table class="data-table" id="userLoginTimesheetTable">
+                <thead>
+                  <tr>
+                    <th style="width: 40px;">#</th>
+                    <th style="width: 100px;">Date</th>
+                    <th style="width: 90px;">Day</th>
+                    <th style="width: 130px;">Shift</th>
+                    <th style="min-width: 150px;">Check-In (First Punch)</th>
+                    <th style="min-width: 150px;">Check-Out (Last Punch)</th>
+                    <th style="width: 70px; text-align: center;">Punches</th>
+                    <th style="width: 110px;">Worked Duration</th>
+                    <th style="width: 100px;">Overtime (OT)</th>
+                    <th style="width: 120px;">Daily Status</th>
+                  </tr>
+                </thead>
+                <tbody id="userLoginTimesheetBody">
+                  <!-- Populated dynamically via JS -->
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Printable Letterhead Header for User Login (Screen hidden, visible in print) -->
+            <div id="userLoginPrintHeader" class="user-login-print-header" style="display: none; padding: 10px 0 14px 0; border-bottom: 2px solid #0f172a; margin-bottom: 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;">
+                <div>
+                  <h1 id="userLoginPrintOrgName" style="font-size: 1.35rem; font-weight: 800; color: #0f172a; margin: 0; text-transform: uppercase;">SpeedFace-V5L Attendance Management</h1>
+                  <div id="userLoginPrintOrgSubtitle" style="font-size: 0.88rem; font-weight: 700; color: #334155; margin-top: 2px;">MONTHLY INDIVIDUAL EMPLOYEE TIMESHEET</div>
+                  <div id="userLoginPrintOrgAddress" style="font-size: 0.78rem; color: #64748b; margin-top: 2px;"></div>
+                </div>
+                <div style="text-align: right; font-size: 0.82rem;">
+                  <div style="font-weight: 800; font-size: 1rem; color: #1d4ed8;" id="userLoginPrintPeriodLabel">October 2026</div>
+                  <div style="color: #64748b; margin-top: 2px;">Printed: <span id="userLoginPrintDate"></span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Printable Footer Signatures (Screen hidden, visible in print) -->
+            <div class="user-login-print-footer" style="display: none; padding: 24px 20px 10px; margin-top: 20px; border-top: 1px solid #cbd5e1;">
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; text-align: center; font-size: 0.82rem; font-weight: 600; color: #1e293b;">
+                <div>
+                  <div style="border-bottom: 1px dashed #64748b; height: 40px; margin-bottom: 6px;"></div>
+                  <span>Employee Signature</span>
+                </div>
+                <div>
+                  <div style="border-bottom: 1px dashed #64748b; height: 40px; margin-bottom: 6px;"></div>
+                  <span>Subject Clerk / Supervisor</span>
+                </div>
+                <div>
+                  <div style="border-bottom: 1px dashed #64748b; height: 40px; margin-bottom: 6px;"></div>
+                  <span>Divisional Secretary / Head of Dept.</span>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
       </section>

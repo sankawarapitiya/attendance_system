@@ -862,6 +862,88 @@ router.get('/reports/export', async (req, res) => {
   }
 });
 
+// ==========================================
+// 3C. User Login / Employee Self-Service Timesheet
+// ==========================================
+// GET /api/user-login/timesheet
+router.get('/user-login/timesheet', async (req, res) => {
+  try {
+    const { fingerprintId, month } = req.query;
+    if (!fingerprintId || !String(fingerprintId).trim()) {
+      return res.status(400).json({ success: false, error: 'FingerPrint ID is required.' });
+    }
+
+    const trimmedId = String(fingerprintId).trim();
+
+    // 1. Find employee by user_id, or fallback to employee_service_id / card_no / order_by_id
+    let emp = await dbGet(`
+      SELECT e.*, s.name as shift_name, s.start_time as shift_start, s.end_time as shift_end,
+             s.grace_period_mins, s.monthly_grace_days, s.half_day_hours, s.full_day_hours,
+             s.monthly_short_leaves, s.ot_min_mins, s.ot_step_mins, s.work_days
+      FROM employees e
+      LEFT JOIN working_shifts s ON COALESCE(e.shift_id, 1) = s.id
+      WHERE e.user_id = ? OR e.employee_service_id = ? OR e.card_no = ? OR e.order_by_id = ?
+    `, [trimmedId, trimmedId, trimmedId, trimmedId]);
+
+    // 2. If not found in employees table, check if punches exist for this user_id in attendance_records
+    if (!emp) {
+      const punchRecord = await dbGet(`SELECT user_id FROM attendance_records WHERE user_id = ? LIMIT 1`, [trimmedId]);
+      if (punchRecord) {
+        emp = {
+          user_id: trimmedId,
+          name: `User #${trimmedId}`,
+          department: 'General',
+          role: 'Staff',
+          shift_name: 'General Shift',
+          shift_start: '08:30',
+          shift_end: '16:15'
+        };
+      }
+    }
+
+    if (!emp) {
+      return res.status(404).json({
+        success: false,
+        error: `FingerPrint ID '${trimmedId}' was not found in the employee registry or attendance logs.`
+      });
+    }
+
+    // 3. Generate monthly timesheet report for this employee
+    const targetMonth = month || new Date().toISOString().slice(0, 7);
+    const reportData = await generateMonthlyReport(targetMonth, {
+      userId: emp.user_id,
+      scope: 'single',
+      activeOnly: false
+    });
+
+    // 4. Retrieve institution letterhead details from settings
+    const orgNameRow = await dbGet(`SELECT value FROM settings WHERE key = 'org_name'`);
+    const orgSubtitleRow = await dbGet(`SELECT value FROM settings WHERE key = 'org_subtitle'`);
+    const orgAddressRow = await dbGet(`SELECT value FROM settings WHERE key = 'org_address'`);
+    const orgPhoneRow = await dbGet(`SELECT value FROM settings WHERE key = 'org_phone'`);
+
+    res.json({
+      success: true,
+      employee: {
+        ...emp,
+        ...(reportData.employee || {})
+      },
+      month: reportData.month,
+      periodLabel: reportData.periodLabel,
+      totals: reportData.totals,
+      timesheet: reportData.timesheet,
+      org: {
+        name: orgNameRow?.value || 'SpeedFace-V5L Attendance Management',
+        subtitle: orgSubtitleRow?.value || '',
+        address: orgAddressRow?.value || '',
+        phone: orgPhoneRow?.value || ''
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 4. Trigger manual device sync
 router.post('/device/sync', async (req, res) => {
   try {

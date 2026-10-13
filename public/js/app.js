@@ -173,6 +173,12 @@ window.closeReportColumnsMenu = window.closeReportColumnsMenu || function() {
 const state = {
   currentTab: 'tab-dashboard',
   recordsView: 'daily', // 'daily' or 'punches'
+  userLogin: {
+    fingerprintId: '',
+    month: new Date().toISOString().slice(0, 7),
+    data: null,
+    loading: false
+  },
   daily: {
     date: new Date().toISOString().split('T')[0],
     statusFilter: 'all',
@@ -343,7 +349,8 @@ function switchTab(tabId) {
     'tab-shifts': ['Working Shifts & Holidays Schedule', 'Define shifts, work schedules, grace periods, and official company holidays'],
     'tab-device': ['SpeedFace Device Control', 'Hardware status, clock sync, and background scheduler'],
     'tab-guide': ['SpeedFace Setup Assistant', 'Step-by-step terminal network and ADMS push setup'],
-    'tab-api': ['API Service & Integration Gateway', 'REST API endpoints for third-party ERP, Payroll, and HR software integration']
+    'tab-api': ['API Service & Integration Gateway', 'REST API endpoints for third-party ERP, Payroll, and HR software integration'],
+    'tab-user-login': ['User Login & Monthly Timesheet', 'Self-service timesheet lookup and export by FingerPrint ID']
   };
 
   if (titleMap[tabId]) {
@@ -360,6 +367,7 @@ function switchTab(tabId) {
   if (tabId === 'tab-device') loadDeviceControlData();
   if (tabId === 'tab-guide') loadGuideIps();
   if (tabId === 'tab-api') initApiServiceTab();
+  if (tabId === 'tab-user-login') initUserLoginTab();
 }
 
 // 2. Dashboard
@@ -9222,5 +9230,300 @@ function updateFirebaseStatusUI(status) {
   }
 }
 
+// ==========================================
+// 8. User Login & Monthly Timesheet Portal
+// ==========================================
 
+function initUserLoginTab() {
+  const monthInput = document.getElementById('userLoginMonth');
+  if (monthInput && !monthInput.value) {
+    const now = new Date();
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    monthInput.value = ym;
+    state.userLogin.month = ym;
+  }
 
+  const idInput = document.getElementById('userLoginFingerprintId');
+  if (idInput) {
+    if (!idInput.value && state.userLogin.fingerprintId) {
+      idInput.value = state.userLogin.fingerprintId;
+    }
+    setTimeout(() => idInput.focus(), 150);
+  }
+}
+
+window.resetUserLoginForm = function() {
+  const idInput = document.getElementById('userLoginFingerprintId');
+  const monthInput = document.getElementById('userLoginMonth');
+  if (idInput) idInput.value = '';
+  if (monthInput) {
+    const now = new Date();
+    monthInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  state.userLogin.fingerprintId = '';
+  state.userLogin.data = null;
+
+  const alertBox = document.getElementById('userLoginAlert');
+  if (alertBox) alertBox.style.display = 'none';
+
+  const resContainer = document.getElementById('userLoginResultContainer');
+  if (resContainer) resContainer.style.display = 'none';
+
+  const placeholder = document.getElementById('userLoginPlaceholder');
+  if (placeholder) placeholder.style.display = 'block';
+
+  if (idInput) idInput.focus();
+};
+
+window.handleUserLoginSubmit = async function() {
+  const idInput = document.getElementById('userLoginFingerprintId');
+  const monthInput = document.getElementById('userLoginMonth');
+  const alertBox = document.getElementById('userLoginAlert');
+  const btnSubmit = document.getElementById('btnUserLoginSubmit');
+
+  const fingerprintId = (idInput?.value || '').trim();
+  let month = (monthInput?.value || '').trim();
+
+  if (!month) {
+    const now = new Date();
+    month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    if (monthInput) monthInput.value = month;
+  }
+
+  if (!fingerprintId) {
+    if (alertBox) {
+      alertBox.textContent = 'Please enter your FingerPrint ID.';
+      alertBox.style.display = 'block';
+      alertBox.style.background = '#fef2f2';
+      alertBox.style.color = '#b91c1c';
+      alertBox.style.border = '1px solid #fecaca';
+    }
+    idInput?.focus();
+    return;
+  }
+
+  if (alertBox) alertBox.style.display = 'none';
+
+  // Loading state
+  const origBtnHtml = btnSubmit ? btnSubmit.innerHTML : '';
+  if (btnSubmit) {
+    btnSubmit.disabled = true;
+    btnSubmit.innerHTML = `<span class="spinner" style="display:inline-block;width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></span> <span>Verifying...</span>`;
+  }
+
+  try {
+    const res = await fetch(`/api/user-login/timesheet?fingerprintId=${encodeURIComponent(fingerprintId)}&month=${encodeURIComponent(month)}`);
+    const data = await res.json();
+
+    if (!res.ok || !data.success) {
+      const errorMsg = data.error || `FingerPrint ID '${fingerprintId}' not found.`;
+      if (alertBox) {
+        alertBox.innerHTML = `<strong>⚠️ Verification Notice:</strong> ${escapeHtml(errorMsg)}`;
+        alertBox.style.display = 'block';
+        alertBox.style.background = '#fef2f2';
+        alertBox.style.color = '#b91c1c';
+        alertBox.style.border = '1px solid #fecaca';
+      }
+      document.getElementById('userLoginResultContainer').style.display = 'none';
+      document.getElementById('userLoginPlaceholder').style.display = 'block';
+      showToast(errorMsg, 'error');
+      return;
+    }
+
+    // Success: store state & render
+    state.userLogin.fingerprintId = fingerprintId;
+    state.userLogin.month = data.month;
+    state.userLogin.data = data;
+
+    renderUserLoginTimesheet(data);
+    showToast(`Timesheet loaded for ${data.employee.employee_name || data.employee.name}`, 'success');
+
+  } catch (err) {
+    if (alertBox) {
+      alertBox.innerHTML = `<strong>❌ Connection Error:</strong> ${escapeHtml(err.message)}`;
+      alertBox.style.display = 'block';
+      alertBox.style.background = '#fef2f2';
+      alertBox.style.color = '#b91c1c';
+      alertBox.style.border = '1px solid #fecaca';
+    }
+    showToast('Failed to load timesheet: ' + err.message, 'error');
+  } finally {
+    if (btnSubmit) {
+      btnSubmit.disabled = false;
+      btnSubmit.innerHTML = origBtnHtml;
+    }
+  }
+};
+
+function renderUserLoginTimesheet(data) {
+  const emp = data.employee || {};
+  const totals = data.totals || {};
+  const timesheet = data.timesheet || [];
+  const org = data.org || {};
+
+  // 1. Switch visibility
+  const placeholder = document.getElementById('userLoginPlaceholder');
+  const resContainer = document.getElementById('userLoginResultContainer');
+  if (placeholder) placeholder.style.display = 'none';
+  if (resContainer) resContainer.style.display = 'block';
+
+  // 2. Employee Profile Card
+  const empName = emp.employee_name || emp.name || `User #${emp.user_id}`;
+  document.getElementById('userLoginEmpName').textContent = empName;
+  document.getElementById('userLoginEmpIdBadge').textContent = `FingerPrint ID: #${emp.user_id}`;
+  document.getElementById('userLoginEmpDept').textContent = `🏢 Department: ${emp.department || 'General'}`;
+  document.getElementById('userLoginEmpRole').textContent = `💼 Role: ${emp.role || 'Staff'}`;
+  document.getElementById('userLoginEmpShift').textContent = `⏰ Shift: ${emp.shift_name || 'General Shift'} (${emp.shift_start || '08:30'} - ${emp.shift_end || '16:15'})`;
+
+  // Photo / Initials
+  const photoContainer = document.getElementById('userLoginEmpPhoto');
+  const photoUrl = emp.employee_photo || emp.photo;
+  if (photoUrl && photoContainer) {
+    photoContainer.innerHTML = `<img src="${photoUrl}" alt="${escapeHtml(empName)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.onerror=null;this.parentElement.innerHTML='<span style=\\'font-size:1.3rem;font-weight:800;color:#1d4ed8;\\'>${escapeHtml(empName.charAt(0).toUpperCase())}</span>';">`;
+  } else if (photoContainer) {
+    photoContainer.innerHTML = `<span style="font-size:1.3rem;font-weight:800;color:#1d4ed8;">${escapeHtml(empName.charAt(0).toUpperCase())}</span>`;
+  }
+
+  // Month label
+  const periodLabel = data.periodLabel || data.month;
+  document.getElementById('userLoginCurrentMonthLabel').textContent = periodLabel;
+  document.getElementById('userLoginTimesheetSubtitle').textContent = `Timesheet for ${empName} (${periodLabel}) — Total ${timesheet.length} calendar days`;
+
+  // 3. KPI Stat Cards
+  document.getElementById('kpiScheduledDays').textContent = totals.scheduledWorkDays || 0;
+  document.getElementById('kpiMonthTotalDays').textContent = `Out of ${totals.monthDays || timesheet.length} calendar days`;
+
+  document.getElementById('kpiDaysPresent').textContent = totals.daysPresent || 0;
+  document.getElementById('kpiAttPct').textContent = `Attendance: ${totals.attendance_pct || '0%'}`;
+
+  document.getElementById('kpiDaysAbsent').textContent = totals.daysAbsent || 0;
+  document.getElementById('kpiHalfDays').textContent = `Half Days: ${totals.halfDays || 0}`;
+
+  document.getElementById('kpiTotalWorked').textContent = totals.totalWorkedFormatted || '0h 0m';
+
+  document.getElementById('kpiTotalOt').textContent = `${totals.totalOtHours || 0} H`;
+  document.getElementById('kpiGraceShort').textContent = `Grace: ${totals.graceUsed || 0} | Short Leaves: ${totals.shortLeaveUsed || 0}`;
+
+  // 4. Timesheet Table
+  const tbody = document.getElementById('userLoginTimesheetBody');
+  if (tbody) {
+    if (timesheet.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="10" class="text-center py-4 text-muted">No attendance punches recorded for this month.</td></tr>`;
+    } else {
+      tbody.innerHTML = timesheet.map((r, i) => {
+        const isAbsent = (r.punch_count === 0 || r.check_in_status === 'ABSENT');
+        
+        const checkInPill = isAbsent
+          ? `<span class="badge-absent" style="font-size:0.75rem;">🔴 Absent (No Punch)</span>`
+          : (r.check_in_time && r.check_in_time !== '-')
+            ? `<strong class="font-mono">${r.check_in_time}</strong> <span class="${r.check_in_badge || 'badge-on-time'}" style="font-size:0.75rem;">${escapeHtml(r.check_in_label || 'In')}</span>`
+            : `<span class="text-muted">-</span>`;
+
+        const checkOutPill = isAbsent
+          ? `<span class="text-muted">-</span>`
+          : (r.check_out_time && r.check_out_time !== '-')
+            ? `<strong class="font-mono">${r.check_out_time}</strong> <span class="${r.check_out_badge || 'badge-on-time'}" style="font-size:0.75rem;">${escapeHtml(r.check_out_label || 'Out')}</span>`
+            : `<span class="badge-tag" style="background:#f1f5f9;color:#64748b;font-size:0.75rem;">Pending / Missing</span>`;
+
+        const dayBadgeClass = r.day_type === 'WEEKEND' ? 'badge-weekend' : (r.day_type === 'HOLIDAY' ? 'badge-holiday' : 'badge-weekday');
+        const statusBadgeClass = isAbsent ? 'badge-absent' : (r.daily_badge || 'badge-on-time');
+
+        const otBadge = (r.ot_hours && r.ot_hours > 0)
+          ? `<span class="badge-tag" style="background:#f3e8ff;color:#7e22ce;font-weight:700;font-size:0.78rem;">⚡ +${r.ot_hours}H OT</span>`
+          : `<span class="text-muted font-mono" style="font-size:0.8rem;">0 H</span>`;
+
+        return `
+          <tr>
+            <td class="text-muted font-mono" style="font-size:0.8rem;">${i + 1}</td>
+            <td class="font-mono" style="font-size:0.85rem;"><strong>${r.date}</strong></td>
+            <td><span class="${dayBadgeClass}" style="font-size:0.75rem;">${escapeHtml(r.day_name || '')}</span></td>
+            <td style="font-size:0.82rem;">${escapeHtml(r.shift_name || 'General')}</td>
+            <td>${checkInPill}</td>
+            <td>${checkOutPill}</td>
+            <td class="font-mono text-center" style="font-size:0.85rem;font-weight:700;">${r.punch_count || 0}</td>
+            <td class="font-mono" style="font-size:0.85rem;">${r.worked_formatted !== '-' ? `<strong>${r.worked_formatted}</strong>` : '<span class="text-muted">-</span>'}</td>
+            <td>${otBadge}</td>
+            <td><span class="${statusBadgeClass}" style="font-size:0.78rem;">${escapeHtml(r.daily_status || (isAbsent ? 'Absent' : 'Present'))}</span></td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  // 5. Letterhead Header details for print
+  const printOrgName = document.getElementById('userLoginPrintOrgName');
+  const printOrgSub = document.getElementById('userLoginPrintOrgSubtitle');
+  const printOrgAddr = document.getElementById('userLoginPrintOrgAddress');
+  const printPeriod = document.getElementById('userLoginPrintPeriodLabel');
+  const printDate = document.getElementById('userLoginPrintDate');
+
+  if (printOrgName && org.name) printOrgName.textContent = org.name;
+  if (printOrgSub && org.subtitle) printOrgSub.textContent = org.subtitle;
+  if (printOrgAddr && org.address) printOrgAddr.textContent = org.address;
+  if (printPeriod) printPeriod.textContent = periodLabel;
+  if (printDate) printDate.textContent = new Date().toLocaleString();
+}
+
+window.navigateUserLoginMonth = function(delta) {
+  const monthInput = document.getElementById('userLoginMonth');
+  let currentYm = monthInput?.value || state.userLogin.month || new Date().toISOString().slice(0, 7);
+
+  const [yearStr, monthStr] = currentYm.split('-');
+  let year = parseInt(yearStr, 10);
+  let month = parseInt(monthStr, 10);
+
+  month += delta;
+  if (month > 12) {
+    month = 1;
+    year++;
+  } else if (month < 1) {
+    month = 12;
+    year--;
+  }
+
+  const newYm = `${year}-${String(month).padStart(2, '0')}`;
+  if (monthInput) monthInput.value = newYm;
+  state.userLogin.month = newYm;
+
+  if (state.userLogin.fingerprintId) {
+    window.handleUserLoginSubmit();
+  }
+};
+
+window.downloadUserLoginTimesheet = function(format) {
+  if (!state.userLogin.data || !state.userLogin.data.employee) {
+    showToast('Please load a timesheet first.', 'warning');
+    return;
+  }
+
+  const userId = state.userLogin.data.employee.user_id;
+  const month = state.userLogin.month || state.userLogin.data.month;
+  const downloadUrl = `/api/reports/export?type=monthly&scope=single&userId=${encodeURIComponent(userId)}&month=${encodeURIComponent(month)}&format=${format}`;
+
+  showToast(`Preparing ${format.toUpperCase()} timesheet download...`, 'info', 2500);
+
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.setAttribute('download', `Timesheet_ID${userId}_Month_${month}.${format}`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+window.printUserLoginTimesheet = function() {
+  if (!state.userLogin.data || !state.userLogin.data.employee) {
+    showToast('Please load a timesheet first.', 'warning');
+    return;
+  }
+
+  const prevTitle = document.title;
+  const empName = state.userLogin.data.employee.employee_name || state.userLogin.data.employee.name || state.userLogin.data.employee.user_id;
+  document.title = `Timesheet_${empName}_${state.userLogin.month}`;
+  
+  window.print();
+
+  setTimeout(() => {
+    document.title = prevTitle;
+  }, 1000);
+};

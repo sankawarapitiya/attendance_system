@@ -2323,7 +2323,7 @@ select.form-control {
   .tab-content {
     display: none !important;
   }
-  #tab-reports.active, #tab-records.active {
+  #tab-reports.active, #tab-records.active, #tab-user-login.active {
     display: block !important;
   }
 
@@ -2430,6 +2430,20 @@ select.form-control {
   }
   #reportEmployeeProfileCard[style*="none"] {
     display: none !important;
+  }
+
+  /* User Login Print Customization */
+  #tab-user-login #userLoginPlaceholder,
+  #tab-user-login #formUserLogin,
+  #tab-user-login .card:first-child,
+  #tab-user-login .stat-card,
+  #tab-user-login button,
+  #tab-user-login .btn {
+    display: none !important;
+  }
+  #tab-user-login .user-login-print-header,
+  #tab-user-login .user-login-print-footer {
+    display: block !important;
   }
 
   /* Table Multi-Page Formatting */
