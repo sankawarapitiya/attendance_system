@@ -329,19 +329,25 @@ function initNavigation() {
 
 function switchTab(tabId) {
   // Role-based tab protection
-  if (state.currentUser) {
-    const role = (state.currentUser.role || 'staff').toLowerCase();
-    const adminOnlyTabs = ['tab-device', 'tab-api'];
+  const user = state.currentUser;
+  const role = user ? (user.role || 'staff').toLowerCase() : 'guest';
 
-    if (adminOnlyTabs.includes(tabId) && role !== 'admin') {
-      showToast('🔒 Access Restricted: Administrator privileges required for this section.', 'warning');
-      return;
-    }
+  if (!user && ['tab-device', 'tab-api', 'tab-shifts', 'tab-employees', 'tab-settings'].includes(tabId)) {
+    showToast('🔑 Please sign in to access this section.', 'warning');
+    const modalLogin = document.getElementById('modalSystemLogin');
+    if (modalLogin) modalLogin.style.display = 'flex';
+    return;
+  }
 
-    if (role === 'staff' && ['tab-device', 'tab-api', 'tab-shifts'].includes(tabId)) {
-      showToast('🔒 Staff accounts have access to Dashboard, Logs, and Timesheets only.', 'warning');
-      return;
-    }
+  const adminOnlyTabs = ['tab-device', 'tab-api'];
+  if (adminOnlyTabs.includes(tabId) && role !== 'admin') {
+    showToast('🛡️ Access Restricted: Administrator privileges required for this section.', 'warning');
+    return;
+  }
+
+  if (role === 'staff' && ['tab-device', 'tab-api', 'tab-shifts', 'tab-employees', 'tab-settings'].includes(tabId)) {
+    showToast('👤 Staff accounts have access to Dashboard, Logs, and Timesheets only.', 'warning');
+    return;
   }
 
   state.currentTab = tabId;
@@ -367,7 +373,8 @@ function switchTab(tabId) {
     'tab-device': ['SpeedFace Device Control', 'Hardware status, clock sync, and background scheduler'],
     'tab-guide': ['SpeedFace Setup Assistant', 'Step-by-step terminal network and ADMS push setup'],
     'tab-api': ['API Service & Integration Gateway', 'REST API endpoints for third-party ERP, Payroll, and HR software integration'],
-    'tab-user-login': ['User Login & Monthly Timesheet', 'Self-service timesheet lookup and export by FingerPrint ID']
+    'tab-user-login': ['User Login & Monthly Timesheet', 'Self-service timesheet lookup and export by FingerPrint ID'],
+    'tab-settings': ['System Settings & User Management', 'Manage organization details, system users, letterheads, and access control']
   };
 
   if (titleMap[tabId]) {
@@ -385,6 +392,7 @@ function switchTab(tabId) {
   if (tabId === 'tab-guide') loadGuideIps();
   if (tabId === 'tab-api') initApiServiceTab();
   if (tabId === 'tab-user-login') initUserLoginTab();
+  if (tabId === 'tab-settings') initSettingsTab();
 }
 
 // 2. Dashboard
@@ -9697,13 +9705,28 @@ window.printUserLoginTimesheet = function() {
 };
 
 // ============================================================================
-// SYSTEM AUTHENTICATION & ROLE-BASED ACCESS CONTROL (RBAC) LOGIC
+// SYSTEM AUTHENTICATION, RBAC & SETTINGS / USER MANAGEMENT LOGIC
 // ============================================================================
+
+function systemLogout() {
+  state.currentUser = null;
+  state.authToken = null;
+  try {
+    localStorage.removeItem('speedface_auth_user');
+    localStorage.removeItem('speedface_auth_token');
+  } catch (e) {}
+
+  applyRolePermissions(null);
+  showToast('Logged out of system successfully.', 'info');
+}
 
 function initSystemAuth() {
   const modalLogin = document.getElementById('modalSystemLogin');
   const btnCloseModal = document.getElementById('btnCloseLoginModal');
-  const btnHeaderAction = document.getElementById('btnHeaderAuthAction');
+  const btnHeaderLogout = document.getElementById('btnHeaderLogout');
+  const btnHeaderLogin = document.getElementById('btnHeaderLogin');
+  const btnSettingsLogoutHero = document.getElementById('btnSettingsLogoutHero');
+  const btnSettingsSwitchUserHero = document.getElementById('btnSettingsSwitchUserHero');
   const userPill = document.getElementById('headerUserAuthPill');
   const formLogin = document.getElementById('formSystemLogin');
   const userInput = document.getElementById('inputLoginUsername');
@@ -9740,7 +9763,7 @@ function initSystemAuth() {
     if (!modalLogin) return;
     const curOrg = state.currentUser?.orgId || localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
     if (orgIdDisplay) orgIdDisplay.textContent = curOrg;
-    if (orgNameDisplay) orgNameDisplay.textContent = state.currentUser?.orgName || curOrg;
+    if (orgNameDisplay) orgNameDisplay.textContent = state.currentUser?.orgName || (state.org?.org_name) || curOrg;
     if (alertBox) alertBox.style.display = 'none';
     modalLogin.style.display = 'flex';
     userInput?.focus();
@@ -9750,7 +9773,10 @@ function initSystemAuth() {
     if (modalLogin) modalLogin.style.display = 'none';
   }
 
-  btnHeaderAction?.addEventListener('click', openLoginModal);
+  btnHeaderLogout?.addEventListener('click', systemLogout);
+  btnSettingsLogoutHero?.addEventListener('click', systemLogout);
+  btnHeaderLogin?.addEventListener('click', openLoginModal);
+  btnSettingsSwitchUserHero?.addEventListener('click', openLoginModal);
   userPill?.addEventListener('click', openLoginModal);
   btnCloseModal?.addEventListener('click', closeLoginModal);
 
@@ -9835,7 +9861,37 @@ function initSystemAuth() {
 }
 
 function applyRolePermissions(user) {
-  if (!user) return;
+  const loggedInBox = document.getElementById('headerLoggedInBox');
+  const loggedOutBox = document.getElementById('headerLoggedOutBox');
+
+  const navDevice = document.querySelector('[data-tab="tab-device"]');
+  const navApi = document.querySelector('[data-tab="tab-api"]');
+  const navShifts = document.querySelector('[data-tab="tab-shifts"]');
+  const navEmployees = document.querySelector('[data-tab="tab-employees"]');
+  const navSettings = document.querySelector('[data-tab="tab-settings"]');
+
+  if (!user) {
+    // Guest / Logged out state
+    if (loggedInBox) loggedInBox.style.display = 'none';
+    if (loggedOutBox) loggedOutBox.style.display = 'inline-flex';
+
+    if (navDevice) navDevice.style.display = 'none';
+    if (navApi) navApi.style.display = 'none';
+    if (navShifts) navShifts.style.display = 'none';
+    if (navEmployees) navEmployees.style.display = 'none';
+    if (navSettings) navSettings.style.display = 'none';
+
+    const restrictedTabs = ['tab-device', 'tab-api', 'tab-shifts', 'tab-employees', 'tab-settings'];
+    if (restrictedTabs.includes(state.currentTab)) {
+      switchTab('tab-dashboard');
+    }
+    return;
+  }
+
+  // Logged in state
+  if (loggedInBox) loggedInBox.style.display = 'inline-flex';
+  if (loggedOutBox) loggedOutBox.style.display = 'none';
+
   const role = (user.role || 'staff').toLowerCase();
 
   // 1. Update Header UI
@@ -9849,49 +9905,504 @@ function applyRolePermissions(user) {
     headerAvatar.textContent = initial;
   }
 
+  const roleColors = {
+    admin: { bg: '#0284c7', text: '#fff' },
+    manager: { bg: '#059669', text: '#fff' },
+    staff: { bg: '#7c3aed', text: '#fff' }
+  };
+  const color = roleColors[role] || roleColors.staff;
+
   if (headerRole) {
     headerRole.textContent = role.toUpperCase();
-    if (role === 'admin') {
-      headerRole.style.background = '#0284c7';
-      headerRole.style.color = '#ffffff';
-      if (headerAvatar) headerAvatar.style.background = '#0284c7';
-    } else if (role === 'manager') {
-      headerRole.style.background = '#059669';
-      headerRole.style.color = '#ffffff';
-      if (headerAvatar) headerAvatar.style.background = '#059669';
-    } else {
-      headerRole.style.background = '#7c3aed';
-      headerRole.style.color = '#ffffff';
-      if (headerAvatar) headerAvatar.style.background = '#7c3aed';
-    }
+    headerRole.style.background = color.bg;
+    headerRole.style.color = color.text;
+  }
+  if (headerAvatar) {
+    headerAvatar.style.background = color.bg;
   }
 
-  // 2. Adjust Tab Navigation based on Role
-  const navDevice = document.querySelector('[data-tab="tab-device"]');
-  const navApi = document.querySelector('[data-tab="tab-api"]');
-  const navShifts = document.querySelector('[data-tab="tab-shifts"]');
-  const navEmployees = document.querySelector('[data-tab="tab-employees"]');
+  // Update Settings Tab Hero values if present
+  const heroRole = document.getElementById('settingsCurrentRoleBadge');
+  const heroUser = document.getElementById('settingsCurrentUserName');
+  const heroOrgId = document.getElementById('settingsOrgIdDisplay');
+  const heroOrgName = document.getElementById('settingsOrgNameDisplay');
+  const addUserOrgId = document.getElementById('displayUserOrgId');
 
+  const curOrgId = user.orgId || localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
+  const curOrgName = user.orgName || (state.org?.org_name) || 'DS Office Lunugamwehera';
+
+  if (heroRole) {
+    heroRole.textContent = role.toUpperCase();
+    heroRole.style.background = color.bg;
+  }
+  if (heroUser) heroUser.textContent = user.displayName || user.username;
+  if (heroOrgId) heroOrgId.textContent = curOrgId;
+  if (heroOrgName) heroOrgName.textContent = curOrgName;
+  if (addUserOrgId) addUserOrgId.textContent = curOrgId;
+
+  // 2. Adjust Tab Navigation based on Role
   if (role === 'admin') {
     if (navDevice) { navDevice.style.display = 'flex'; navDevice.title = 'Device Control (Admin)'; }
     if (navApi) { navApi.style.display = 'flex'; navApi.title = 'API Service'; }
     if (navShifts) { navShifts.style.display = 'flex'; }
     if (navEmployees) { navEmployees.style.display = 'flex'; }
+    if (navSettings) { navSettings.style.display = 'flex'; }
   } else if (role === 'manager') {
     if (navDevice) { navDevice.style.display = 'none'; }
     if (navApi) { navApi.style.display = 'none'; }
     if (navShifts) { navShifts.style.display = 'flex'; }
     if (navEmployees) { navEmployees.style.display = 'flex'; }
+    if (navSettings) { navSettings.style.display = 'flex'; }
   } else {
     // staff role
     if (navDevice) { navDevice.style.display = 'none'; }
     if (navApi) { navApi.style.display = 'none'; }
     if (navShifts) { navShifts.style.display = 'none'; }
+    if (navEmployees) { navEmployees.style.display = 'none'; }
+    if (navSettings) { navSettings.style.display = 'none'; }
   }
 
-  // 3. Prevent non-admins from staying on restricted tabs
-  const adminOnlyTabs = ['tab-device', 'tab-api'];
-  if (adminOnlyTabs.includes(state.currentTab) && role !== 'admin') {
+  // 3. Prevent non-admins/non-managers from staying on restricted tabs
+  if (role === 'staff' && ['tab-device', 'tab-api', 'tab-shifts', 'tab-employees', 'tab-settings'].includes(state.currentTab)) {
+    switchTab('tab-dashboard');
+  } else if (role === 'manager' && ['tab-device', 'tab-api'].includes(state.currentTab)) {
     switchTab('tab-dashboard');
   }
+}
+
+// ============================================================================
+// SYSTEM SETTINGS & ORGANIZATION USER MANAGEMENT
+// ============================================================================
+
+let orgUsersList = [];
+
+async function initSettingsTab() {
+  await loadOrganizationUsers();
+  initOrgSettingsTabForm();
+  initAddUserModal();
+}
+
+async function loadOrganizationUsers() {
+  const tbody = document.getElementById('tbodyOrgUsers');
+  const badgeCount = document.getElementById('badgeTotalUsersCount');
+  const curOrg = state.currentUser?.orgId || localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
+
+  try {
+    const res = await fetch(`/api/auth/users?orgId=${encodeURIComponent(curOrg)}`);
+    const data = await res.json();
+    if (data.success && Array.isArray(data.users)) {
+      orgUsersList = data.users;
+      if (badgeCount) badgeCount.textContent = `${orgUsersList.length} User${orgUsersList.length === 1 ? '' : 's'}`;
+      renderOrganizationUsersTable();
+    } else {
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:24px; color:#ef4444;">Failed to load users: ${data.error || 'Unknown error'}</td></tr>`;
+      }
+    }
+  } catch (err) {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:24px; color:#ef4444;">Network error: ${err.message}</td></tr>`;
+    }
+  }
+}
+
+function renderOrganizationUsersTable() {
+  const tbody = document.getElementById('tbodyOrgUsers');
+  if (!tbody) return;
+
+  const searchQuery = (document.getElementById('searchOrgUsersInput')?.value || '').trim().toLowerCase();
+  const roleFilter = (document.getElementById('selectFilterUserRole')?.value || 'all').toLowerCase();
+
+  const filtered = orgUsersList.filter(u => {
+    if (roleFilter !== 'all' && (u.role || '').toLowerCase() !== roleFilter) return false;
+    if (searchQuery) {
+      const matchName = (u.display_name || '').toLowerCase().includes(searchQuery);
+      const matchUser = (u.username || '').toLowerCase().includes(searchQuery);
+      const matchEmail = (u.email || '').toLowerCase().includes(searchQuery);
+      return matchName || matchUser || matchEmail;
+    }
+    return true;
+  });
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:32px; color:#94a3b8; font-size:0.9rem;">No system users found matching criteria.</td></tr>`;
+    return;
+  }
+
+  const roleStyles = {
+    admin: { bg: '#0284c7', label: 'ADMIN' },
+    manager: { bg: '#059669', label: 'MANAGER' },
+    staff: { bg: '#7c3aed', label: 'STAFF' }
+  };
+
+  tbody.innerHTML = filtered.map(u => {
+    const roleKey = (u.role || 'staff').toLowerCase();
+    const style = roleStyles[roleKey] || roleStyles.staff;
+    const initial = (u.display_name || u.username || 'U').charAt(0).toUpperCase();
+
+    return `
+      <tr style="border-bottom: 1px solid #f1f5f9; transition: background 0.15s ease;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='transparent'">
+        <td style="padding: 12px 14px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 32px; height: 32px; border-radius: 50%; background: ${style.bg}; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.82rem; flex-shrink: 0;">
+              ${initial}
+            </div>
+            <div>
+              <div style="font-weight: 700; color: #1e293b; font-size: 0.88rem;">${escapeHtml(u.display_name || u.username)}</div>
+              <div style="font-size: 0.75rem; color: #64748b;">${escapeHtml(u.phone || 'No phone set')}</div>
+            </div>
+          </div>
+        </td>
+        <td style="padding: 12px 14px; font-family: monospace; font-weight: 600; font-size: 0.84rem; color: #334155;">
+          ${escapeHtml(u.username)}
+        </td>
+        <td style="padding: 12px 14px; font-size: 0.82rem; color: #475569;">
+          ${escapeHtml(u.email || '-')}
+        </td>
+        <td style="padding: 12px 14px; text-align: center;">
+          <span class="badge" style="background: ${style.bg}; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 3px 9px; border-radius: 999px;">
+            ${style.label}
+          </span>
+        </td>
+        <td style="padding: 12px 14px;">
+          <code style="font-size: 0.74rem; padding: 2px 7px; background: #e0f2fe; color: #0284c7; border-radius: 4px; font-weight: 700;">
+            ${escapeHtml(u.org_id || 'DEFAULT')}
+          </code>
+        </td>
+        <td style="padding: 12px 14px; text-align: center;">
+          <span class="badge" style="background: #dcfce7; color: #15803d; font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px;">
+            ● Active
+          </span>
+        </td>
+        <td style="padding: 12px 14px; text-align: right;">
+          <div style="display: inline-flex; gap: 6px;">
+            <button type="button" class="btn btn-xs btn-outline btn-edit-org-user" data-uid="${u.uid}" style="font-size: 0.75rem; padding: 4px 8px;" title="Edit user details and role">
+              ✏️ Edit
+            </button>
+            <button type="button" class="btn btn-xs btn-outline btn-delete-org-user" data-uid="${u.uid}" data-name="${escapeHtml(u.display_name || u.username)}" style="font-size: 0.75rem; padding: 4px 8px; color: #dc2626; border-color: #fca5a5;" title="Delete this user">
+              🗑️ Delete
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // Attach row event listeners
+  tbody.querySelectorAll('.btn-edit-org-user').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const uid = btn.dataset.uid;
+      const user = orgUsersList.find(u => u.uid === uid);
+      if (user) openAddEditUserModal(user);
+    });
+  });
+
+  tbody.querySelectorAll('.btn-delete-org-user').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const uid = btn.dataset.uid;
+      const name = btn.dataset.name;
+      if (state.currentUser && state.currentUser.uid === uid) {
+        showToast('You cannot delete your own currently logged-in account!', 'warning');
+        return;
+      }
+      if (!confirm(`Are you sure you want to delete user "${name}"?`)) return;
+
+      try {
+        const res = await fetch(`/api/auth/users/${encodeURIComponent(uid)}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`User "${name}" deleted successfully.`, 'success');
+          await loadOrganizationUsers();
+        } else {
+          showToast(data.error || 'Failed to delete user', 'error');
+        }
+      } catch (err) {
+        showToast('Error deleting user: ' + err.message, 'error');
+      }
+    });
+  });
+}
+
+function openAddEditUserModal(user = null) {
+  const modal = document.getElementById('modalAddUser');
+  if (!modal) return;
+
+  const titleEl = document.getElementById('modalAddUserTitle');
+  const uidInput = document.getElementById('editUserUid');
+  const nameInput = document.getElementById('inputUserDisplayName');
+  const usernameInput = document.getElementById('inputUserUsername');
+  const emailInput = document.getElementById('inputUserEmail');
+  const roleSelect = document.getElementById('selectUserRole');
+  const phoneInput = document.getElementById('inputUserPhone');
+  const pwdInput = document.getElementById('inputUserPassword');
+  const hintPwd = document.getElementById('hintPasswordEdit');
+  const labelPwdReq = document.getElementById('labelPasswordRequired');
+  const alertBox = document.getElementById('addUserAlertBox');
+  const orgIdDisplay = document.getElementById('displayUserOrgId');
+
+  const curOrg = state.currentUser?.orgId || localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
+  if (orgIdDisplay) orgIdDisplay.textContent = curOrg;
+  if (alertBox) alertBox.style.display = 'none';
+
+  if (user) {
+    if (titleEl) titleEl.textContent = 'Edit Organization User';
+    if (uidInput) uidInput.value = user.uid;
+    if (nameInput) nameInput.value = user.display_name || '';
+    if (usernameInput) usernameInput.value = user.username || '';
+    if (emailInput) emailInput.value = user.email || '';
+    if (roleSelect) roleSelect.value = user.role || 'staff';
+    if (phoneInput) phoneInput.value = user.phone || '';
+    if (pwdInput) {
+      pwdInput.value = '';
+      pwdInput.required = false;
+    }
+    if (labelPwdReq) labelPwdReq.style.display = 'none';
+    if (hintPwd) hintPwd.style.display = 'block';
+  } else {
+    if (titleEl) titleEl.textContent = 'Add Organization User';
+    if (uidInput) uidInput.value = '';
+    if (nameInput) nameInput.value = '';
+    if (usernameInput) usernameInput.value = '';
+    if (emailInput) emailInput.value = '';
+    if (roleSelect) roleSelect.value = 'manager';
+    if (phoneInput) phoneInput.value = '';
+    if (pwdInput) {
+      pwdInput.value = '';
+      pwdInput.required = true;
+    }
+    if (labelPwdReq) labelPwdReq.style.display = 'inline';
+    if (hintPwd) hintPwd.style.display = 'none';
+  }
+
+  modal.style.display = 'flex';
+  nameInput?.focus();
+}
+
+let isAddUserModalInitialized = false;
+
+function initAddUserModal() {
+  if (isAddUserModalInitialized) return;
+  isAddUserModalInitialized = true;
+
+  const modal = document.getElementById('modalAddUser');
+  const btnClose = document.getElementById('btnCloseAddUserModal');
+  const btnCancel = document.getElementById('btnCancelAddUser');
+  const form = document.getElementById('formAddUser');
+  const btnOpen = document.getElementById('btnOpenAddUserModal');
+  const btnSync = document.getElementById('btnSyncUsersToCloud');
+  const searchInput = document.getElementById('searchOrgUsersInput');
+  const roleFilter = document.getElementById('selectFilterUserRole');
+  const btnRefresh = document.getElementById('btnRefreshOrgUsers');
+
+  btnOpen?.addEventListener('click', () => openAddEditUserModal(null));
+
+  function closeModal() {
+    if (modal) modal.style.display = 'none';
+  }
+
+  btnClose?.addEventListener('click', closeModal);
+  btnCancel?.addEventListener('click', closeModal);
+  modal?.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+
+  searchInput?.addEventListener('input', renderOrganizationUsersTable);
+  roleFilter?.addEventListener('change', renderOrganizationUsersTable);
+  btnRefresh?.addEventListener('click', async () => {
+    btnRefresh.disabled = true;
+    await loadOrganizationUsers();
+    btnRefresh.disabled = false;
+    showToast('User list refreshed.', 'info');
+  });
+
+  // Sync users to cloud button
+  btnSync?.addEventListener('click', async () => {
+    btnSync.disabled = true;
+    const oldHtml = btnSync.innerHTML;
+    btnSync.innerHTML = `<span class="spin" style="width:14px;height:14px;border:2px solid #0284c7;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Syncing...`;
+    const curOrg = state.currentUser?.orgId || localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
+
+    try {
+      const res = await fetch('/api/auth/sync-users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgId: curOrg })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Successfully synchronized ${data.count || orgUsersList.length} user(s) to Cloud Firestore under "${curOrg}"!`, 'success', 5000);
+      } else {
+        showToast(data.error || 'Failed to sync users to cloud', 'error');
+      }
+    } catch (err) {
+      showToast('Error syncing users to cloud: ' + err.message, 'error');
+    } finally {
+      btnSync.disabled = false;
+      btnSync.innerHTML = oldHtml;
+    }
+  });
+
+  // Form submit
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const uid = document.getElementById('editUserUid')?.value;
+    const displayName = document.getElementById('inputUserDisplayName')?.value.trim();
+    const username = document.getElementById('inputUserUsername')?.value.trim();
+    const email = document.getElementById('inputUserEmail')?.value.trim();
+    const role = document.getElementById('selectUserRole')?.value;
+    const phone = document.getElementById('inputUserPhone')?.value.trim();
+    const password = document.getElementById('inputUserPassword')?.value;
+    const alertBox = document.getElementById('addUserAlertBox');
+    const submitBtn = document.getElementById('btnSaveUserSubmit');
+    const curOrg = state.currentUser?.orgId || localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
+
+    if (!displayName || !username || !email) {
+      if (alertBox) {
+        alertBox.style.display = 'block';
+        alertBox.style.background = '#fee2e2';
+        alertBox.style.color = '#991b1b';
+        alertBox.textContent = 'Please fill in all required fields';
+      }
+      return;
+    }
+
+    if (!uid && (!password || password.length < 6)) {
+      if (alertBox) {
+        alertBox.style.display = 'block';
+        alertBox.style.background = '#fee2e2';
+        alertBox.style.color = '#991b1b';
+        alertBox.textContent = 'Password must be at least 6 characters long';
+      }
+      return;
+    }
+
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Saving...';
+    }
+
+    try {
+      const payload = {
+        uid: uid || undefined,
+        displayName,
+        username,
+        email,
+        role,
+        phone,
+        password: password || undefined,
+        orgId: curOrg
+      };
+
+      const res = await fetch('/api/auth/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        closeModal();
+        showToast(data.message || 'User saved successfully!', 'success');
+        await loadOrganizationUsers();
+      } else {
+        if (alertBox) {
+          alertBox.style.display = 'block';
+          alertBox.style.background = '#fee2e2';
+          alertBox.style.color = '#991b1b';
+          alertBox.textContent = data.error || 'Failed to save user';
+        }
+      }
+    } catch (err) {
+      if (alertBox) {
+        alertBox.style.display = 'block';
+        alertBox.style.background = '#fee2e2';
+        alertBox.style.color = '#991b1b';
+        alertBox.textContent = 'Error: ' + err.message;
+      }
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Save User';
+      }
+    }
+  });
+}
+
+let isOrgSettingsTabFormInitialized = false;
+
+function initOrgSettingsTabForm() {
+  const form = document.getElementById('orgSettingsTabForm');
+  if (!form) return;
+
+  // Pre-fill from state.org
+  const fields = [
+    { id: 'settingOrgNameTab', key: 'org_name' },
+    { id: 'settingOrgSubtitleTab', key: 'org_subtitle' },
+    { id: 'settingOrgWebsiteTab', key: 'org_website' },
+    { id: 'settingOrgAddressTab', key: 'org_address' },
+    { id: 'settingOrgPhoneTab', key: 'org_phone' },
+    { id: 'settingOrgEmailTab', key: 'org_email' },
+    { id: 'settingOrgFooterTab', key: 'org_footer' }
+  ];
+
+  fields.forEach(f => {
+    const el = document.getElementById(f.id);
+    if (el && state.org && state.org[f.key]) {
+      el.value = state.org[f.key];
+    }
+  });
+
+  if (isOrgSettingsTabFormInitialized) return;
+  isOrgSettingsTabFormInitialized = true;
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+      org_name: document.getElementById('settingOrgNameTab')?.value || '',
+      org_subtitle: document.getElementById('settingOrgSubtitleTab')?.value || '',
+      org_website: document.getElementById('settingOrgWebsiteTab')?.value || '',
+      org_address: document.getElementById('settingOrgAddressTab')?.value || '',
+      org_phone: document.getElementById('settingOrgPhoneTab')?.value || '',
+      org_email: document.getElementById('settingOrgEmailTab')?.value || '',
+      org_footer: document.getElementById('settingOrgFooterTab')?.value || ''
+    };
+
+    try {
+      showToast('Saving organization letterhead details...', 'info');
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Organization letterhead saved successfully!', 'success');
+        state.org = { ...state.org, ...payload };
+
+        // Sync with Device tab inputs if present
+        const deviceMap = {
+          org_name: 'settingOrgName',
+          org_subtitle: 'settingOrgSubtitle',
+          org_website: 'settingOrgWebsite',
+          org_address: 'settingOrgAddress',
+          org_phone: 'settingOrgPhone',
+          org_email: 'settingOrgEmail',
+          org_footer: 'settingOrgFooter'
+        };
+        for (const [k, inputId] of Object.entries(deviceMap)) {
+          const input = document.getElementById(inputId);
+          if (input) input.value = payload[k];
+        }
+
+        const heroOrgName = document.getElementById('settingsOrgNameDisplay');
+        if (heroOrgName && payload.org_name) heroOrgName.textContent = payload.org_name;
+
+        prepareReportForPrint();
+      } else {
+        showToast(data.error || 'Failed to save organization settings', 'error');
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
 }

@@ -202,6 +202,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
           API Service
         </button>
+        <button class="nav-item" data-tab="tab-settings" id="navItemSettings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          System Settings
+        </button>
       </nav>
 
       <div class="sidebar-footer">
@@ -252,16 +256,29 @@
             <span id="headerCloudSyncText">Cloud: Standby</span>
           </div>
 
-          <!-- System Auth User Pill & Role Badge -->
+          <!-- System Auth User Pill & Role Badge, Login / Logout Actions -->
           <div id="headerUserAuthContainer" style="display:inline-flex; align-items:center; gap:8px;">
-            <div id="headerUserAuthPill" style="display:inline-flex; align-items:center; gap:7px; padding:4px 12px; border-radius:999px; font-size:0.82rem; font-weight:600; background:#f8fafc; border:1px solid #cbd5e1; cursor:pointer; transition: all 0.2s ease;" title="Click to view profile or switch user">
-              <span id="headerUserAvatar" style="width:24px; height:24px; border-radius:50%; background:#0284c7; color:#fff; display:flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:700;">A</span>
-              <span id="headerUserName">Admin User</span>
-              <span class="badge" id="headerUserRoleBadge" style="background:#0284c7; color:#fff; font-size:0.68rem; font-weight:700; padding:2px 7px; border-radius:999px;">ADMIN</span>
+            <!-- When Logged In -->
+            <div id="headerLoggedInBox" style="display:inline-flex; align-items:center; gap:8px;">
+              <div id="headerUserAuthPill" style="display:inline-flex; align-items:center; gap:7px; padding:4px 12px; border-radius:999px; font-size:0.82rem; font-weight:600; background:#f8fafc; border:1px solid #cbd5e1; cursor:pointer; transition: all 0.2s ease;" title="Click to view profile or switch user">
+                <span id="headerUserAvatar" style="width:24px; height:24px; border-radius:50%; background:#0284c7; color:#fff; display:flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:700;">A</span>
+                <span id="headerUserName">Admin User</span>
+                <span class="badge" id="headerUserRoleBadge" style="background:#0284c7; color:#fff; font-size:0.68rem; font-weight:700; padding:2px 7px; border-radius:999px;">ADMIN</span>
+              </div>
+              <button class="btn btn-sm btn-outline" id="btnHeaderLogout" style="font-size:0.76rem; padding:4px 10px; font-weight:600; display:inline-flex; align-items:center; gap:4px; color:#dc2626; border-color:#fca5a5; background:#fff;" title="Logout of System">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                <span>Logout</span>
+              </button>
             </div>
-            <button class="btn btn-sm btn-outline" id="btnHeaderAuthAction" style="font-size:0.76rem; padding:4px 10px; font-weight:600; display:inline-flex; align-items:center; gap:4px;" title="Sign In or Switch Account">
-              <span>🔑 Switch User</span>
-            </button>
+
+            <!-- When Logged Out -->
+            <div id="headerLoggedOutBox" style="display:none; align-items:center; gap:8px;">
+              <span class="badge" style="background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1; font-size:0.75rem; padding:4px 10px; border-radius:999px; font-weight:600;">👤 Guest (Not signed in)</span>
+              <button class="btn btn-sm btn-primary" id="btnHeaderLogin" style="font-size:0.76rem; padding:4px 12px; font-weight:600; display:inline-flex; align-items:center; gap:4px;" title="Sign In to System">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+                <span>Login</span>
+              </button>
+            </div>
           </div>
 
           <span class="live-pill">
@@ -6462,6 +6479,236 @@ Loading application logs...
 
         </div>
       </section>
+      <!-- System Settings & User Management Tab -->
+      <section class="tab-content" id="tab-settings">
+        <!-- Settings Hero Card -->
+        <div class="card" style="margin-bottom: 20px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #f8fafc; border: none; box-shadow: var(--shadow-md);">
+          <div class="card-body" style="padding: 22px 24px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
+              <div>
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap;">
+                  <span style="font-size: 1.4rem;">⚙️</span>
+                  <h2 style="margin: 0; font-size: 1.3rem; color: #fff; font-weight: 700;">System Settings &amp; Organization Management</h2>
+                  <span class="badge" style="background: #0284c7; color: #fff; font-weight: 700; padding: 3px 9px; border-radius: 6px; font-size: 0.75rem;">RBAC ENABLED</span>
+                </div>
+                <p style="margin: 0; font-size: 0.88rem; color: #94a3b8; max-width: 820px; line-height: 1.5;">
+                  Manage user accounts, assign roles (Admin, Manager, Staff), configure organization report letterheads, and monitor cloud authentication.
+                </p>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; align-items: center;">
+                  <span style="font-size: 0.82rem; color: #cbd5e1;">Active Partition:</span>
+                  <code id="settingsOrgIdDisplay" style="font-size: 0.78rem; padding: 3px 9px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; font-weight: 700;">DSOFFICE_LUNUGAMWEHERA</code>
+                  <span style="font-size: 0.82rem; color: #94a3b8;">•</span>
+                  <span style="font-size: 0.82rem; color: #cbd5e1;">Organization:</span>
+                  <strong id="settingsOrgNameDisplay" style="color: #fff; font-size: 0.85rem;">DS Office Lunugamwehera</strong>
+                </div>
+              </div>
+
+              <!-- Quick Session Action Pill -->
+              <div style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 10px; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; min-width: 220px;">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <span style="font-size: 0.72rem; text-transform: uppercase; color: #94a3b8; font-weight: 700;">Current Session</span>
+                  <span id="settingsCurrentRoleBadge" class="badge" style="background: #0284c7; color: #fff; font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 999px;">ADMIN</span>
+                </div>
+                <div id="settingsCurrentUserName" style="font-size: 0.95rem; font-weight: 700; color: #fff;">System Administrator</div>
+                <div style="display: flex; gap: 6px; margin-top: 4px;">
+                  <button type="button" class="btn btn-sm btn-outline" id="btnSettingsSwitchUserHero" style="flex: 1; font-size: 0.75rem; padding: 4px 8px; color: #fff; border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.1);">
+                    🔑 Switch
+                  </button>
+                  <button type="button" class="btn btn-sm btn-danger" id="btnSettingsLogoutHero" style="flex: 1; font-size: 0.75rem; padding: 4px 8px; background: #dc2626; border-color: #dc2626; color: #fff;">
+                    🚪 Logout
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 1. Organization User Management Card -->
+        <div class="card" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border); margin-bottom: 24px;">
+          <div class="card-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 1.2rem;">👥</span>
+                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #1e293b;">Organization User Management</h3>
+                <span class="badge" id="badgeTotalUsersCount" style="background: #0284c7; color: #fff; font-weight: 700; font-size: 0.75rem; padding: 3px 8px; border-radius: 10px;">0 Users</span>
+              </div>
+              <p style="margin: 4px 0 0 0; font-size: 0.82rem; color: #64748b;">
+                Manage login accounts, passwords, and role privileges (Admin, Manager, Staff) partitioned under this organization.
+              </p>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <button type="button" class="btn btn-sm btn-outline" id="btnSyncUsersToCloud" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 0.8rem; padding: 6px 12px;" title="Push organization users to Cloud Firestore collection">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <span>Sync Users to Cloud</span>
+              </button>
+              <button type="button" class="btn btn-sm btn-primary" id="btnOpenAddUserModal" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 0.8rem; padding: 6px 14px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>+ Add New User</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="card-body" style="padding: 18px 20px;">
+            <!-- Filter & Search Toolbar -->
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+              <div style="display: flex; align-items: center; gap: 8px; flex: 1; max-width: 450px;">
+                <input type="text" id="searchOrgUsersInput" class="form-control" placeholder="Search by name, email, or username..." style="font-size: 0.85rem; height: 36px;">
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <label for="selectFilterUserRole" style="font-size: 0.82rem; font-weight: 600; color: #64748b; margin: 0;">Role:</label>
+                <select id="selectFilterUserRole" class="form-control" style="font-size: 0.85rem; height: 36px; width: 140px;">
+                  <option value="all">All Roles</option>
+                  <option value="admin">Admin</option>
+                  <option value="manager">Manager</option>
+                  <option value="staff">Staff</option>
+                </select>
+                <button type="button" class="btn btn-sm btn-outline" id="btnRefreshOrgUsers" style="height: 36px; padding: 0 10px;" title="Refresh list">
+                  🔄
+                </button>
+              </div>
+            </div>
+
+            <!-- Users Table -->
+            <div class="table-responsive" style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+              <table class="table" id="tableOrgUsers" style="width: 100%; border-collapse: collapse; margin-bottom: 0;">
+                <thead style="background: #f8fafc; border-bottom: 2px solid #e2e8f0;">
+                  <tr>
+                    <th style="padding: 10px 14px; font-size: 0.78rem; text-transform: uppercase; color: #475569; font-weight: 700;">User / Display Name</th>
+                    <th style="padding: 10px 14px; font-size: 0.78rem; text-transform: uppercase; color: #475569; font-weight: 700;">Username</th>
+                    <th style="padding: 10px 14px; font-size: 0.78rem; text-transform: uppercase; color: #475569; font-weight: 700;">Email</th>
+                    <th style="padding: 10px 14px; font-size: 0.78rem; text-transform: uppercase; color: #475569; font-weight: 700; text-align: center;">Role</th>
+                    <th style="padding: 10px 14px; font-size: 0.78rem; text-transform: uppercase; color: #475569; font-weight: 700;">Organization</th>
+                    <th style="padding: 10px 14px; font-size: 0.78rem; text-transform: uppercase; color: #475569; font-weight: 700; text-align: center;">Status</th>
+                    <th style="padding: 10px 14px; font-size: 0.78rem; text-transform: uppercase; color: #475569; font-weight: 700; text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyOrgUsers">
+                  <tr>
+                    <td colspan="7" style="text-align: center; padding: 30px; color: #94a3b8;">
+                      <span class="spin" style="width: 18px; height: 18px; border: 2px solid #0284c7; border-top-color: transparent; border-radius: 50%; display: inline-block; vertical-align: middle; margin-right: 8px;"></span>
+                      Loading organization users...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Organization Details & Report Letterhead Card -->
+        <div class="card" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border); margin-bottom: 24px;">
+          <div class="card-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 1.2rem;">🏛️</span>
+                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #1e293b;">Organization &amp; Report Letterhead Details</h3>
+              </div>
+              <p style="margin: 4px 0 0 0; font-size: 0.82rem; color: #64748b;">
+                Configure your official institution header, contact details, and signature block for all printed timesheets &amp; PDF reports.
+              </p>
+            </div>
+            <span class="badge" style="background: #e0f2fe; color: #0284c7; font-weight: 700; font-size: 0.78rem; padding: 4px 10px; border-radius: 999px; border: 1px solid #bae6fd;">Print Letterhead</span>
+          </div>
+
+          <div class="card-body" style="padding: 20px;">
+            <form id="orgSettingsTabForm">
+              <div class="form-group" style="margin-bottom: 16px;">
+                <label for="settingOrgNameTab" style="font-weight: 700; font-size: 0.88rem; margin-bottom: 4px; display: block;">Organization / Institution / Company Name <span class="text-danger">*</span></label>
+                <input type="text" id="settingOrgNameTab" class="form-control" placeholder="e.g. Divisional Secretariat Office Lunugamwehera" required style="font-weight: 700; font-size: 1.05rem; height: 42px;">
+                <small class="form-hint" style="color: #64748b; font-size: 0.78rem;">Displayed prominently as the main title header on all reports and timesheets</small>
+              </div>
+
+              <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                <div class="form-group">
+                  <label for="settingOrgSubtitleTab" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px; display: block;">Division / Department / Subtitle</label>
+                  <input type="text" id="settingOrgSubtitleTab" class="form-control" placeholder="e.g. Administration &amp; Human Resources Division">
+                </div>
+                <div class="form-group">
+                  <label for="settingOrgWebsiteTab" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px; display: block;">Website / Registration No.</label>
+                  <input type="text" id="settingOrgWebsiteTab" class="form-control" placeholder="e.g. www.lunugamwehera.ds.gov.lk">
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 16px;">
+                <label for="settingOrgAddressTab" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px; display: block;">Official Address / Location</label>
+                <input type="text" id="settingOrgAddressTab" class="form-control" placeholder="e.g. Divisional Secretariat, Lunugamwehera, Sri Lanka">
+              </div>
+
+              <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                <div class="form-group">
+                  <label for="settingOrgPhoneTab" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px; display: block;">Contact Phone / Hotline</label>
+                  <input type="text" id="settingOrgPhoneTab" class="form-control" placeholder="e.g. +94 47 222 6123 / 071 813 4698">
+                </div>
+                <div class="form-group">
+                  <label for="settingOrgEmailTab" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px; display: block;">Official Contact Email</label>
+                  <input type="email" id="settingOrgEmailTab" class="form-control" placeholder="e.g. info@lunugamwehera.gov.lk">
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 20px;">
+                <label for="settingOrgFooterTab" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px; display: block;">Report Footer / Document System Note</label>
+                <input type="text" id="settingOrgFooterTab" class="form-control" placeholder="e.g. SpeedFace-V5L Automated Biometric Attendance &amp; Payroll System">
+                <small class="form-hint" style="color: #64748b; font-size: 0.78rem;">Appears at the very bottom of every printed A4 / Legal page alongside verification sign-offs</small>
+              </div>
+
+              <div style="display: flex; justify-content: flex-end;">
+                <button type="submit" class="btn btn-primary" id="btnSaveOrgSettingsTab" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 700; padding: 8px 20px;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                  <span>Save Organization Details</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- 3. Role Permissions Reference Card -->
+        <div class="card" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border); margin-bottom: 24px;">
+          <div class="card-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border);">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 1.2rem;">🛡️</span>
+              <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #1e293b;">Role-Based Access Control (RBAC) Permissions Matrix</h3>
+            </div>
+            <p style="margin: 4px 0 0 0; font-size: 0.82rem; color: #64748b;">
+              Overview of system access privileges assigned to each role under this organization.
+            </p>
+          </div>
+          <div class="card-body" style="padding: 18px 20px;">
+            <div class="table-responsive" style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+              <table class="table" style="width: 100%; border-collapse: collapse; margin-bottom: 0; font-size: 0.85rem;">
+                <thead style="background: #f8fafc; border-bottom: 2px solid #e2e8f0;">
+                  <tr>
+                    <th style="padding: 10px 14px; font-size: 0.78rem; text-transform: uppercase; color: #475569; font-weight: 700;">Role</th>
+                    <th style="padding: 10px 14px; font-size: 0.78rem; text-transform: uppercase; color: #475569; font-weight: 700;">Access Level</th>
+                    <th style="padding: 10px 14px; font-size: 0.78rem; text-transform: uppercase; color: #475569; font-weight: 700;">Included Sections &amp; Features</th>
+                    <th style="padding: 10px 14px; font-size: 0.78rem; text-transform: uppercase; color: #475569; font-weight: 700;">Hardware / Root Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr style="border-bottom: 1px solid #e2e8f0;">
+                    <td style="padding: 12px 14px; font-weight: 700;"><span class="badge" style="background: #0284c7; color: #fff; font-size: 0.75rem;">ADMIN</span></td>
+                    <td style="padding: 12px 14px; color: #0284c7; font-weight: 600;">Full System Control</td>
+                    <td style="padding: 12px 14px;">Dashboard, Attendance Logs, Reports, Employee Registry, Shifts, Device Control, API Gateway, System Settings, User Management</td>
+                    <td style="padding: 12px 14px;"><span class="badge" style="background: #dcfce7; color: #15803d; font-weight: 700;">Allowed</span> (IP change, Time Sync, Reboots, Backups)</td>
+                  </tr>
+                  <tr style="border-bottom: 1px solid #e2e8f0;">
+                    <td style="padding: 12px 14px; font-weight: 700;"><span class="badge" style="background: #059669; color: #fff; font-size: 0.75rem;">MANAGER</span></td>
+                    <td style="padding: 12px 14px; color: #059669; font-weight: 600;">HR &amp; Operations</td>
+                    <td style="padding: 12px 14px;">Dashboard, Attendance Logs, Reports &amp; Timesheets, Employee Profiles, Shifts &amp; Holidays Schedule, User Login Viewer</td>
+                    <td style="padding: 12px 14px;"><span class="badge" style="background: #fee2e2; color: #991b1b; font-weight: 700;">Restricted</span> (Read-only terminal status)</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 12px 14px; font-weight: 700;"><span class="badge" style="background: #7c3aed; color: #fff; font-size: 0.75rem;">STAFF</span></td>
+                    <td style="padding: 12px 14px; color: #7c3aed; font-weight: 600;">Self-Service</td>
+                    <td style="padding: 12px 14px;">Dashboard, Attendance Records Explorer, User Login Monthly Timesheet Lookup &amp; PDF Export</td>
+                    <td style="padding: 12px 14px;"><span class="badge" style="background: #fee2e2; color: #991b1b; font-weight: 700;">Restricted</span> (No administrative controls)</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -7621,6 +7868,83 @@ Loading application logs...
           🔒 Secured via Firebase Authentication &amp; Multi-Organization RBAC. Role dynamically configures dashboard features &amp; device access.
         </div>
       </div>
+    </div>
+  </div>
+
+
+  <!-- Modal: Add / Edit Organization User -->
+  <div class="modal" id="modalAddUser" style="display: none; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(4px); z-index: 10001; position: fixed; inset: 0;">
+    <div class="modal-content" style="max-width: 520px; width: 92%; background: #ffffff; border-radius: 14px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); overflow: hidden; border: 1px solid #e2e8f0; animation: modalFadeIn 0.2s ease;">
+      <!-- Modal Header -->
+      <div style="background: linear-gradient(135deg, #0f172a, #1e293b); color: #ffffff; padding: 20px 22px; position: relative;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); display: flex; align-items: center; justify-content: center; font-size: 1.35rem;">
+            👤
+          </div>
+          <div>
+            <h3 id="modalAddUserTitle" style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #ffffff;">Add Organization User</h3>
+            <p style="margin: 2px 0 0; font-size: 0.78rem; color: #94a3b8;">Create or update credentials under organization partition</p>
+          </div>
+        </div>
+        <button type="button" id="btnCloseAddUserModal" style="position: absolute; top: 16px; right: 16px; background: transparent; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; line-height: 1;">&times;</button>
+      </div>
+
+      <!-- Modal Body -->
+      <form id="formAddUser" style="padding: 22px;">
+        <input type="hidden" id="editUserUid" value="">
+
+        <div class="form-group" style="margin-bottom: 14px;">
+          <label for="inputUserDisplayName" style="font-weight: 600; font-size: 0.82rem; color: #334155; margin-bottom: 4px; display: block;">Full Name / Display Name <span class="text-danger">*</span></label>
+          <input type="text" id="inputUserDisplayName" class="form-control" placeholder="e.g. Kamal Perera" required style="height: 38px; font-size: 0.88rem;">
+        </div>
+
+        <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;">
+          <div class="form-group">
+            <label for="inputUserUsername" style="font-weight: 600; font-size: 0.82rem; color: #334155; margin-bottom: 4px; display: block;">Username <span class="text-danger">*</span></label>
+            <input type="text" id="inputUserUsername" class="form-control" placeholder="e.g. kamalp" required style="height: 38px; font-size: 0.88rem;">
+          </div>
+          <div class="form-group">
+            <label for="inputUserEmail" style="font-weight: 600; font-size: 0.82rem; color: #334155; margin-bottom: 4px; display: block;">Email Address <span class="text-danger">*</span></label>
+            <input type="email" id="inputUserEmail" class="form-control" placeholder="e.g. kamal@lunugamwehera.gov.lk" required style="height: 38px; font-size: 0.88rem;">
+          </div>
+        </div>
+
+        <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;">
+          <div class="form-group">
+            <label for="selectUserRole" style="font-weight: 600; font-size: 0.82rem; color: #334155; margin-bottom: 4px; display: block;">System Role <span class="text-danger">*</span></label>
+            <select id="selectUserRole" class="form-control" required style="height: 38px; font-size: 0.88rem; font-weight: 600;">
+              <option value="admin">Administrator (Full Access)</option>
+              <option value="manager" selected>Manager (HR &amp; Attendance)</option>
+              <option value="staff">Staff (Self-service Timesheet)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="inputUserPhone" style="font-weight: 600; font-size: 0.82rem; color: #334155; margin-bottom: 4px; display: block;">Phone (Optional)</label>
+            <input type="text" id="inputUserPhone" class="form-control" placeholder="e.g. 071 813 4698" style="height: 38px; font-size: 0.88rem;">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label for="inputUserPassword" style="font-weight: 600; font-size: 0.82rem; color: #334155; margin-bottom: 4px; display: block;">
+            Password <span id="labelPasswordRequired" class="text-danger">*</span>
+          </label>
+          <input type="password" id="inputUserPassword" class="form-control" placeholder="Enter secure password (min 6 chars)" style="height: 38px; font-size: 0.88rem;">
+          <small id="hintPasswordEdit" style="font-size: 0.75rem; color: #64748b; display: none; margin-top: 4px;">Leave blank to keep existing password unchanged</small>
+        </div>
+
+        <!-- Partition display -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-size: 0.78rem; color: #475569; font-weight: 600;">Organization Partition:</div>
+          <code id="displayUserOrgId" style="font-size: 0.75rem; padding: 2px 8px; background: #e0f2fe; color: #0284c7; border-radius: 4px; font-weight: 700;">DSOFFICE_LUNUGAMWEHERA</code>
+        </div>
+
+        <div id="addUserAlertBox" style="display: none; padding: 8px 12px; border-radius: 6px; font-size: 0.82rem; margin-bottom: 14px; font-weight: 600;"></div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" class="btn btn-outline" id="btnCancelAddUser" style="padding: 7px 16px; font-size: 0.85rem;">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnSaveUserSubmit" style="padding: 7px 20px; font-size: 0.85rem; font-weight: 700;">Save User</button>
+        </div>
+      </form>
     </div>
   </div>
 

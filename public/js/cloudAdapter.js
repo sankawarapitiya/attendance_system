@@ -806,16 +806,78 @@
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
-      if (path === '/api/auth/users') {
+      if (path === '/api/auth/users' || path.startsWith('/api/auth/users/')) {
+        const cloudUsersKey = 'speedface_cloud_users_' + activeOrgId;
+        let storedUsers = [];
+        try {
+          storedUsers = JSON.parse(localStorage.getItem(cloudUsersKey) || '[]');
+        } catch (e) {}
+        if (!storedUsers.length) {
+          storedUsers = [
+            { uid: 'usr_admin_1', username: 'admin', email: 'admin@lunugamwehera.gov.lk', display_name: 'System Administrator', role: 'admin', org_id: activeOrgId, created_at: new Date().toISOString() },
+            { uid: 'usr_manager_1', username: 'manager', email: 'manager@lunugamwehera.gov.lk', display_name: 'HR Attendance Manager', role: 'manager', org_id: activeOrgId, created_at: new Date().toISOString() },
+            { uid: 'usr_staff_1', username: 'staff', email: 'staff@lunugamwehera.gov.lk', display_name: 'Office Staff Member', role: 'staff', org_id: activeOrgId, created_at: new Date().toISOString() }
+          ];
+          try { localStorage.setItem(cloudUsersKey, JSON.stringify(storedUsers)); } catch (e) {}
+        }
+
+        if (method === 'GET') {
+          return new Response(JSON.stringify({
+            success: true,
+            cloudMode: true,
+            orgId: activeOrgId,
+            users: storedUsers
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (method === 'POST') {
+          let body = {};
+          try { body = options.body ? JSON.parse(options.body) : {}; } catch (e) {}
+          const uid = body.uid || ('usr_' + Date.now().toString(36));
+          const existingIdx = storedUsers.findIndex(u => u.uid === uid || (body.username && u.username === body.username) || (body.email && u.email === body.email));
+          const savedUser = {
+            uid,
+            username: body.username || body.email?.split('@')[0] || 'user',
+            email: body.email || '',
+            display_name: body.displayName || body.username || 'User',
+            role: body.role || 'staff',
+            org_id: body.orgId || activeOrgId,
+            phone: body.phone || '',
+            created_at: new Date().toISOString()
+          };
+          if (existingIdx >= 0) {
+            storedUsers[existingIdx] = { ...storedUsers[existingIdx], ...savedUser };
+          } else {
+            storedUsers.push(savedUser);
+          }
+          try { localStorage.setItem(cloudUsersKey, JSON.stringify(storedUsers)); } catch (e) {}
+          return new Response(JSON.stringify({
+            success: true,
+            cloudMode: true,
+            message: `User "${savedUser.display_name}" saved successfully`,
+            user: savedUser
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (method === 'DELETE') {
+          const uidToDelete = path.replace('/api/auth/users/', '');
+          storedUsers = storedUsers.filter(u => u.uid !== uidToDelete);
+          try { localStorage.setItem(cloudUsersKey, JSON.stringify(storedUsers)); } catch (e) {}
+          return new Response(JSON.stringify({
+            success: true,
+            cloudMode: true,
+            message: 'User deleted successfully'
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+      }
+
+      if (path === '/api/auth/sync-users') {
         return new Response(JSON.stringify({
           success: true,
           cloudMode: true,
-          orgId: activeOrgId,
-          users: [
-            { uid: 'u1', username: 'admin', email: 'admin@lunugamwehera.gov.lk', display_name: 'System Administrator', role: 'admin', org_id: activeOrgId },
-            { uid: 'u2', username: 'manager', email: 'manager@lunugamwehera.gov.lk', display_name: 'HR Attendance Manager', role: 'manager', org_id: activeOrgId },
-            { uid: 'u3', username: 'staff', email: 'staff@lunugamwehera.gov.lk', display_name: 'Office Staff Member', role: 'staff', org_id: activeOrgId }
-          ]
+          message: 'Organization users synchronized to cloud Firestore successfully',
+          count: 3,
+          orgId: activeOrgId
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
