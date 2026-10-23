@@ -272,6 +272,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initRecordsTable();
   initReports();
   initEmployees();
+  initOrgSettingsTabForm();
   initShiftsAndHolidays();
   initDeviceControl();
   initGuide();
@@ -5268,41 +5269,43 @@ async function loadDeviceControlData() {
         document.getElementById('settingAutoSyncEnabled').checked = s.auto_sync_enabled === 'true';
       }
 
-      // Organization Details
+      // Organization Details (Synced with System Settings & User Management Tab)
       if (s.org_name) {
-        const el = document.getElementById('settingOrgName');
-        if (el) el.value = s.org_name;
         state.org.org_name = s.org_name;
+        const el = document.getElementById('settingOrgNameTab');
+        if (el) el.value = s.org_name;
+        const heroOrgName = document.getElementById('settingsOrgNameDisplay');
+        if (heroOrgName) heroOrgName.textContent = s.org_name;
       }
       if (s.org_subtitle) {
-        const el = document.getElementById('settingOrgSubtitle');
-        if (el) el.value = s.org_subtitle;
         state.org.org_subtitle = s.org_subtitle;
+        const el = document.getElementById('settingOrgSubtitleTab');
+        if (el) el.value = s.org_subtitle;
       }
       if (s.org_website) {
-        const el = document.getElementById('settingOrgWebsite');
-        if (el) el.value = s.org_website;
         state.org.org_website = s.org_website;
+        const el = document.getElementById('settingOrgWebsiteTab');
+        if (el) el.value = s.org_website;
       }
       if (s.org_address) {
-        const el = document.getElementById('settingOrgAddress');
-        if (el) el.value = s.org_address;
         state.org.org_address = s.org_address;
+        const el = document.getElementById('settingOrgAddressTab');
+        if (el) el.value = s.org_address;
       }
       if (s.org_phone) {
-        const el = document.getElementById('settingOrgPhone');
-        if (el) el.value = s.org_phone;
         state.org.org_phone = s.org_phone;
+        const el = document.getElementById('settingOrgPhoneTab');
+        if (el) el.value = s.org_phone;
       }
       if (s.org_email) {
-        const el = document.getElementById('settingOrgEmail');
-        if (el) el.value = s.org_email;
         state.org.org_email = s.org_email;
+        const el = document.getElementById('settingOrgEmailTab');
+        if (el) el.value = s.org_email;
       }
       if (s.org_footer) {
-        const el = document.getElementById('settingOrgFooter');
-        if (el) el.value = s.org_footer;
         state.org.org_footer = s.org_footer;
+        const el = document.getElementById('settingOrgFooterTab');
+        if (el) el.value = s.org_footer;
       }
 
       prepareReportForPrint();
@@ -10480,20 +10483,7 @@ function initOrgSettingsTabForm() {
         showToast('Organization letterhead saved successfully!', 'success');
         state.org = { ...state.org, ...payload };
 
-        // Sync with Device tab inputs if present
-        const deviceMap = {
-          org_name: 'settingOrgName',
-          org_subtitle: 'settingOrgSubtitle',
-          org_website: 'settingOrgWebsite',
-          org_address: 'settingOrgAddress',
-          org_phone: 'settingOrgPhone',
-          org_email: 'settingOrgEmail',
-          org_footer: 'settingOrgFooter'
-        };
-        for (const [k, inputId] of Object.entries(deviceMap)) {
-          const input = document.getElementById(inputId);
-          if (input) input.value = payload[k];
-        }
+
 
         const heroOrgName = document.getElementById('settingsOrgNameDisplay');
         if (heroOrgName && payload.org_name) heroOrgName.textContent = payload.org_name;
