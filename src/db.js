@@ -762,22 +762,40 @@ async function getCloudSyncStats() {
   };
 }
 
-// Get system user by email or username
+// Get system user by email, username, or display name (flexible matching)
 async function getSystemUserByIdentifier(identifier, orgId) {
   if (!identifier) return null;
   const clean = String(identifier).trim().toLowerCase();
+  const cleanNoSpaces = clean.replace(/\s+/g, '');
   if (orgId) {
-    const cleanOrg = String(orgId).trim();
+    const cleanOrg = String(orgId).trim().toLowerCase();
     const user = await dbGet(`
       SELECT * FROM system_users 
-      WHERE (LOWER(email) = ? OR LOWER(username) = ?) AND (org_id = ? OR org_id = 'DEFAULT') AND is_active = 1
-    `, [clean, clean, cleanOrg]);
+      WHERE (
+        LOWER(TRIM(email)) = ? 
+        OR LOWER(TRIM(username)) = ? 
+        OR LOWER(TRIM(display_name)) = ?
+        OR LOWER(REPLACE(username, ' ', '')) = ?
+        OR LOWER(REPLACE(display_name, ' ', '')) = ?
+        OR LOWER(REPLACE(email, ' ', '')) = ?
+      ) 
+      AND (LOWER(TRIM(org_id)) = ? OR org_id = 'DEFAULT' OR org_id IS NULL) 
+      AND COALESCE(is_active, 1) = 1
+    `, [clean, clean, clean, cleanNoSpaces, cleanNoSpaces, cleanNoSpaces, cleanOrg]);
     if (user) return user;
   }
   return dbGet(`
     SELECT * FROM system_users 
-    WHERE (LOWER(email) = ? OR LOWER(username) = ?) AND is_active = 1
-  `, [clean, clean]);
+    WHERE (
+      LOWER(TRIM(email)) = ? 
+      OR LOWER(TRIM(username)) = ? 
+      OR LOWER(TRIM(display_name)) = ?
+      OR LOWER(REPLACE(username, ' ', '')) = ?
+      OR LOWER(REPLACE(display_name, ' ', '')) = ?
+      OR LOWER(REPLACE(email, ' ', '')) = ?
+    ) 
+    AND COALESCE(is_active, 1) = 1
+  `, [clean, clean, clean, cleanNoSpaces, cleanNoSpaces, cleanNoSpaces]);
 }
 
 // Get system user by UID

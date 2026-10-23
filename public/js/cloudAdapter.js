@@ -790,7 +790,17 @@
           storedUsers = JSON.parse(localStorage.getItem(cloudUsersKey) || '[]');
         } catch (e) {}
 
-        const matchedUser = storedUsers.find(u => (u.username || '').toLowerCase() === identifier || (u.email || '').toLowerCase() === identifier);
+        const clean = identifier.toLowerCase();
+        const cleanNoSpaces = clean.replace(/\s+/g, '');
+
+        const matchedUser = storedUsers.find(u => {
+          const uEmail = (u.email || '').toLowerCase().trim();
+          const uUsername = (u.username || '').toLowerCase().trim();
+          const uDisplay = (u.display_name || '').toLowerCase().trim();
+          return uEmail === clean || uUsername === clean || uDisplay === clean ||
+                 uUsername.replace(/\s+/g, '') === cleanNoSpaces ||
+                 uDisplay.replace(/\s+/g, '') === cleanNoSpaces;
+        });
 
         let role = matchedUser ? matchedUser.role : 'staff';
         let displayName = matchedUser ? matchedUser.display_name : 'Staff Member';

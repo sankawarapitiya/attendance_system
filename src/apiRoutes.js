@@ -3189,17 +3189,27 @@ router.post('/auth/login', async (req, res) => {
 
     let user = await getSystemUserByIdentifier(inputIdentifier, trimmedOrgId);
     if (!user) {
-      // Check if global default admin matches and provision under this partition
+      // Check if user exists across partitions or is an admin
       const globalUser = await getSystemUserByIdentifier(inputIdentifier);
-      if (globalUser && (globalUser.password_hash === password || (globalUser.role === 'admin' && password === 'admin123') || (globalUser.role === 'manager' && password === 'manager123') || (globalUser.role === 'staff' && password === 'staff123'))) {
-        user = await saveSystemUser({
-          email: globalUser.email,
-          username: globalUser.username,
-          display_name: globalUser.display_name,
-          role: globalUser.role,
-          password: password,
-          org_id: trimmedOrgId
-        });
+      if (globalUser) {
+        const isAdmin = (globalUser.role === 'admin');
+        const isPasswordCorrect = (globalUser.password_hash === password) ||
+          (isAdmin && (password === 'admin123' || password === globalUser.password_hash)) ||
+          (globalUser.role === 'manager' && password === 'manager123') ||
+          (globalUser.role === 'staff' && password === 'staff123');
+
+        if (isAdmin && isPasswordCorrect) {
+          // Administrators can sign in to manage any partition
+          user = { ...globalUser, org_id: trimmedOrgId };
+          await dbRun(`UPDATE system_users SET org_id = ?, updated_at = CURRENT_TIMESTAMP WHERE uid = ?`, [trimmedOrgId, globalUser.uid]);
+        } else if (isPasswordCorrect) {
+          return res.status(401).json({
+            success: false,
+            error: `User "${globalUser.username || inputIdentifier}" is registered under partition "${globalUser.org_id}". Please select partition "${globalUser.org_id}" to sign in.`
+          });
+        } else {
+          return res.status(401).json({ success: false, error: 'Invalid username or password' });
+        }
       } else {
         return res.status(401).json({ success: false, error: `Invalid credentials or user not found under partition "${trimmedOrgId}"` });
       }
