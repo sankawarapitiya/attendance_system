@@ -1330,14 +1330,14 @@ class FirebaseService {
   }
 
   /**
-   * Sync system users to Firestore under organizations/{orgId}/users/{uid}
+   * Sync system users to Firestore under organizations/{orgId}/system_users/{uid}
    */
   async syncSystemUsersToCloud(orgId) {
     await this.init();
     if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
     const targetOrg = orgId || (await this.getOrganizationConfig()).orgId || 'DSOFFICE_LUNUGAMWEHERA';
     const users = await getSystemUsersByOrg(targetOrg);
-    if (!users || users.length === 0) return { success: true, count: 0 };
+    if (!users || users.length === 0) return { success: true, count: 0, orgId: targetOrg, collection: 'system_users' };
 
     const writes = [];
     const projectId = this.keyData.project_id;
@@ -1346,7 +1346,7 @@ class FirebaseService {
     for (const u of users) {
       writes.push({
         update: {
-          name: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/users/${u.uid}`,
+          name: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/system_users/${u.uid}`,
           fields: toFirestoreFields({
             uid: u.uid,
             email: u.email,
@@ -1365,7 +1365,65 @@ class FirebaseService {
     if (writes.length > 0) {
       await this._commitRestWrites(writes);
     }
-    return { success: true, count: users.length, orgId: targetOrg };
+    return { success: true, count: users.length, orgId: targetOrg, collection: 'system_users' };
+  }
+
+  /**
+   * Save or update an individual system user in Firestore under organizations/{orgId}/system_users/{uid}
+   */
+  async saveSystemUserToCloud(user) {
+    if (!user || !user.uid) return { success: false, error: 'Invalid user payload' };
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const targetOrg = user.org_id || user.orgId || (await this.getOrganizationConfig()).orgId || 'DSOFFICE_LUNUGAMWEHERA';
+    const projectId = this.keyData.project_id;
+    const nowIso = new Date().toISOString();
+
+    const write = {
+      update: {
+        name: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/system_users/${user.uid}`,
+        fields: toFirestoreFields({
+          uid: user.uid,
+          email: user.email || '',
+          username: user.username || '',
+          displayName: user.display_name || user.displayName || user.username || 'User',
+          role: user.role || 'staff',
+          orgId: targetOrg,
+          phone: user.phone || '',
+          isActive: user.is_active !== undefined ? Boolean(user.is_active) : true,
+          updatedAt: nowIso
+        })
+      }
+    };
+
+    try {
+      await this._commitRestWrites([write]);
+      return { success: true, uid: user.uid, orgId: targetOrg, collection: 'system_users' };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Delete an individual system user from Firestore organizations/{orgId}/system_users/{uid}
+   */
+  async deleteSystemUserFromCloud(orgId, uid) {
+    if (!uid) return { success: false, error: 'User UID is required' };
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const targetOrg = orgId || (await this.getOrganizationConfig()).orgId || 'DSOFFICE_LUNUGAMWEHERA';
+    const projectId = this.keyData.project_id;
+
+    const write = {
+      delete: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/system_users/${uid}`
+    };
+
+    try {
+      await this._commitRestWrites([write]);
+      return { success: true, uid, orgId: targetOrg, collection: 'system_users' };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   }
 
   /**

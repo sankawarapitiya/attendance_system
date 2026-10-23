@@ -9708,6 +9708,40 @@ window.printUserLoginTimesheet = function() {
 // SYSTEM AUTHENTICATION, RBAC & SETTINGS / USER MANAGEMENT LOGIC
 // ============================================================================
 
+function lockSystem() {
+  document.body.classList.add('system-locked');
+  const modal = document.getElementById('modalSystemLogin');
+  if (modal) {
+    modal.classList.add('locked-modal');
+    modal.style.display = 'flex';
+  }
+  const btnClose = document.getElementById('btnCloseLoginModal');
+  if (btnClose) btnClose.style.display = 'none';
+
+  const lockedNotice = document.getElementById('loginLockedNotice');
+  if (lockedNotice) lockedNotice.style.display = 'flex';
+
+  const orgInput = document.getElementById('inputLoginOrgId');
+  if (orgInput && !orgInput.value) {
+    orgInput.value = localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
+  }
+  const userInput = document.getElementById('inputLoginUsername');
+  if (userInput && !userInput.value) {
+    userInput.focus();
+  }
+}
+
+function unlockSystem() {
+  document.body.classList.remove('system-locked');
+  const modal = document.getElementById('modalSystemLogin');
+  if (modal) {
+    modal.classList.remove('locked-modal');
+    modal.style.display = 'none';
+  }
+  const btnClose = document.getElementById('btnCloseLoginModal');
+  if (btnClose) btnClose.style.display = 'none';
+}
+
 function systemLogout() {
   state.currentUser = null;
   state.authToken = null;
@@ -9717,7 +9751,8 @@ function systemLogout() {
   } catch (e) {}
 
   applyRolePermissions(null);
-  showToast('Logged out of system successfully.', 'info');
+  lockSystem();
+  showToast('Logged out of system. Dashboard locked until next sign in.', 'info');
 }
 
 function initSystemAuth() {
@@ -9729,47 +9764,55 @@ function initSystemAuth() {
   const btnSettingsSwitchUserHero = document.getElementById('btnSettingsSwitchUserHero');
   const userPill = document.getElementById('headerUserAuthPill');
   const formLogin = document.getElementById('formSystemLogin');
+  const orgInput = document.getElementById('inputLoginOrgId');
   const userInput = document.getElementById('inputLoginUsername');
   const pwdInput = document.getElementById('inputLoginPassword');
   const alertBox = document.getElementById('loginAlertBox');
   const submitBtn = document.getElementById('btnSubmitSystemLogin');
-  const orgNameDisplay = document.getElementById('loginOrgNameDisplay');
-  const orgIdDisplay = document.getElementById('loginOrgIdDisplay');
 
-  // Load saved session or initialize default
+  // Load saved session or lock system
   let savedUser = null;
   try {
     const raw = localStorage.getItem('speedface_auth_user');
     if (raw) savedUser = JSON.parse(raw);
   } catch (e) {}
 
-  if (!savedUser) {
-    savedUser = {
-      uid: 'usr_admin_1',
-      username: 'admin',
-      email: 'admin@lunugamwehera.gov.lk',
-      displayName: 'System Administrator',
-      role: 'admin',
-      orgId: localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA',
-      orgName: 'DS Office Lunugamwehera'
-    };
-    try { localStorage.setItem('speedface_auth_user', JSON.stringify(savedUser)); } catch (e) {}
+  if (savedUser && savedUser.uid && savedUser.orgId) {
+    state.currentUser = savedUser;
+    unlockSystem();
+    applyRolePermissions(savedUser);
+  } else {
+    // If not logged in, LOCK ENTIRE SYSTEM!
+    state.currentUser = null;
+    applyRolePermissions(null);
+    lockSystem();
   }
-
-  state.currentUser = savedUser;
-  applyRolePermissions(savedUser);
 
   function openLoginModal() {
     if (!modalLogin) return;
     const curOrg = state.currentUser?.orgId || localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
-    if (orgIdDisplay) orgIdDisplay.textContent = curOrg;
-    if (orgNameDisplay) orgNameDisplay.textContent = state.currentUser?.orgName || (state.org?.org_name) || curOrg;
+    if (orgInput) orgInput.value = curOrg;
     if (alertBox) alertBox.style.display = 'none';
-    modalLogin.style.display = 'flex';
-    userInput?.focus();
+
+    if (!state.currentUser) {
+      lockSystem();
+    } else {
+      // Switching user while already logged in
+      modalLogin.classList.remove('locked-modal');
+      modalLogin.style.display = 'flex';
+      if (btnCloseModal) btnCloseModal.style.display = 'block';
+      const lockedNotice = document.getElementById('loginLockedNotice');
+      if (lockedNotice) lockedNotice.style.display = 'none';
+      userInput?.focus();
+    }
   }
 
   function closeLoginModal() {
+    // Only allow closing if already logged in! If not logged in, system remains locked.
+    if (!state.currentUser) {
+      lockSystem();
+      return;
+    }
     if (modalLogin) modalLogin.style.display = 'none';
   }
 
@@ -9781,26 +9824,36 @@ function initSystemAuth() {
   btnCloseModal?.addEventListener('click', closeLoginModal);
 
   modalLogin?.addEventListener('click', (e) => {
-    if (e.target === modalLogin) closeLoginModal();
+    // Only allow clicking background to close if already logged in
+    if (e.target === modalLogin && state.currentUser) {
+      closeLoginModal();
+    }
   });
 
-  // Quick fill chips
-  document.querySelectorAll('.btn-quick-role').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const u = btn.dataset.user;
-      const p = btn.dataset.pwd;
-      if (userInput) userInput.value = u;
-      if (pwdInput) pwdInput.value = p;
-      if (alertBox) alertBox.style.display = 'none';
-    });
+  window.addEventListener('keydown', (e) => {
+    // Prevent Escape key from dismissing lock screen if unauthenticated
+    if (e.key === 'Escape' && !state.currentUser) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
   });
 
   // Form Submission
   formLogin?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const orgId = orgInput?.value.trim();
     const identifier = userInput?.value.trim();
     const password = pwdInput?.value;
-    const orgId = state.currentUser?.orgId || localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
+
+    if (!orgId) {
+      if (alertBox) {
+        alertBox.style.display = 'block';
+        alertBox.style.background = '#fee2e2';
+        alertBox.style.color = '#991b1b';
+        alertBox.textContent = 'Please enter your Organization Partition ID';
+      }
+      return;
+    }
 
     if (!identifier || !password) {
       if (alertBox) {
@@ -9814,7 +9867,7 @@ function initSystemAuth() {
 
     if (submitBtn) {
       submitBtn.disabled = true;
-      submitBtn.innerHTML = `<span class="spin" style="width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Signing in...`;
+      submitBtn.innerHTML = `<span class="spin" style="width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Authenticating...`;
     }
 
     try {
@@ -9830,18 +9883,23 @@ function initSystemAuth() {
         state.authToken = data.token;
         try {
           localStorage.setItem('speedface_auth_user', JSON.stringify(data.user));
+          localStorage.setItem('speedface_cloud_org_id', data.user.orgId);
           if (data.token) localStorage.setItem('speedface_auth_token', data.token);
         } catch (e) {}
 
+        unlockSystem();
         applyRolePermissions(data.user);
-        closeLoginModal();
-        showToast(`Welcome back, ${data.user.displayName}! Signed in with ${data.user.role.toUpperCase()} role under ${data.user.orgId}.`, 'success', 5000);
+        showToast(`Welcome back, ${data.user.displayName}! Signed in with ${data.user.role.toUpperCase()} role under partition "${data.user.orgId}".`, 'success', 5000);
+
+        if (state.currentTab === 'tab-settings') {
+          loadOrganizationUsers();
+        }
       } else {
         if (alertBox) {
           alertBox.style.display = 'block';
           alertBox.style.background = '#fee2e2';
           alertBox.style.color = '#991b1b';
-          alertBox.textContent = data.error || 'Authentication failed. Please check credentials.';
+          alertBox.textContent = data.error || 'Authentication failed. Please check partition and credentials.';
         }
       }
     } catch (err) {
@@ -9854,7 +9912,7 @@ function initSystemAuth() {
     } finally {
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.innerHTML = '<span>Sign In to System</span>';
+        submitBtn.innerHTML = '<span>🔐 Authenticate &amp; Unlock System</span>';
       }
     }
   });

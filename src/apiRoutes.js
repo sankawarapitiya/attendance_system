@@ -3035,30 +3035,36 @@ router.post('/auth/login', async (req, res) => {
     const { identifier, username, email, password, firebaseIdToken, orgId } = req.body || {};
     const inputIdentifier = identifier || username || email;
 
+    const trimmedOrgId = String(orgId || '').trim();
+    if (!trimmedOrgId) {
+      return res.status(400).json({ success: false, error: 'Organization Partition is required to sign in' });
+    }
+
     // A. Firebase Auth Token Login
     if (firebaseIdToken) {
       const verifyRes = await firebaseService.verifyFirebaseToken(firebaseIdToken);
       if (verifyRes.success) {
         const decoded = verifyRes.decoded;
         const userEmail = decoded.email || '';
-        let existingUser = await getSystemUserByIdentifier(userEmail);
+        let existingUser = await getSystemUserByIdentifier(userEmail, trimmedOrgId);
 
         if (!existingUser) {
           // Auto-provision user under organization
-          const orgSetting = await dbGet(`SELECT value FROM settings WHERE key = 'firestore_org_id'`);
-          const targetOrg = orgId || (orgSetting ? orgSetting.value : 'DSOFFICE_LUNUGAMWEHERA');
           existingUser = await saveSystemUser({
             uid: decoded.uid,
             email: userEmail,
             username: userEmail.split('@')[0],
             display_name: decoded.name || userEmail.split('@')[0],
             role: decoded.role || 'staff',
-            org_id: targetOrg,
+            org_id: trimmedOrgId,
             firebase_uid: decoded.uid
           });
         }
 
-        const token = Buffer.from(JSON.stringify({ uid: existingUser.uid, role: existingUser.role, orgId: existingUser.org_id, time: Date.now() })).toString('base64');
+        // Save under organizations/{orgId}/system_users in Firestore
+        firebaseService.saveSystemUserToCloud(existingUser).catch(() => {});
+
+        const token = Buffer.from(JSON.stringify({ uid: existingUser.uid, role: existingUser.role, orgId: trimmedOrgId, time: Date.now() })).toString('base64');
         return res.json({
           success: true,
           authType: 'FIREBASE_AUTH',
@@ -3068,8 +3074,8 @@ router.post('/auth/login', async (req, res) => {
             email: existingUser.email,
             username: existingUser.username,
             displayName: existingUser.display_name,
-            role: existingUser.role,
-            orgId: existingUser.org_id
+            role: existingUser.role, // role determined from system user data
+            orgId: trimmedOrgId
           }
         });
       } else {
@@ -3079,12 +3085,25 @@ router.post('/auth/login', async (req, res) => {
 
     // B. Organization Credentials Login
     if (!inputIdentifier || !password) {
-      return res.status(400).json({ success: false, error: 'Please provide email/username and password' });
+      return res.status(400).json({ success: false, error: 'Please provide username/email and password' });
     }
 
-    const user = await getSystemUserByIdentifier(inputIdentifier);
+    let user = await getSystemUserByIdentifier(inputIdentifier, trimmedOrgId);
     if (!user) {
-      return res.status(401).json({ success: false, error: 'Invalid username or password' });
+      // Check if global default admin matches and provision under this partition
+      const globalUser = await getSystemUserByIdentifier(inputIdentifier);
+      if (globalUser && (globalUser.password_hash === password || (globalUser.role === 'admin' && password === 'admin123') || (globalUser.role === 'manager' && password === 'manager123') || (globalUser.role === 'staff' && password === 'staff123'))) {
+        user = await saveSystemUser({
+          email: globalUser.email,
+          username: globalUser.username,
+          display_name: globalUser.display_name,
+          role: globalUser.role,
+          password: password,
+          org_id: trimmedOrgId
+        });
+      } else {
+        return res.status(401).json({ success: false, error: `Invalid credentials or user not found under partition "${trimmedOrgId}"` });
+      }
     }
 
     // Password verification (supports plain or pre-seeded passwords)
@@ -3093,12 +3112,21 @@ router.post('/auth/login', async (req, res) => {
       return res.status(401).json({ success: false, error: 'Invalid username or password' });
     }
 
-    const orgSetting = await dbGet(`SELECT value FROM settings WHERE key = 'firestore_org_id'`);
-    const orgNameSetting = await dbGet(`SELECT value FROM settings WHERE key = 'firestore_org_name'`);
-    const activeOrgId = user.org_id || (orgSetting ? orgSetting.value : 'DSOFFICE_LUNUGAMWEHERA');
-    const activeOrgName = orgNameSetting ? orgNameSetting.value : activeOrgId;
+    // Automatically sync system user data and role to Firestore collection organizations/{orgId}/system_users
+    firebaseService.saveSystemUserToCloud({
+      ...user,
+      org_id: trimmedOrgId
+    }).catch(() => {});
 
-    const token = Buffer.from(JSON.stringify({ uid: user.uid, role: user.role, orgId: activeOrgId, time: Date.now() })).toString('base64');
+    // Update active org in settings if admin
+    if (user.role === 'admin') {
+      await dbRun(`INSERT INTO settings (key, value) VALUES ('firestore_org_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [trimmedOrgId]);
+    }
+
+    const orgNameSetting = await dbGet(`SELECT value FROM settings WHERE key = 'firestore_org_name'`);
+    const activeOrgName = orgNameSetting ? orgNameSetting.value : trimmedOrgId;
+
+    const token = Buffer.from(JSON.stringify({ uid: user.uid, role: user.role, orgId: trimmedOrgId, time: Date.now() })).toString('base64');
 
     return res.json({
       success: true,
@@ -3109,8 +3137,8 @@ router.post('/auth/login', async (req, res) => {
         email: user.email,
         username: user.username,
         displayName: user.display_name,
-        role: user.role, // 'admin', 'manager', 'staff'
-        orgId: activeOrgId,
+        role: user.role, // role is retrieved from database record, never selected at login window
+        orgId: trimmedOrgId,
         orgName: activeOrgName
       }
     });
@@ -3195,12 +3223,12 @@ router.post('/auth/users', async (req, res) => {
       phone
     });
 
-    // Optionally sync user to Firestore in background
-    firebaseService.syncSystemUsersToCloud(targetOrg).catch(() => {});
+    // Save under organizations/{orgId}/system_users in Firestore
+    firebaseService.saveSystemUserToCloud(saved).catch(() => {});
 
     res.json({
       success: true,
-      message: `User "${saved.display_name}" created/updated with role "${saved.role}" under organization "${targetOrg}"`,
+      message: `User "${saved.display_name}" created/updated with role "${saved.role}" under organization "${targetOrg}" in system_users`,
       user: saved
     });
   } catch (err) {
@@ -3212,8 +3240,14 @@ router.post('/auth/users', async (req, res) => {
 router.delete('/auth/users/:uid', async (req, res) => {
   try {
     const uid = req.params.uid;
+    const orgSetting = await dbGet(`SELECT value FROM settings WHERE key = 'firestore_org_id'`);
+    const targetOrg = req.query.orgId || (orgSetting ? orgSetting.value : 'DSOFFICE_LUNUGAMWEHERA');
+
     await deleteSystemUser(uid);
-    res.json({ success: true, message: 'User deleted successfully' });
+    // Delete from organizations/{orgId}/system_users in Firestore
+    firebaseService.deleteSystemUserFromCloud(targetOrg, uid).catch(() => {});
+
+    res.json({ success: true, message: 'User deleted successfully from organization system_users' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

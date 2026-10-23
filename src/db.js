@@ -751,9 +751,17 @@ async function getCloudSyncStats() {
 }
 
 // Get system user by email or username
-async function getSystemUserByIdentifier(identifier) {
+async function getSystemUserByIdentifier(identifier, orgId) {
   if (!identifier) return null;
   const clean = String(identifier).trim().toLowerCase();
+  if (orgId) {
+    const cleanOrg = String(orgId).trim();
+    const user = await dbGet(`
+      SELECT * FROM system_users 
+      WHERE (LOWER(email) = ? OR LOWER(username) = ?) AND (org_id = ? OR org_id = 'DEFAULT') AND is_active = 1
+    `, [clean, clean, cleanOrg]);
+    if (user) return user;
+  }
   return dbGet(`
     SELECT * FROM system_users 
     WHERE (LOWER(email) = ? OR LOWER(username) = ?) AND is_active = 1

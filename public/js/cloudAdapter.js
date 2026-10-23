@@ -759,31 +759,50 @@
         try { body = options.body ? JSON.parse(options.body) : {}; } catch (e) {}
         const identifier = (body.identifier || body.username || body.email || '').trim().toLowerCase();
         const pwd = body.password || '';
+        const reqOrgId = (body.orgId || activeOrgId || '').trim();
 
-        let role = 'staff';
-        let displayName = 'Staff Member';
-        if (identifier === 'admin' || identifier.includes('admin')) {
-          role = 'admin';
-          displayName = 'System Administrator';
-        } else if (identifier === 'manager' || identifier.includes('manager')) {
-          role = 'manager';
-          displayName = 'HR Attendance Manager';
+        if (!reqOrgId) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: 'Organization Partition is required to sign in'
+          }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+
+        const cloudUsersKey = 'speedface_cloud_users_' + reqOrgId;
+        let storedUsers = [];
+        try {
+          storedUsers = JSON.parse(localStorage.getItem(cloudUsersKey) || '[]');
+        } catch (e) {}
+
+        const matchedUser = storedUsers.find(u => (u.username || '').toLowerCase() === identifier || (u.email || '').toLowerCase() === identifier);
+
+        let role = matchedUser ? matchedUser.role : 'staff';
+        let displayName = matchedUser ? matchedUser.display_name : 'Staff Member';
+        if (!matchedUser) {
+          if (identifier === 'admin' || identifier.includes('admin')) {
+            role = 'admin';
+            displayName = 'System Administrator';
+          } else if (identifier === 'manager' || identifier.includes('manager')) {
+            role = 'manager';
+            displayName = 'HR Attendance Manager';
+          }
         }
 
         const userPayload = {
-          uid: 'cloud_user_' + identifier,
-          email: identifier.includes('@') ? identifier : `${identifier}@cloud.org`,
+          uid: matchedUser ? matchedUser.uid : ('cloud_user_' + identifier),
+          email: matchedUser ? matchedUser.email : (identifier.includes('@') ? identifier : `${identifier}@cloud.org`),
           username: identifier,
           displayName,
-          role,
-          orgId: activeOrgId,
-          orgName: activeOrgId
+          role, // retrieved from stored user record, not selected in login window
+          orgId: reqOrgId,
+          orgName: reqOrgId
         };
         const token = btoa(JSON.stringify({ ...userPayload, time: Date.now() }));
 
         return new Response(JSON.stringify({
           success: true,
           cloudMode: true,
+          collection: 'system_users',
           token,
           user: userPayload
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
