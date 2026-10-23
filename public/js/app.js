@@ -273,6 +273,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadDeviceControlData();
   updateStopSyncButtonsUI();
   initApiServiceTab();
+  initSystemAuth();
 });
 
 // Toast Notifications
@@ -327,6 +328,22 @@ function initNavigation() {
 }
 
 function switchTab(tabId) {
+  // Role-based tab protection
+  if (state.currentUser) {
+    const role = (state.currentUser.role || 'staff').toLowerCase();
+    const adminOnlyTabs = ['tab-device', 'tab-api'];
+
+    if (adminOnlyTabs.includes(tabId) && role !== 'admin') {
+      showToast('🔒 Access Restricted: Administrator privileges required for this section.', 'warning');
+      return;
+    }
+
+    if (role === 'staff' && ['tab-device', 'tab-api', 'tab-shifts'].includes(tabId)) {
+      showToast('🔒 Staff accounts have access to Dashboard, Logs, and Timesheets only.', 'warning');
+      return;
+    }
+  }
+
   state.currentTab = tabId;
 
   // Auto-close mobile sidebar drawer upon selecting a tab
@@ -9678,3 +9695,203 @@ window.printUserLoginTimesheet = function() {
     document.title = prevTitle;
   }, 1000);
 };
+
+// ============================================================================
+// SYSTEM AUTHENTICATION & ROLE-BASED ACCESS CONTROL (RBAC) LOGIC
+// ============================================================================
+
+function initSystemAuth() {
+  const modalLogin = document.getElementById('modalSystemLogin');
+  const btnCloseModal = document.getElementById('btnCloseLoginModal');
+  const btnHeaderAction = document.getElementById('btnHeaderAuthAction');
+  const userPill = document.getElementById('headerUserAuthPill');
+  const formLogin = document.getElementById('formSystemLogin');
+  const userInput = document.getElementById('inputLoginUsername');
+  const pwdInput = document.getElementById('inputLoginPassword');
+  const alertBox = document.getElementById('loginAlertBox');
+  const submitBtn = document.getElementById('btnSubmitSystemLogin');
+  const orgNameDisplay = document.getElementById('loginOrgNameDisplay');
+  const orgIdDisplay = document.getElementById('loginOrgIdDisplay');
+
+  // Load saved session or initialize default
+  let savedUser = null;
+  try {
+    const raw = localStorage.getItem('speedface_auth_user');
+    if (raw) savedUser = JSON.parse(raw);
+  } catch (e) {}
+
+  if (!savedUser) {
+    savedUser = {
+      uid: 'usr_admin_1',
+      username: 'admin',
+      email: 'admin@lunugamwehera.gov.lk',
+      displayName: 'System Administrator',
+      role: 'admin',
+      orgId: localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA',
+      orgName: 'DS Office Lunugamwehera'
+    };
+    try { localStorage.setItem('speedface_auth_user', JSON.stringify(savedUser)); } catch (e) {}
+  }
+
+  state.currentUser = savedUser;
+  applyRolePermissions(savedUser);
+
+  function openLoginModal() {
+    if (!modalLogin) return;
+    const curOrg = state.currentUser?.orgId || localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
+    if (orgIdDisplay) orgIdDisplay.textContent = curOrg;
+    if (orgNameDisplay) orgNameDisplay.textContent = state.currentUser?.orgName || curOrg;
+    if (alertBox) alertBox.style.display = 'none';
+    modalLogin.style.display = 'flex';
+    userInput?.focus();
+  }
+
+  function closeLoginModal() {
+    if (modalLogin) modalLogin.style.display = 'none';
+  }
+
+  btnHeaderAction?.addEventListener('click', openLoginModal);
+  userPill?.addEventListener('click', openLoginModal);
+  btnCloseModal?.addEventListener('click', closeLoginModal);
+
+  modalLogin?.addEventListener('click', (e) => {
+    if (e.target === modalLogin) closeLoginModal();
+  });
+
+  // Quick fill chips
+  document.querySelectorAll('.btn-quick-role').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const u = btn.dataset.user;
+      const p = btn.dataset.pwd;
+      if (userInput) userInput.value = u;
+      if (pwdInput) pwdInput.value = p;
+      if (alertBox) alertBox.style.display = 'none';
+    });
+  });
+
+  // Form Submission
+  formLogin?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const identifier = userInput?.value.trim();
+    const password = pwdInput?.value;
+    const orgId = state.currentUser?.orgId || localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
+
+    if (!identifier || !password) {
+      if (alertBox) {
+        alertBox.style.display = 'block';
+        alertBox.style.background = '#fee2e2';
+        alertBox.style.color = '#991b1b';
+        alertBox.textContent = 'Please enter both username and password';
+      }
+      return;
+    }
+
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = `<span class="spin" style="width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Signing in...`;
+    }
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier, password, orgId })
+      });
+      const data = await res.json();
+
+      if (data.success && data.user) {
+        state.currentUser = data.user;
+        state.authToken = data.token;
+        try {
+          localStorage.setItem('speedface_auth_user', JSON.stringify(data.user));
+          if (data.token) localStorage.setItem('speedface_auth_token', data.token);
+        } catch (e) {}
+
+        applyRolePermissions(data.user);
+        closeLoginModal();
+        showToast(`Welcome back, ${data.user.displayName}! Signed in with ${data.user.role.toUpperCase()} role under ${data.user.orgId}.`, 'success', 5000);
+      } else {
+        if (alertBox) {
+          alertBox.style.display = 'block';
+          alertBox.style.background = '#fee2e2';
+          alertBox.style.color = '#991b1b';
+          alertBox.textContent = data.error || 'Authentication failed. Please check credentials.';
+        }
+      }
+    } catch (err) {
+      if (alertBox) {
+        alertBox.style.display = 'block';
+        alertBox.style.background = '#fee2e2';
+        alertBox.style.color = '#991b1b';
+        alertBox.textContent = 'Connection error: ' + err.message;
+      }
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span>Sign In to System</span>';
+      }
+    }
+  });
+}
+
+function applyRolePermissions(user) {
+  if (!user) return;
+  const role = (user.role || 'staff').toLowerCase();
+
+  // 1. Update Header UI
+  const headerName = document.getElementById('headerUserName');
+  const headerRole = document.getElementById('headerUserRoleBadge');
+  const headerAvatar = document.getElementById('headerUserAvatar');
+
+  if (headerName) headerName.textContent = user.displayName || user.username || 'User';
+  if (headerAvatar) {
+    const initial = (user.displayName || user.username || 'U').charAt(0).toUpperCase();
+    headerAvatar.textContent = initial;
+  }
+
+  if (headerRole) {
+    headerRole.textContent = role.toUpperCase();
+    if (role === 'admin') {
+      headerRole.style.background = '#0284c7';
+      headerRole.style.color = '#ffffff';
+      if (headerAvatar) headerAvatar.style.background = '#0284c7';
+    } else if (role === 'manager') {
+      headerRole.style.background = '#059669';
+      headerRole.style.color = '#ffffff';
+      if (headerAvatar) headerAvatar.style.background = '#059669';
+    } else {
+      headerRole.style.background = '#7c3aed';
+      headerRole.style.color = '#ffffff';
+      if (headerAvatar) headerAvatar.style.background = '#7c3aed';
+    }
+  }
+
+  // 2. Adjust Tab Navigation based on Role
+  const navDevice = document.querySelector('[data-tab="tab-device"]');
+  const navApi = document.querySelector('[data-tab="tab-api"]');
+  const navShifts = document.querySelector('[data-tab="tab-shifts"]');
+  const navEmployees = document.querySelector('[data-tab="tab-employees"]');
+
+  if (role === 'admin') {
+    if (navDevice) { navDevice.style.display = 'flex'; navDevice.title = 'Device Control (Admin)'; }
+    if (navApi) { navApi.style.display = 'flex'; navApi.title = 'API Service'; }
+    if (navShifts) { navShifts.style.display = 'flex'; }
+    if (navEmployees) { navEmployees.style.display = 'flex'; }
+  } else if (role === 'manager') {
+    if (navDevice) { navDevice.style.display = 'none'; }
+    if (navApi) { navApi.style.display = 'none'; }
+    if (navShifts) { navShifts.style.display = 'flex'; }
+    if (navEmployees) { navEmployees.style.display = 'flex'; }
+  } else {
+    // staff role
+    if (navDevice) { navDevice.style.display = 'none'; }
+    if (navApi) { navApi.style.display = 'none'; }
+    if (navShifts) { navShifts.style.display = 'none'; }
+  }
+
+  // 3. Prevent non-admins from staying on restricted tabs
+  const adminOnlyTabs = ['tab-device', 'tab-api'];
+  if (adminOnlyTabs.includes(state.currentTab) && role !== 'admin') {
+    switchTab('tab-dashboard');
+  }
+}

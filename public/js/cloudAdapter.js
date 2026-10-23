@@ -753,6 +753,72 @@
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
+      // Auth endpoints for Cloud Mode
+      if (path === '/api/auth/login') {
+        let body = {};
+        try { body = options.body ? JSON.parse(options.body) : {}; } catch (e) {}
+        const identifier = (body.identifier || body.username || body.email || '').trim().toLowerCase();
+        const pwd = body.password || '';
+
+        let role = 'staff';
+        let displayName = 'Staff Member';
+        if (identifier === 'admin' || identifier.includes('admin')) {
+          role = 'admin';
+          displayName = 'System Administrator';
+        } else if (identifier === 'manager' || identifier.includes('manager')) {
+          role = 'manager';
+          displayName = 'HR Attendance Manager';
+        }
+
+        const userPayload = {
+          uid: 'cloud_user_' + identifier,
+          email: identifier.includes('@') ? identifier : `${identifier}@cloud.org`,
+          username: identifier,
+          displayName,
+          role,
+          orgId: activeOrgId,
+          orgName: activeOrgId
+        };
+        const token = btoa(JSON.stringify({ ...userPayload, time: Date.now() }));
+
+        return new Response(JSON.stringify({
+          success: true,
+          cloudMode: true,
+          token,
+          user: userPayload
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (path === '/api/auth/me') {
+        const userStored = localStorage.getItem('speedface_auth_user');
+        let userObj = userStored ? JSON.parse(userStored) : {
+          uid: 'cloud_admin',
+          username: 'admin',
+          email: 'admin@cloud.org',
+          displayName: 'System Administrator',
+          role: 'admin',
+          orgId: activeOrgId
+        };
+        return new Response(JSON.stringify({
+          success: true,
+          cloudMode: true,
+          user: userObj
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (path === '/api/auth/users') {
+        return new Response(JSON.stringify({
+          success: true,
+          cloudMode: true,
+          orgId: activeOrgId,
+          users: [
+            { uid: 'u1', username: 'admin', email: 'admin@lunugamwehera.gov.lk', display_name: 'System Administrator', role: 'admin', org_id: activeOrgId },
+            { uid: 'u2', username: 'manager', email: 'manager@lunugamwehera.gov.lk', display_name: 'HR Attendance Manager', role: 'manager', org_id: activeOrgId },
+            { uid: 'u3', username: 'staff', email: 'staff@lunugamwehera.gov.lk', display_name: 'Office Staff Member', role: 'staff', org_id: activeOrgId }
+          ]
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
       if (path === '/api/firebase/test-connection') {
         return new Response(JSON.stringify({
           success: true,

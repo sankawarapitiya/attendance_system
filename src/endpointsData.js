@@ -594,6 +594,69 @@ const API_ENDPOINTS = [
     }
   },
 
+  // 5b. Authentication & Role-Based Access Control (RBAC)
+  {
+    id: 'auth-login',
+    category: 'auth',
+    categoryName: '🔐 Authentication & RBAC',
+    method: 'POST',
+    path: '/api/auth/login',
+    description: 'Authenticate user via Firebase ID Token or Organization Credentials with assigned role',
+    body: {
+      identifier: 'string (username or email)',
+      password: 'string',
+      firebaseIdToken: 'string (optional Firebase Auth ID token)',
+      orgId: 'string (optional organization code)'
+    }
+  },
+  {
+    id: 'auth-me',
+    category: 'auth',
+    categoryName: '🔐 Authentication & RBAC',
+    method: 'GET',
+    path: '/api/auth/me',
+    description: 'Retrieve current authenticated user profile, assigned role, and organization',
+    parameters: {}
+  },
+  {
+    id: 'auth-users',
+    category: 'auth',
+    categoryName: '🔐 Authentication & RBAC',
+    method: 'GET',
+    path: '/api/auth/users',
+    description: 'List all system users and roles under the active organization partition',
+    parameters: {
+      orgId: 'string (optional organization filter)'
+    }
+  },
+  {
+    id: 'auth-create-user',
+    category: 'auth',
+    categoryName: '🔐 Authentication & RBAC',
+    method: 'POST',
+    path: '/api/auth/users',
+    description: 'Create or update system user with assigned role (admin, manager, staff) under organization',
+    body: {
+      email: 'string (required)',
+      username: 'string (optional)',
+      displayName: 'string (optional)',
+      role: 'string ("admin", "manager", "staff")',
+      password: 'string',
+      orgId: 'string (optional organization code)'
+    }
+  },
+  {
+    id: 'auth-delete-user',
+    category: 'auth',
+    categoryName: '🔐 Authentication & RBAC',
+    method: 'DELETE',
+    path: '/api/auth/users/:uid',
+    description: 'Delete system user account (Admin only)',
+    parameters: {
+      uid: 'User Unique ID [Path, required]'
+    }
+  },
+
   // 6. System Health, Network & Backups
   {
     id: 'get-health',

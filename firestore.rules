@@ -42,6 +42,11 @@ service cloud.firestore {
         allow read: if true;
         allow write: if false;
       }
+
+      match /users/{userId} {
+        allow read: if true;
+        allow write: if false;
+      }
     }
 
     // Legacy attendance_records collection

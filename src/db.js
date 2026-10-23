@@ -284,6 +284,44 @@ async function initDatabase() {
     )
   `);
 
+  // 6. System Users Table for Role-Based Multi-Organization Authentication
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS system_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      uid TEXT UNIQUE,
+      email TEXT NOT NULL,
+      username TEXT UNIQUE,
+      password_hash TEXT,
+      display_name TEXT,
+      role TEXT NOT NULL DEFAULT 'staff',
+      org_id TEXT NOT NULL,
+      phone TEXT,
+      is_active INTEGER DEFAULT 1,
+      firebase_uid TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_sys_user_email ON system_users(email)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_sys_user_username ON system_users(username)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_sys_user_org ON system_users(org_id)`);
+
+  // Seed default organization system users if empty
+  const userCount = await dbGet(`SELECT COUNT(*) as count FROM system_users`);
+  if (!userCount || userCount.count === 0) {
+    const orgRow = await dbGet(`SELECT value FROM settings WHERE key = 'firestore_org_id'`);
+    const defaultOrg = orgRow ? orgRow.value : 'DSOFFICE_LUNUGAMWEHERA';
+    await dbRun(`
+      INSERT INTO system_users (uid, email, username, password_hash, display_name, role, org_id)
+      VALUES 
+        ('usr_admin_1', 'admin@lunugamwehera.gov.lk', 'admin', 'admin123', 'System Administrator', 'admin', ?),
+        ('usr_manager_1', 'manager@lunugamwehera.gov.lk', 'manager', 'manager123', 'HR Attendance Manager', 'manager', ?),
+        ('usr_staff_1', 'staff@lunugamwehera.gov.lk', 'staff', 'staff123', 'Office Staff Member', 'staff', ?)
+    `, [defaultOrg, defaultOrg, defaultOrg]);
+    console.log('[DB] Seeded default organization system users (admin, manager, staff).');
+  }
+
   // Seed default shifts if empty
   const shiftCount = await dbGet(`SELECT COUNT(*) as count FROM working_shifts`);
   if (!shiftCount || shiftCount.count === 0) {
@@ -712,6 +750,67 @@ async function getCloudSyncStats() {
   };
 }
 
+// Get system user by email or username
+async function getSystemUserByIdentifier(identifier) {
+  if (!identifier) return null;
+  const clean = String(identifier).trim().toLowerCase();
+  return dbGet(`
+    SELECT * FROM system_users 
+    WHERE (LOWER(email) = ? OR LOWER(username) = ?) AND is_active = 1
+  `, [clean, clean]);
+}
+
+// Get system user by UID
+async function getSystemUserByUid(uid) {
+  if (!uid) return null;
+  return dbGet(`SELECT * FROM system_users WHERE uid = ?`, [uid]);
+}
+
+// Get all system users for an organization
+async function getSystemUsersByOrg(orgId) {
+  if (!orgId) return [];
+  return dbAll(`
+    SELECT id, uid, email, username, display_name, role, org_id, phone, is_active, created_at, updated_at 
+    FROM system_users 
+    WHERE org_id = ? 
+    ORDER BY role ASC, display_name ASC
+  `, [orgId]);
+}
+
+// Create or update a system user
+async function saveSystemUser(userData) {
+  const uid = userData.uid || ('usr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6));
+  const email = (userData.email || '').trim().toLowerCase();
+  const username = (userData.username || email.split('@')[0] || uid).trim().toLowerCase();
+  const displayName = userData.display_name || userData.displayName || username;
+  const role = userData.role || 'staff';
+  const orgId = (userData.org_id || userData.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+  const phone = userData.phone || '';
+  const passwordHash = userData.password || userData.password_hash || 'password123';
+  const firebaseUid = userData.firebase_uid || userData.firebaseUid || null;
+
+  await dbRun(`
+    INSERT INTO system_users (uid, email, username, password_hash, display_name, role, org_id, phone, firebase_uid, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    ON CONFLICT(uid) DO UPDATE SET
+      email = excluded.email,
+      username = excluded.username,
+      display_name = excluded.display_name,
+      role = excluded.role,
+      org_id = excluded.org_id,
+      phone = excluded.phone,
+      firebase_uid = COALESCE(excluded.firebase_uid, system_users.firebase_uid),
+      updated_at = CURRENT_TIMESTAMP
+  `, [uid, email, username, passwordHash, displayName, role, orgId, phone, firebaseUid]);
+
+  return getSystemUserByUid(uid);
+}
+
+// Delete system user
+async function deleteSystemUser(uid) {
+  return dbRun(`DELETE FROM system_users WHERE uid = ?`, [uid]);
+}
+
 module.exports = {
   db,
   dbRun,
@@ -732,5 +831,10 @@ module.exports = {
   markEmployeesCloudSynced,
   getCloudSyncStats,
   getAttendanceByDateRange,
-  insertAttendanceFromCloud
+  insertAttendanceFromCloud,
+  getSystemUserByIdentifier,
+  getSystemUserByUid,
+  getSystemUsersByOrg,
+  saveSystemUser,
+  deleteSystemUser
 };

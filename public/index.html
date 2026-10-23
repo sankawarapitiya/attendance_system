@@ -251,6 +251,19 @@
             <span id="headerCloudSyncDot" style="width:8px; height:8px; border-radius:50%; background:#94a3b8; display:inline-block;"></span>
             <span id="headerCloudSyncText">Cloud: Standby</span>
           </div>
+
+          <!-- System Auth User Pill & Role Badge -->
+          <div id="headerUserAuthContainer" style="display:inline-flex; align-items:center; gap:8px;">
+            <div id="headerUserAuthPill" style="display:inline-flex; align-items:center; gap:7px; padding:4px 12px; border-radius:999px; font-size:0.82rem; font-weight:600; background:#f8fafc; border:1px solid #cbd5e1; cursor:pointer; transition: all 0.2s ease;" title="Click to view profile or switch user">
+              <span id="headerUserAvatar" style="width:24px; height:24px; border-radius:50%; background:#0284c7; color:#fff; display:flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:700;">A</span>
+              <span id="headerUserName">Admin User</span>
+              <span class="badge" id="headerUserRoleBadge" style="background:#0284c7; color:#fff; font-size:0.68rem; font-weight:700; padding:2px 7px; border-radius:999px;">ADMIN</span>
+            </div>
+            <button class="btn btn-sm btn-outline" id="btnHeaderAuthAction" style="font-size:0.76rem; padding:4px 10px; font-weight:600; display:inline-flex; align-items:center; gap:4px;" title="Sign In or Switch Account">
+              <span>🔑 Switch User</span>
+            </button>
+          </div>
+
           <span class="live-pill">
             <span class="live-dot"></span> LIVE SYNC
           </span>
@@ -7532,6 +7545,80 @@ Loading application logs...
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
             Print / PDF Now
           </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: System Authentication & Role-Based Login under Organization -->
+  <div class="modal" id="modalSystemLogin" style="display: none; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(4px); z-index: 10000; position: fixed; inset: 0;">
+    <div class="modal-content" style="max-width: 440px; width: 92%; background: #ffffff; border-radius: 14px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); overflow: hidden; border: 1px solid #e2e8f0; animation: modalFadeIn 0.2s ease;">
+      <!-- Modal Header -->
+      <div style="background: linear-gradient(135deg, #0f172a, #1e293b); color: #ffffff; padding: 20px 22px; position: relative;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); display: flex; align-items: center; justify-content: center; font-size: 1.35rem;">
+            🔐
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #ffffff;">System Authentication</h3>
+            <p style="margin: 2px 0 0; font-size: 0.78rem; color: #94a3b8;">Role-Based Login under Organization</p>
+          </div>
+        </div>
+        <button type="button" id="btnCloseLoginModal" style="position: absolute; top: 16px; right: 16px; background: transparent; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; line-height: 1;">&times;</button>
+      </div>
+
+      <!-- Modal Body -->
+      <div style="padding: 22px;">
+        <!-- Active Organization Pill -->
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-size: 0.8rem; color: #166534;">
+            <div style="font-weight: 700; font-size: 0.82rem;">🏛️ Organization Partition</div>
+            <div id="loginOrgNameDisplay" style="font-weight: 600; color: #15803d;">DS Office Lunugamwehera</div>
+          </div>
+          <code id="loginOrgIdDisplay" style="font-size: 0.72rem; padding: 3px 8px; background: #dcfce7; color: #15803d; border-radius: 6px; font-weight: 700;">DSOFFICE_LUNUGAMWEHERA</code>
+        </div>
+
+        <!-- Quick Demo Role Switcher Chips -->
+        <div style="margin-bottom: 16px;">
+          <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 6px; display: flex; justify-content: space-between;">
+            <span>Quick Select Role</span>
+            <span style="font-weight: normal; color: #94a3b8; font-size: 0.72rem;">Click chip to auto-fill</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">
+            <button type="button" class="btn btn-xs btn-outline btn-quick-role" data-user="admin" data-pwd="admin123" data-role="admin" style="font-size: 0.75rem; padding: 6px 4px; border-radius: 6px; font-weight: 700; text-align: center; border-color: #38bdf8; color: #0284c7;">
+              🛡️ Admin
+            </button>
+            <button type="button" class="btn btn-xs btn-outline btn-quick-role" data-user="manager" data-pwd="manager123" data-role="manager" style="font-size: 0.75rem; padding: 6px 4px; border-radius: 6px; font-weight: 700; text-align: center; border-color: #34d399; color: #059669;">
+              📋 Manager
+            </button>
+            <button type="button" class="btn btn-xs btn-outline btn-quick-role" data-user="staff" data-pwd="staff123" data-role="staff" style="font-size: 0.75rem; padding: 6px 4px; border-radius: 6px; font-weight: 700; text-align: center; border-color: #a78bfa; color: #7c3aed;">
+              👤 Staff
+            </button>
+          </div>
+        </div>
+
+        <form id="formSystemLogin">
+          <div class="form-group" style="margin-bottom: 12px;">
+            <label for="inputLoginUsername" style="font-weight: 600; font-size: 0.82rem; color: #334155; margin-bottom: 4px; display: block;">Email or Username</label>
+            <input type="text" id="inputLoginUsername" class="form-control" placeholder="e.g. admin or admin@lunugamwehera.gov.lk" required style="height: 38px; font-size: 0.88rem;">
+          </div>
+
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label for="inputLoginPassword" style="font-weight: 600; font-size: 0.82rem; color: #334155; margin-bottom: 4px; display: block;">Password</label>
+            <input type="password" id="inputLoginPassword" class="form-control" placeholder="Enter password" required style="height: 38px; font-size: 0.88rem;">
+          </div>
+
+          <div id="loginAlertBox" style="display: none; padding: 8px 12px; border-radius: 6px; font-size: 0.82rem; margin-bottom: 14px; font-weight: 600;"></div>
+
+          <div style="display: flex; gap: 8px; flex-direction: column;">
+            <button type="submit" class="btn btn-primary" id="btnSubmitSystemLogin" style="height: 40px; font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; gap: 6px; border-radius: 8px;">
+              <span>Sign In to System</span>
+            </button>
+          </div>
+        </form>
+
+        <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid #f1f5f9; font-size: 0.73rem; color: #94a3b8; text-align: center; line-height: 1.4;">
+          🔒 Secured via Firebase Authentication &amp; Multi-Organization RBAC. Role dynamically configures dashboard features &amp; device access.
         </div>
       </div>
     </div>

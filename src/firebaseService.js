@@ -14,7 +14,9 @@ const {
   markEmployeesCloudSynced,
   getCloudSyncStats,
   getAttendanceByDateRange,
-  insertAttendanceFromCloud
+  insertAttendanceFromCloud,
+  getSystemUsersByOrg,
+  saveSystemUser
 } = require('./db');
 
 const CREDENTIALS_DIR = path.join(process.cwd(), 'data', 'credentials');
@@ -1325,6 +1327,61 @@ class FirebaseService {
       message: 'Cloud sync stopped. Local records 100% safe.',
       syncProgress: this.syncProgress
     };
+  }
+
+  /**
+   * Sync system users to Firestore under organizations/{orgId}/users/{uid}
+   */
+  async syncSystemUsersToCloud(orgId) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const targetOrg = orgId || (await this.getOrganizationConfig()).orgId || 'DSOFFICE_LUNUGAMWEHERA';
+    const users = await getSystemUsersByOrg(targetOrg);
+    if (!users || users.length === 0) return { success: true, count: 0 };
+
+    const writes = [];
+    const projectId = this.keyData.project_id;
+    const nowIso = new Date().toISOString();
+
+    for (const u of users) {
+      writes.push({
+        update: {
+          name: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/users/${u.uid}`,
+          fields: toFirestoreFields({
+            uid: u.uid,
+            email: u.email,
+            username: u.username,
+            displayName: u.display_name,
+            role: u.role,
+            orgId: u.org_id,
+            phone: u.phone || '',
+            isActive: Boolean(u.is_active),
+            updatedAt: nowIso
+          })
+        }
+      });
+    }
+
+    if (writes.length > 0) {
+      await this._commitRestWrites(writes);
+    }
+    return { success: true, count: users.length, orgId: targetOrg };
+  }
+
+  /**
+   * Verify Firebase ID Token if provided from Firebase Client Auth SDK
+   */
+  async verifyFirebaseToken(idToken) {
+    if (!idToken) return { success: false, error: 'No token provided' };
+    await this.init();
+    try {
+      const { getAuth } = require('firebase-admin/auth');
+      const auth = getAuth(this.app);
+      const decoded = await auth.verifyIdToken(idToken);
+      return { success: true, decoded };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   }
 
   /**
