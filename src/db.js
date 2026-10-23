@@ -92,7 +92,11 @@ async function initDatabase() {
   try {
     await dbRun(`ALTER TABLE attendance_records ADD COLUMN cloud_synced_at DATETIME DEFAULT NULL`);
   } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE attendance_records ADD COLUMN org_id TEXT DEFAULT 'DSOFFICE_LUNUGAMWEHERA'`);
+  } catch (e) {}
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_att_synced_cloud ON attendance_records(synced_to_cloud)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_att_org ON attendance_records(org_id)`);
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS employees (
@@ -104,6 +108,7 @@ async function initDatabase() {
       email TEXT,
       phone TEXT,
       photo TEXT,
+      org_id TEXT DEFAULT 'DSOFFICE_LUNUGAMWEHERA',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -133,6 +138,7 @@ async function initDatabase() {
     'employment_status TEXT',
     'order_by_id TEXT',
     'is_active INTEGER DEFAULT 1',
+    'org_id TEXT DEFAULT \'DSOFFICE_LUNUGAMWEHERA\'',
     'synced_to_cloud INTEGER DEFAULT 0',
     'cloud_synced_at DATETIME DEFAULT NULL'
   ];
@@ -143,6 +149,12 @@ async function initDatabase() {
       // already exists
     }
   }
+
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_emp_org ON employees(org_id)`);
+
+  // Ensure org_id is not empty for all existing records
+  await dbRun(`UPDATE employees SET org_id = 'DSOFFICE_LUNUGAMWEHERA' WHERE org_id IS NULL OR org_id = ''`);
+  await dbRun(`UPDATE attendance_records SET org_id = 'DSOFFICE_LUNUGAMWEHERA' WHERE org_id IS NULL OR org_id = ''`);
 
   // Ensure is_active is 1 for all existing records
   await dbRun(`UPDATE employees SET is_active = 1 WHERE is_active IS NULL`);

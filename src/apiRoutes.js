@@ -120,19 +120,49 @@ router.get(['/health', '/status'], async (req, res) => {
 // 1. Dashboard summary stats
 router.get('/stats', async (req, res) => {
   try {
-    const totalRecordsRow = await dbGet(`SELECT COUNT(*) as count FROM attendance_records`);
-    const todayRecordsRow = await dbGet(`
-      SELECT COUNT(*) as count, COUNT(DISTINCT user_id) as unique_users
-      FROM attendance_records
-      WHERE strftime('%Y-%m-%d', punch_time) = strftime('%Y-%m-%d', 'now', 'localtime')
-    `);
-    const totalEmployeesRow = await dbGet(`SELECT COUNT(*) as count FROM employees`);
-    const latestPunch = await dbGet(`
-      SELECT a.*, e.name as employee_name
-      FROM attendance_records a
-      LEFT JOIN employees e ON a.user_id = e.user_id
-      ORDER BY a.punch_time DESC LIMIT 1
-    `);
+    const orgId = req.query.orgId || req.headers['x-organization-id'];
+    let totalRecordsRow, todayRecordsRow, totalEmployeesRow, latestPunch;
+
+    if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+      totalRecordsRow = await dbGet(`
+        SELECT COUNT(*) as count 
+        FROM attendance_records a
+        LEFT JOIN employees e ON a.user_id = e.user_id
+        WHERE COALESCE(a.org_id, e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?
+      `, [orgId]);
+
+      todayRecordsRow = await dbGet(`
+        SELECT COUNT(*) as count, COUNT(DISTINCT a.user_id) as unique_users
+        FROM attendance_records a
+        LEFT JOIN employees e ON a.user_id = e.user_id
+        WHERE strftime('%Y-%m-%d', a.punch_time) = strftime('%Y-%m-%d', 'now', 'localtime')
+          AND COALESCE(a.org_id, e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?
+      `, [orgId]);
+
+      totalEmployeesRow = await dbGet(`SELECT COUNT(*) as count FROM employees WHERE COALESCE(org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?`, [orgId]);
+
+      latestPunch = await dbGet(`
+        SELECT a.*, e.name as employee_name
+        FROM attendance_records a
+        LEFT JOIN employees e ON a.user_id = e.user_id
+        WHERE COALESCE(a.org_id, e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?
+        ORDER BY a.punch_time DESC LIMIT 1
+      `, [orgId]);
+    } else {
+      totalRecordsRow = await dbGet(`SELECT COUNT(*) as count FROM attendance_records`);
+      todayRecordsRow = await dbGet(`
+        SELECT COUNT(*) as count, COUNT(DISTINCT user_id) as unique_users
+        FROM attendance_records
+        WHERE strftime('%Y-%m-%d', punch_time) = strftime('%Y-%m-%d', 'now', 'localtime')
+      `);
+      totalEmployeesRow = await dbGet(`SELECT COUNT(*) as count FROM employees`);
+      latestPunch = await dbGet(`
+        SELECT a.*, e.name as employee_name
+        FROM attendance_records a
+        LEFT JOIN employees e ON a.user_id = e.user_id
+        ORDER BY a.punch_time DESC LIMIT 1
+      `);
+    }
 
     const syncStatus = getSyncStatus();
     const admsDevices = getConnectedAdmsDevices();
@@ -151,7 +181,8 @@ router.get('/stats', async (req, res) => {
         deviceInfo: syncStatus.deviceInfo || null,
         deviceIp: (syncStatus.deviceInfo && syncStatus.deviceInfo.ip) || '192.168.10.15',
         admsConnected: admsDevices.length > 0,
-        admsDevices
+        admsDevices,
+        orgId: orgId || null
       }
     });
   } catch (err) {
@@ -189,6 +220,10 @@ function buildRecordsQuery(query) {
     const term = `%${query.search}%`;
     queryParams.push(term, term, term, term, term, term);
   }
+  if (query.orgId && query.orgId !== 'ALL' && query.orgId !== 'all') {
+    conditions.push(`(COALESCE(a.org_id, e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?)`);
+    queryParams.push(query.orgId);
+  }
 
   const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   return { whereSql, queryParams };
@@ -201,7 +236,11 @@ router.get('/records', async (req, res) => {
     const limit = Math.min(200, Math.max(10, parseInt(req.query.limit, 10) || 50));
     const offset = (page - 1) * limit;
 
-    const { whereSql, queryParams } = buildRecordsQuery(req.query);
+    const orgId = req.query.orgId || req.headers['x-organization-id'];
+    const queryParamsObj = { ...req.query };
+    if (orgId && !queryParamsObj.orgId) queryParamsObj.orgId = orgId;
+
+    const { whereSql, queryParams } = buildRecordsQuery(queryParamsObj);
 
     const countSql = `
       SELECT COUNT(*) as total
@@ -337,7 +376,11 @@ router.get('/records', async (req, res) => {
 router.get('/records/export', async (req, res) => {
   try {
     const format = (req.query.format || 'xlsx').toLowerCase();
-    const { whereSql, queryParams } = buildRecordsQuery(req.query);
+    const orgId = req.query.orgId || req.headers['x-organization-id'];
+    const queryParamsObj = { ...req.query };
+    if (orgId && !queryParamsObj.orgId) queryParamsObj.orgId = orgId;
+
+    const { whereSql, queryParams } = buildRecordsQuery(queryParamsObj);
 
     const dataSql = `
       SELECT 
@@ -459,6 +502,7 @@ router.get('/records/daily', async (req, res) => {
     let startDate = req.query.startDate || '';
     let endDate = req.query.endDate || '';
     const quickDate = req.query.quickDate || '';
+    const orgId = req.query.orgId || req.headers['x-organization-id'];
 
     // If quickDate is 'all', show across all records
     const isAllRecords = (quickDate === 'all' && !startDate && !endDate && !targetDate);
@@ -471,6 +515,11 @@ router.get('/records/daily', async (req, res) => {
     // Build conditions for attendance records
     const conditions = [];
     const queryParams = [];
+
+    if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+      conditions.push(`(COALESCE(a.org_id, e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?)`);
+      queryParams.push(orgId);
+    }
 
     if (targetDate) {
       conditions.push(`strftime('%Y-%m-%d', a.punch_time) = ?`);
@@ -520,6 +569,10 @@ router.get('/records/daily', async (req, res) => {
     // Fetch all employees to include all enrolled users
     const empConditions = [];
     const empParams = [];
+    if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+      empConditions.push(`(COALESCE(e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?)`);
+      empParams.push(orgId);
+    }
     if (req.query.userId) {
       empConditions.push(`e.user_id = ?`);
       empParams.push(req.query.userId);
@@ -609,6 +662,7 @@ router.get('/records/daily/export', async (req, res) => {
     let startDate = req.query.startDate || '';
     let endDate = req.query.endDate || '';
     const quickDate = req.query.quickDate || '';
+    const orgId = req.query.orgId || req.headers['x-organization-id'];
 
     const isAllRecords = (quickDate === 'all' && !startDate && !endDate && !targetDate);
 
@@ -618,6 +672,11 @@ router.get('/records/daily/export', async (req, res) => {
 
     const conditions = [];
     const queryParams = [];
+
+    if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+      conditions.push(`(COALESCE(a.org_id, e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?)`);
+      queryParams.push(orgId);
+    }
 
     if (targetDate) {
       conditions.push(`strftime('%Y-%m-%d', a.punch_time) = ?`);
@@ -667,6 +726,10 @@ router.get('/records/daily/export', async (req, res) => {
 
     const empConditions = [];
     const empParams = [];
+    if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+      empConditions.push(`(COALESCE(e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?)`);
+      empParams.push(orgId);
+    }
     if (req.query.userId) {
       empConditions.push(`e.user_id = ?`);
       empParams.push(req.query.userId);
@@ -743,15 +806,16 @@ router.get('/records/daily/export', async (req, res) => {
 router.get('/reports/data', async (req, res) => {
   try {
     const { type = 'daily', scope = 'all', userId, date, startDate, endDate, month, search, statusFilter } = req.query;
+    const orgId = req.query.orgId || req.headers['x-organization-id'];
     const activeOnly = (req.query.includeInactive === 'true' || req.query.activeOnly === 'false') ? false : true;
 
     let result;
     if (type === 'daily') {
-      result = await generateDailyReport(date, { userId, search, statusFilter, activeOnly });
+      result = await generateDailyReport(date, { userId, search, statusFilter, activeOnly, orgId });
     } else if (type === 'weekly') {
-      result = await generateWeeklyReport(startDate, endDate, { userId, search, scope, activeOnly });
+      result = await generateWeeklyReport(startDate, endDate, { userId, search, scope, activeOnly, orgId });
     } else if (type === 'monthly') {
-      result = await generateMonthlyReport(month, { userId, search, scope, activeOnly });
+      result = await generateMonthlyReport(month, { userId, search, scope, activeOnly, orgId });
     } else {
       return res.status(400).json({ success: false, error: 'Invalid report type. Expected daily, weekly, or monthly.' });
     }
@@ -766,10 +830,11 @@ router.get('/reports/data', async (req, res) => {
 router.get('/reports/export', async (req, res) => {
   try {
     const { type = 'daily', scope = 'all', userId, date, startDate, endDate, month, search, statusFilter, format = 'xlsx' } = req.query;
+    const orgId = req.query.orgId || req.headers['x-organization-id'];
     const activeOnly = (req.query.includeInactive === 'true' || req.query.activeOnly === 'false') ? false : true;
 
     if (type === 'daily') {
-      const data = await generateDailyReport(date, { userId, search, statusFilter, activeOnly });
+      const data = await generateDailyReport(date, { userId, search, statusFilter, activeOnly, orgId });
       const filename = `Daily_Report_${data.date}`;
       if (format === 'csv') {
         const csvData = generateDailyCsvString(data.records);
@@ -783,7 +848,7 @@ router.get('/reports/export', async (req, res) => {
         return res.send(buffer);
       }
     } else if (type === 'weekly') {
-      const data = await generateWeeklyReport(startDate, endDate, { userId, search, scope, activeOnly });
+      const data = await generateWeeklyReport(startDate, endDate, { userId, search, scope, activeOnly, orgId });
       if (scope === 'single') {
         const filename = `Timesheet_ID${userId}_Week_${data.startDate}_to_${data.endDate}`;
         if (format === 'csv') {
@@ -1319,6 +1384,14 @@ router.post('/device/reset-data', async (req, res) => {
 router.get('/employees/export', async (req, res) => {
   try {
     const format = (req.query.format || 'xlsx').toLowerCase();
+    const orgId = req.query.orgId || req.headers['x-organization-id'];
+    let whereClause = '';
+    let params = [];
+    if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+      whereClause = `WHERE COALESCE(e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?`;
+      params.push(orgId);
+    }
+
     const employees = await dbAll(`
       SELECT 
         e.*,
@@ -1330,9 +1403,10 @@ router.get('/employees/export', async (req, res) => {
       FROM employees e
       LEFT JOIN working_shifts s ON COALESCE(e.shift_id, 1) = s.id
       LEFT JOIN attendance_records a ON e.user_id = a.user_id
+      ${whereClause}
       GROUP BY e.user_id
       ORDER BY CAST(e.user_id AS INTEGER) ASC, e.user_id ASC
-    `);
+    `, params);
 
     const dateStamp = new Date().toISOString().split('T')[0];
 
@@ -1506,11 +1580,13 @@ router.post('/employees/upload', async (req, res) => {
       const sId = parseInt(emp.shift_id, 10) || 1;
       const activeVal = emp.is_active !== undefined ? (emp.is_active ? 1 : 0) : 1;
 
+      const empOrgId = emp.org_id || req.body.org_id || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+
       await dbRun(`
         INSERT INTO employees (
           user_id, name, department, role, email, phone, shift_id,
-          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, card_no, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, card_no, org_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
           name = excluded.name,
           department = excluded.department,
@@ -1530,6 +1606,7 @@ router.post('/employees/upload', async (req, res) => {
           order_by_id = COALESCE(excluded.order_by_id, employees.order_by_id),
           is_active = excluded.is_active,
           card_no = COALESCE(excluded.card_no, employees.card_no),
+          org_id = COALESCE(excluded.org_id, employees.org_id),
           updated_at = CURRENT_TIMESTAMP
       `, [
         emp.user_id,
@@ -1550,7 +1627,8 @@ router.post('/employees/upload', async (req, res) => {
         emp.employment_status || 'Permanent',
         emp.order_by_id || null,
         activeVal,
-        emp.card_no || null
+        emp.card_no || null,
+        empOrgId
       ]);
       insertedCount++;
     }
@@ -1607,12 +1685,22 @@ router.post('/employees/upload', async (req, res) => {
 router.get('/employees', async (req, res) => {
   try {
     const status = req.query.status || 'all';
-    let whereClause = '';
+    const orgId = req.query.orgId || req.headers['x-organization-id'];
+    let whereClauses = [];
+    let params = [];
+
     if (status === 'active') {
-      whereClause = 'WHERE COALESCE(e.is_active, 1) = 1';
+      whereClauses.push('COALESCE(e.is_active, 1) = 1');
     } else if (status === 'inactive') {
-      whereClause = 'WHERE COALESCE(e.is_active, 1) = 0';
+      whereClauses.push('COALESCE(e.is_active, 1) = 0');
     }
+
+    if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+      whereClauses.push("COALESCE(e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?");
+      params.push(orgId);
+    }
+
+    const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
     const employees = await dbAll(`
       SELECT 
@@ -1631,15 +1719,22 @@ router.get('/employees', async (req, res) => {
       ${whereClause}
       GROUP BY e.user_id
       ORDER BY CAST(e.user_id AS INTEGER) ASC, e.user_id ASC
-    `);
+    `, params);
 
-    const countRow = await dbGet(`
+    let countSql = `
       SELECT 
         COUNT(*) as total,
         SUM(CASE WHEN COALESCE(is_active, 1) = 1 THEN 1 ELSE 0 END) as active,
         SUM(CASE WHEN COALESCE(is_active, 1) = 0 THEN 1 ELSE 0 END) as inactive
       FROM employees
-    `);
+    `;
+    let countParams = [];
+    if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+      countSql += ` WHERE COALESCE(org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?`;
+      countParams.push(orgId);
+    }
+
+    const countRow = await dbGet(countSql, countParams);
 
     res.json({
       success: true,
@@ -1717,12 +1812,14 @@ router.post('/employees', async (req, res) => {
   try {
     const {
       user_id, name, department, role, email, phone, photo, shift_id = 1, syncToDevice = true,
-      employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active
+      employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active,
+      org_id
     } = req.body;
     if (!user_id) {
       return res.status(400).json({ success: false, error: 'User ID is required' });
     }
 
+    const employeeOrgId = org_id || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
     const activeVal = is_active !== undefined ? (is_active ? 1 : 0) : 1;
 
     let photoPath = null;
@@ -1754,8 +1851,8 @@ router.post('/employees', async (req, res) => {
       await dbRun(`
         INSERT INTO employees (
           user_id, name, department, role, email, phone, photo, shift_id,
-          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, org_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
           name = excluded.name,
           department = excluded.department,
@@ -1775,15 +1872,16 @@ router.post('/employees', async (req, res) => {
           employment_status = COALESCE(excluded.employment_status, employees.employment_status),
           order_by_id = COALESCE(excluded.order_by_id, employees.order_by_id),
           is_active = excluded.is_active,
+          org_id = COALESCE(excluded.org_id, employees.org_id),
           updated_at = CURRENT_TIMESTAMP
       `, [user_id, name || '', department || 'General', role || 'Staff', email || '', phone || '', photoPath, sId,
-          employee_service_id || null, nic || null, title || null, first_name || null, last_name || null, gender || null, birthday || null, appointment_date || null, employment_status || null, order_by_id || null, activeVal]);
+          employee_service_id || null, nic || null, title || null, first_name || null, last_name || null, gender || null, birthday || null, appointment_date || null, employment_status || null, order_by_id || null, activeVal, employeeOrgId]);
     } else {
       await dbRun(`
         INSERT INTO employees (
           user_id, name, department, role, email, phone, shift_id,
-          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, org_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
           name = excluded.name,
           department = excluded.department,
@@ -1802,9 +1900,10 @@ router.post('/employees', async (req, res) => {
           employment_status = COALESCE(excluded.employment_status, employees.employment_status),
           order_by_id = COALESCE(excluded.order_by_id, employees.order_by_id),
           is_active = excluded.is_active,
+          org_id = COALESCE(excluded.org_id, employees.org_id),
           updated_at = CURRENT_TIMESTAMP
       `, [user_id, name || '', department || 'General', role || 'Staff', email || '', phone || '', sId,
-          employee_service_id || null, nic || null, title || null, first_name || null, last_name || null, gender || null, birthday || null, appointment_date || null, employment_status || null, order_by_id || null, activeVal]);
+          employee_service_id || null, nic || null, title || null, first_name || null, last_name || null, gender || null, birthday || null, appointment_date || null, employment_status || null, order_by_id || null, activeVal, employeeOrgId]);
     }
 
     let deviceSynced = false;

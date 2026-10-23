@@ -20,7 +20,7 @@ function toYmd(d) {
 /**
  * Helper to fetch all enrolled employees with shift information
  */
-async function getEnrolledEmployees(userId = null, search = '', { activeOnly = true } = {}) {
+async function getEnrolledEmployees(userId = null, search = '', { activeOnly = true, orgId = null } = {}) {
   const conditions = [];
   const params = [];
 
@@ -35,6 +35,10 @@ async function getEnrolledEmployees(userId = null, search = '', { activeOnly = t
     conditions.push('(e.user_id LIKE ? OR e.name LIKE ? OR e.department LIKE ? OR e.employee_service_id LIKE ? OR e.nic LIKE ? OR e.phone LIKE ?)');
     const term = `%${search}%`;
     params.push(term, term, term, term, term, term);
+  }
+  if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+    conditions.push(`COALESCE(e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?`);
+    params.push(String(orgId));
   }
 
   const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -61,11 +65,11 @@ async function getEnrolledEmployees(userId = null, search = '', { activeOnly = t
 /**
  * Generates Daily Report for all users or a single employee
  */
-async function generateDailyReport(targetDate, { userId = null, search = '', statusFilter = 'all', activeOnly = true } = {}) {
+async function generateDailyReport(targetDate, { userId = null, search = '', statusFilter = 'all', activeOnly = true, orgId = null } = {}) {
   const dateStr = targetDate || toYmd(new Date());
   const monthStart = dateStr.slice(0, 7) + '-01';
   const holidays = await dbAll('SELECT * FROM holidays');
-  const allEmployees = await getEnrolledEmployees(userId, search, { activeOnly });
+  const allEmployees = await getEnrolledEmployees(userId, search, { activeOnly, orgId });
 
   const conds = [
     `strftime('%Y-%m-%d', a.punch_time) >= ?`,
@@ -79,6 +83,10 @@ async function generateDailyReport(targetDate, { userId = null, search = '', sta
   if (userId) {
     conds.push('a.user_id = ?');
     params.push(String(userId));
+  }
+  if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+    conds.push(`COALESCE(a.org_id, e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?`);
+    params.push(String(orgId));
   }
 
   const dataSql = `
@@ -134,7 +142,7 @@ async function generateDailyReport(targetDate, { userId = null, search = '', sta
 /**
  * Generates Weekly Report (Monday to Sunday)
  */
-async function generateWeeklyReport(startDateStr, endDateStr, { userId = null, search = '', scope = 'all', activeOnly = true } = {}) {
+async function generateWeeklyReport(startDateStr, endDateStr, { userId = null, search = '', scope = 'all', activeOnly = true, orgId = null } = {}) {
   let startD, endD;
   if (startDateStr && endDateStr) {
     startD = new Date(startDateStr);
@@ -166,7 +174,7 @@ async function generateWeeklyReport(startDateStr, endDateStr, { userId = null, s
   }
 
   const holidays = await dbAll('SELECT * FROM holidays');
-  const allEmployees = await getEnrolledEmployees(userId, search, { activeOnly });
+  const allEmployees = await getEnrolledEmployees(userId, search, { activeOnly, orgId });
 
   const monthStart = sYmd.slice(0, 7) + '-01';
   const conds = [
@@ -181,6 +189,10 @@ async function generateWeeklyReport(startDateStr, endDateStr, { userId = null, s
   if (userId) {
     conds.push('a.user_id = ?');
     params.push(String(userId));
+  }
+  if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+    conds.push(`COALESCE(a.org_id, e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?`);
+    params.push(String(orgId));
   }
 
   const dataSql = `
@@ -337,7 +349,7 @@ async function generateWeeklyReport(startDateStr, endDateStr, { userId = null, s
 /**
  * Generates Monthly Report (Full calendar month)
  */
-async function generateMonthlyReport(yearMonthStr, { userId = null, search = '', scope = 'all', activeOnly = true } = {}) {
+async function generateMonthlyReport(yearMonthStr, { userId = null, search = '', scope = 'all', activeOnly = true, orgId = null } = {}) {
   const now = new Date();
   const ym = yearMonthStr || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [year, month] = ym.split('-').map(n => parseInt(n, 10));
@@ -356,7 +368,7 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
   }
 
   const holidays = await dbAll('SELECT * FROM holidays');
-  const allEmployees = await getEnrolledEmployees(userId, search, { activeOnly });
+  const allEmployees = await getEnrolledEmployees(userId, search, { activeOnly, orgId });
 
   const conds = [
     `strftime('%Y-%m-%d', a.punch_time) >= ?`,
@@ -370,6 +382,10 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
   if (userId) {
     conds.push('a.user_id = ?');
     params.push(String(userId));
+  }
+  if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+    conds.push(`COALESCE(a.org_id, e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?`);
+    params.push(String(orgId));
   }
 
   const dataSql = `

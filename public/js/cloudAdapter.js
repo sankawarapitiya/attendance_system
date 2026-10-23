@@ -32,7 +32,18 @@
     defaultOrgId: 'DSOFFICE_LUNUGAMWEHERA'
   };
 
-  let activeOrgId = localStorage.getItem('speedface_cloud_org_id') || CLOUD_CONFIG.defaultOrgId;
+  function getActivePartition() {
+    try {
+      const saved = localStorage.getItem('speedface_auth_user');
+      if (saved) {
+        const u = JSON.parse(saved);
+        if (u.orgId) return u.orgId;
+      }
+    } catch (e) {}
+    return localStorage.getItem('speedface_cloud_org_id') || CLOUD_CONFIG.defaultOrgId;
+  }
+
+  let activeOrgId = getActivePartition();
 
   // In-memory cache for speed, filtering, and offline resilience
   const memoryCache = {
@@ -86,6 +97,7 @@
    * Fetch documents from a subcollection under the active organization partition
    */
   async function fetchFirestoreCollection(subcollection, pageSize = 300) {
+    activeOrgId = getActivePartition();
     const baseUrl = `https://firestore.googleapis.com/v1/projects/${CLOUD_CONFIG.projectId}/databases/(default)/documents/organizations/${activeOrgId}/${subcollection}?pageSize=${pageSize}&key=${CLOUD_CONFIG.apiKey}`;
     let docs = [];
     let pageToken = null;
@@ -120,6 +132,8 @@
    * Load and map employees from Firestore
    */
   async function getCloudEmployees() {
+    const curOrg = getActivePartition();
+    if (memoryCache.cachedOrgId !== curOrg) { memoryCache.cachedOrgId = curOrg; memoryCache.employees = null; memoryCache.attendance = null; }
     if (memoryCache.employees && (Date.now() - memoryCache.lastFetchedEmp < 180000)) {
       return memoryCache.employees;
     }
@@ -161,6 +175,8 @@
    * Load and map attendance records from Firestore
    */
   async function getCloudAttendance() {
+    const curOrg = getActivePartition();
+    if (memoryCache.cachedOrgId !== curOrg) { memoryCache.cachedOrgId = curOrg; memoryCache.employees = null; memoryCache.attendance = null; }
     if (memoryCache.attendance && (Date.now() - memoryCache.lastFetchedAtt < 60000)) {
       return memoryCache.attendance;
     }

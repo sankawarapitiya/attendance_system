@@ -253,6 +253,14 @@ const state = {
   ws: null
 };
 
+function getActiveOrgFilter() {
+  if (state.currentUser && state.currentUser.orgId) {
+    return state.currentUser.orgId;
+  }
+  return localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
+}
+
+
 // DOM Ready
 document.addEventListener('DOMContentLoaded', () => {
   if (window.IS_CLOUD_MODE) {
@@ -345,7 +353,7 @@ function switchTab(tabId) {
     return;
   }
 
-  if (role === 'staff' && ['tab-device', 'tab-api', 'tab-shifts', 'tab-employees', 'tab-settings'].includes(tabId)) {
+  if (role === 'staff' && ['tab-device', 'tab-api', 'tab-shifts', 'tab-settings'].includes(tabId)) {
     showToast('👤 Staff accounts have access to Dashboard, Logs, and Timesheets only.', 'warning');
     return;
   }
@@ -373,7 +381,6 @@ function switchTab(tabId) {
     'tab-device': ['SpeedFace Device Control', 'Hardware status, clock sync, and background scheduler'],
     'tab-guide': ['SpeedFace Setup Assistant', 'Step-by-step terminal network and ADMS push setup'],
     'tab-api': ['API Service & Integration Gateway', 'REST API endpoints for third-party ERP, Payroll, and HR software integration'],
-    'tab-user-login': ['User Login & Monthly Timesheet', 'Self-service timesheet lookup and export by FingerPrint ID'],
     'tab-settings': ['System Settings & User Management', 'Manage organization details, system users, letterheads, and access control']
   };
 
@@ -391,7 +398,6 @@ function switchTab(tabId) {
   if (tabId === 'tab-device') loadDeviceControlData();
   if (tabId === 'tab-guide') loadGuideIps();
   if (tabId === 'tab-api') initApiServiceTab();
-  if (tabId === 'tab-user-login') initUserLoginTab();
   if (tabId === 'tab-settings') initSettingsTab();
 }
 
@@ -405,7 +411,9 @@ async function initDashboard() {
 
 async function loadDashboardStats() {
   try {
-    const res = await fetch('/api/stats');
+    const org = getActiveOrgFilter();
+    const url = org && org !== 'ALL' ? `/api/stats?orgId=${encodeURIComponent(org)}` : '/api/stats';
+    const res = await fetch(url, { headers: { 'x-organization-id': org || '' } });
     const data = await res.json();
     if (!data.success) return;
 
@@ -517,7 +525,9 @@ async function loadTodayPreview() {
 
 async function loadLiveFeed() {
   try {
-    const res = await fetch('/api/records?limit=15');
+    const org = getActiveOrgFilter();
+    const url = org && org !== 'ALL' ? `/api/records?limit=15&orgId=${encodeURIComponent(org)}` : '/api/records?limit=15';
+    const res = await fetch(url, { headers: { 'x-organization-id': org || '' } });
     const data = await res.json();
     const list = document.getElementById('liveFeedList');
     if (!list) return;
@@ -808,7 +818,9 @@ async function loadDailyRecords() {
       q.set('statusFilter', state.daily.statusFilter);
     }
 
-    const res = await fetch(`/api/records/daily?${q.toString()}`);
+    const org = getActiveOrgFilter();
+    if (org && org !== 'ALL') q.set('orgId', org);
+    const res = await fetch(`/api/records/daily?${q.toString()}`, { headers: { 'x-organization-id': org || '' } });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
 
@@ -916,7 +928,7 @@ async function loadPunchRecords() {
   tbody.innerHTML = `<tr><td colspan="10" class="text-center py-4">Loading punch records...</td></tr>`;
 
   try {
-    const res = await fetch(`/api/records?${buildQueryString()}`);
+    const res = await fetch(`/api/records?${buildQueryString()}`, { headers: { 'x-organization-id': getActiveOrgFilter() || '' } });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
 
@@ -1017,6 +1029,7 @@ function triggerExport(format) {
     q.set('format', format);
 
     showToast(`Generating Daily Attendance ${format.toUpperCase()} export for ${state.daily.date}...`, 'info');
+    const org = getActiveOrgFilter(); if (org && org !== 'ALL') q.set('orgId', org);
     window.location.href = `/api/records/daily/export?${q.toString()}`;
   } else {
     const q = new URLSearchParams();
@@ -1028,6 +1041,7 @@ function triggerExport(format) {
     q.set('format', format);
 
     showToast(`Generating Punch Logs ${format.toUpperCase()} export...`, 'info');
+    const org = getActiveOrgFilter(); if (org && org !== 'ALL') q.set('orgId', org);
     window.location.href = `/api/records/export?${q.toString()}`;
   }
 }
@@ -2078,7 +2092,9 @@ async function loadReportData() {
       q.set('activeOnly', state.report.activeOnly !== false ? 'true' : 'false');
     }
 
-    const res = await fetch(`/api/reports/data?${q.toString()}`);
+    const org = getActiveOrgFilter();
+    if (org && org !== 'ALL') q.set('orgId', org);
+    const res = await fetch(`/api/reports/data?${q.toString()}`, { headers: { 'x-organization-id': org || '' } });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
 
@@ -3546,6 +3562,7 @@ function triggerReportExport(format) {
   }
 
   showToast(`Generating ${state.report.type.toUpperCase()} Report ${format.toUpperCase()} export...`, 'info');
+  const org = getActiveOrgFilter(); if (org && org !== 'ALL') q.set('orgId', org);
   window.location.href = `/api/reports/export?${q.toString()}`;
 }
 
@@ -3559,12 +3576,14 @@ async function initEmployees() {
 
   document.getElementById('btnExportEmployeesExcel')?.addEventListener('click', () => {
     showToast('Generating Employees Excel export...', 'info');
-    window.location.href = '/api/employees/export?format=xlsx';
+    const org = getActiveOrgFilter(); const orgParam = org && org !== 'ALL' ? `&orgId=${encodeURIComponent(org)}` : '';
+    window.location.href = `/api/employees/export?format=xlsx${orgParam}`;
   });
 
   document.getElementById('btnExportEmployeesCsv')?.addEventListener('click', () => {
     showToast('Generating Employees CSV export...', 'info');
-    window.location.href = '/api/employees/export?format=csv';
+    const org = getActiveOrgFilter(); const orgParam = org && org !== 'ALL' ? `&orgId=${encodeURIComponent(org)}` : '';
+    window.location.href = `/api/employees/export?format=csv${orgParam}`;
   });
 
   // Employee Upload / Import Handlers
@@ -4667,7 +4686,9 @@ async function loadEmployees() {
   }
 
   try {
-    const res = await fetch('/api/employees?status=all');
+    const org = getActiveOrgFilter();
+    const url = org && org !== 'ALL' ? `/api/employees?status=all&orgId=${encodeURIComponent(org)}` : '/api/employees?status=all';
+    const res = await fetch(url, { headers: { 'x-organization-id': org || '' } });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
 
@@ -4735,6 +4756,23 @@ async function openEmployeeModal(emp) {
   document.getElementById('modalRole').value = emp.role || '';
   document.getElementById('modalEmail').value = emp.email || '';
   document.getElementById('modalPhone').value = emp.phone || '';
+
+  const orgSelect = document.getElementById('modalOrgId');
+  if (orgSelect) {
+    orgSelect.value = emp.org_id || getActiveOrgFilter();
+    if (state.currentUser && state.currentUser.role !== 'admin') {
+      orgSelect.value = state.currentUser.orgId;
+      orgSelect.disabled = true;
+    } else {
+      orgSelect.disabled = false;
+    }
+  }
+
+  const isStaffUser = (state.currentUser && state.currentUser.role === 'staff');
+  const btnSaveModal = document.getElementById('btnModalSave');
+  if (btnSaveModal) btnSaveModal.style.display = isStaffUser ? 'none' : 'inline-flex';
+  const modalDelBtn = document.getElementById('btnModalDeleteEmployee');
+  if (modalDelBtn && isStaffUser) modalDelBtn.style.display = 'none';
 
   const chkActive = document.getElementById('modalIsActive');
   if (chkActive) {
@@ -10005,6 +10043,11 @@ function applyRolePermissions(user) {
     if (navShifts) { navShifts.style.display = 'flex'; }
     if (navEmployees) { navEmployees.style.display = 'flex'; }
     if (navSettings) { navSettings.style.display = 'flex'; }
+  const btnUploadEmployees = document.getElementById('btnUploadEmployees');
+  const btnSyncUsersTerminal = document.getElementById('btnSyncUsers');
+  if (btnUploadEmployees) btnUploadEmployees.style.display = (role === 'staff') ? 'none' : 'inline-flex';
+  if (btnSyncUsersTerminal) btnSyncUsersTerminal.style.display = (role === 'staff') ? 'none' : 'inline-flex';
+
   } else if (role === 'manager') {
     if (navDevice) { navDevice.style.display = 'none'; }
     if (navApi) { navApi.style.display = 'none'; }
@@ -10021,7 +10064,7 @@ function applyRolePermissions(user) {
   }
 
   // 3. Prevent non-admins/non-managers from staying on restricted tabs
-  if (role === 'staff' && ['tab-device', 'tab-api', 'tab-shifts', 'tab-employees', 'tab-settings'].includes(state.currentTab)) {
+  if (role === 'staff' && ['tab-device', 'tab-api', 'tab-shifts', 'tab-settings'].includes(state.currentTab)) {
     switchTab('tab-dashboard');
   } else if (role === 'manager' && ['tab-device', 'tab-api'].includes(state.currentTab)) {
     switchTab('tab-dashboard');
