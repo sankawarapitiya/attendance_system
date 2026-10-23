@@ -11,7 +11,9 @@ const {
   getSystemUserByUid,
   getSystemUsersByOrg,
   saveSystemUser,
-  deleteSystemUser
+  deleteSystemUser,
+  getShiftsByOrg,
+  getHolidaysByOrg
 } = require('./db');
 const { syncFromDevice, cancelDeviceSync, checkDeviceHealth, getSyncStatus, startAutoSync, stopAutoSync } = require('./syncService');
 const { SpeedFaceClient } = require('./zktProtocol');
@@ -273,7 +275,7 @@ router.get('/records', async (req, res) => {
     `;
 
     const records = await dbAll(dataSql, [...queryParams, limit, offset]);
-    const holidays = await dbAll(`SELECT * FROM holidays`);
+    const holidays = await getHolidaysByOrg(orgId);
 
     // Ensure 100% accurate first punch (Check-In) and last punch (Check-Out)
     // by fetching full day context for the users and dates in this page:
@@ -403,7 +405,7 @@ router.get('/records/export', async (req, res) => {
     `;
 
     const records = await dbAll(dataSql, queryParams);
-    const holidays = await dbAll(`SELECT * FROM holidays`);
+    const holidays = await getHolidaysByOrg(orgId);
     let graceHelper;
     if (records.length > 0) {
       const userIds = [...new Set(records.map(r => r.user_id))];
@@ -564,7 +566,7 @@ router.get('/records/daily', async (req, res) => {
     `;
 
     const records = await dbAll(dataSql, queryParams);
-    const holidays = await dbAll(`SELECT * FROM holidays`);
+    const holidays = await getHolidaysByOrg(orgId);
 
     // Fetch all employees to include all enrolled users
     const empConditions = [];
@@ -722,7 +724,7 @@ router.get('/records/daily/export', async (req, res) => {
     `;
 
     const records = await dbAll(dataSql, queryParams);
-    const holidays = await dbAll(`SELECT * FROM holidays`);
+    const holidays = await getHolidaysByOrg(orgId);
 
     const empConditions = [];
     const empParams = [];
@@ -2090,15 +2092,8 @@ router.post('/employees/assign-shift', async (req, res) => {
 // 9. Working Shifts CRUD
 router.get('/shifts', async (req, res) => {
   try {
-    const shifts = await dbAll(`
-      SELECT 
-        s.*,
-        COUNT(e.user_id) as employee_count
-      FROM working_shifts s
-      LEFT JOIN employees e ON s.id = e.shift_id
-      GROUP BY s.id
-      ORDER BY s.id ASC
-    `);
+    const orgId = req.query.orgId || req.headers['x-organization-id'];
+    const shifts = await getShiftsByOrg(orgId);
     res.json({ success: true, shifts });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -2131,15 +2126,18 @@ router.post('/shifts', async (req, res) => {
       enable_overtime = 1,
       work_days = '1,2,3,4,5', 
       color = '#2563eb', 
-      is_default = 0 
+      is_default = 0,
+      org_id
     } = req.body;
 
     if (!name || !start_time || !end_time) {
       return res.status(400).json({ success: false, error: 'Shift name, start time, and end time are required' });
     }
 
+    const targetOrg = (org_id || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+
     if (is_default) {
-      await dbRun(`UPDATE working_shifts SET is_default = 0`);
+      await dbRun(`UPDATE working_shifts SET is_default = 0 WHERE (UPPER(org_id) = ? OR org_id = 'DEFAULT')`, [targetOrg]);
     }
 
     const result = await dbRun(`
@@ -2149,9 +2147,9 @@ router.post('/shifts', async (req, res) => {
         monthly_short_leaves, morning_short_leave_start, morning_short_leave_end, evening_short_leave_start, evening_short_leave_end, disallow_grace_and_short_leave_same_day,
         ot_min_mins, ot_step_mins,
         enable_morning_grace, enable_short_leave, enable_half_day_calc, enable_overtime,
-        work_days, color, is_default
+        work_days, color, is_default, org_id, sync_status
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
     `, [
       name.trim(), 
       start_time.trim(), 
@@ -2176,10 +2174,19 @@ router.post('/shifts', async (req, res) => {
       enable_overtime !== undefined ? (enable_overtime ? 1 : 0) : 1,
       work_days.trim(), 
       color || '#2563eb', 
-      is_default ? 1 : 0
+      is_default ? 1 : 0,
+      targetOrg
     ]);
 
-    res.json({ success: true, id: result.lastID, message: 'Working shift created successfully' });
+    // Push new shift to Firestore in background
+    const createdShift = await dbGet(`SELECT * FROM working_shifts WHERE id = ?`, [result.lastID]);
+    if (createdShift) {
+      firebaseService.pushWorkingShiftToCloud(createdShift, targetOrg).catch(e => {
+        console.warn('[FIREBASE] Background push shift notice:', e.message);
+      });
+    }
+
+    res.json({ success: true, id: result.lastID, message: 'Working shift created successfully', org_id: targetOrg });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -2212,11 +2219,19 @@ router.put('/shifts/:id', async (req, res) => {
       enable_overtime,
       work_days, 
       color, 
-      is_default 
+      is_default,
+      org_id
     } = req.body;
 
+    const existingShift = await dbGet(`SELECT * FROM working_shifts WHERE id = ?`, [shiftId]);
+    if (!existingShift) {
+      return res.status(404).json({ success: false, error: 'Shift not found' });
+    }
+
+    const targetOrg = (org_id || existingShift.org_id || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+
     if (is_default) {
-      await dbRun(`UPDATE working_shifts SET is_default = 0`);
+      await dbRun(`UPDATE working_shifts SET is_default = 0 WHERE (UPPER(org_id) = ? OR org_id = 'DEFAULT')`, [targetOrg]);
     }
 
     await dbRun(`
@@ -2244,7 +2259,10 @@ router.put('/shifts/:id', async (req, res) => {
         enable_overtime = COALESCE(?, enable_overtime),
         work_days = COALESCE(?, work_days),
         color = COALESCE(?, color),
-        is_default = COALESCE(?, is_default)
+        is_default = COALESCE(?, is_default),
+        org_id = COALESCE(?, org_id),
+        sync_status = 'PENDING',
+        updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `, [
       name ? name.trim() : null,
@@ -2271,10 +2289,19 @@ router.put('/shifts/:id', async (req, res) => {
       work_days ? work_days.trim() : null,
       color || null,
       is_default !== undefined ? (is_default ? 1 : 0) : null,
+      targetOrg,
       shiftId
     ]);
 
-    res.json({ success: true, message: 'Working shift updated successfully' });
+    // Push updated shift to Firestore in background
+    const updatedShift = await dbGet(`SELECT * FROM working_shifts WHERE id = ?`, [shiftId]);
+    if (updatedShift) {
+      firebaseService.pushWorkingShiftToCloud(updatedShift, targetOrg).catch(e => {
+        console.warn('[FIREBASE] Background push updated shift notice:', e.message);
+      });
+    }
+
+    res.json({ success: true, message: 'Working shift updated successfully', org_id: targetOrg });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -2295,7 +2322,24 @@ router.delete('/shifts/:id', async (req, res) => {
     await dbRun(`UPDATE employees SET shift_id = 1 WHERE shift_id = ?`, [shiftId]);
     await dbRun(`DELETE FROM working_shifts WHERE id = ?`, [shiftId]);
 
+    // Delete shift from Firestore in background
+    firebaseService.deleteWorkingShiftFromCloud(shiftId, shift.org_id).catch(e => {
+      console.warn('[FIREBASE] Background delete shift notice:', e.message);
+    });
+
     res.json({ success: true, message: 'Shift deleted, assigned employees moved to default shift' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Trigger shifts sync under partition
+router.post('/shifts/sync', async (req, res) => {
+  try {
+    const orgId = req.body.orgId || req.query.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const direction = req.body.direction || 'two_way';
+    const result = await firebaseService.syncWorkingShifts({ orgId, direction });
+    res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -2420,7 +2464,8 @@ router.get('/holidays/sample-template', async (req, res) => {
 
 router.get('/holidays', async (req, res) => {
   try {
-    const holidays = await dbAll(`SELECT * FROM holidays ORDER BY holiday_date ASC`);
+    const orgId = req.query.orgId || req.headers['x-organization-id'];
+    const holidays = await getHolidaysByOrg(orgId);
     res.json({ success: true, holidays });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -2436,16 +2481,19 @@ router.post('/holidays', async (req, res) => {
       is_recurring = 0,
       bank_holiday = 0,
       public_holiday = 1,
-      mercantile_holiday = 0
+      mercantile_holiday = 0,
+      org_id
     } = req.body;
 
     if (!name || !holiday_date) {
       return res.status(400).json({ success: false, error: 'Holiday name and date are required' });
     }
 
-    await dbRun(`
-      INSERT OR REPLACE INTO holidays (name, holiday_date, holiday_type, bank_holiday, public_holiday, mercantile_holiday, is_recurring)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+    const targetOrg = (org_id || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+
+    const result = await dbRun(`
+      INSERT OR REPLACE INTO holidays (name, holiday_date, holiday_type, bank_holiday, public_holiday, mercantile_holiday, is_recurring, org_id, sync_status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
     `, [
       name.trim(),
       holiday_date.trim(),
@@ -2453,10 +2501,27 @@ router.post('/holidays', async (req, res) => {
       bank_holiday ? 1 : 0,
       public_holiday ? 1 : 0,
       mercantile_holiday ? 1 : 0,
-      is_recurring ? 1 : 0
+      is_recurring ? 1 : 0,
+      targetOrg
     ]);
 
-    res.json({ success: true, message: 'Holiday saved successfully' });
+    // Push new holiday to Firestore in background
+    const newHoliday = {
+      id: result.lastID,
+      name: name.trim(),
+      holiday_date: holiday_date.trim(),
+      holiday_type: holiday_type.trim(),
+      bank_holiday: bank_holiday ? 1 : 0,
+      public_holiday: public_holiday ? 1 : 0,
+      mercantile_holiday: mercantile_holiday ? 1 : 0,
+      is_recurring: is_recurring ? 1 : 0,
+      org_id: targetOrg
+    };
+    firebaseService.pushHolidayToCloud(newHoliday, targetOrg).catch(e => {
+      console.warn('[FIREBASE] Background push holiday notice:', e.message);
+    });
+
+    res.json({ success: true, message: 'Holiday saved successfully', org_id: targetOrg });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -2489,7 +2554,7 @@ router.post('/holidays/parse', async (req, res) => {
 
 router.post('/holidays/upload', async (req, res) => {
   try {
-    const { csvText, fileData, holidays: preParsed, replaceExisting = false } = req.body;
+    const { csvText, fileData, holidays: preParsed, replaceExisting = false, org_id } = req.body;
     let list = [];
 
     if (Array.isArray(preParsed) && preParsed.length > 0) {
@@ -2508,16 +2573,18 @@ router.post('/holidays/upload', async (req, res) => {
       return res.status(400).json({ success: false, error: 'No valid holiday records found in upload' });
     }
 
+    const targetOrg = (org_id || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+
     if (replaceExisting) {
-      await dbRun(`DELETE FROM holidays`);
+      await dbRun(`DELETE FROM holidays WHERE (UPPER(org_id) = ? OR org_id = 'DEFAULT')`, [targetOrg]);
     }
 
     let insertedCount = 0;
     for (const h of list) {
       if (!h.name || !h.holiday_date) continue;
       await dbRun(`
-        INSERT OR REPLACE INTO holidays (name, holiday_date, holiday_type, bank_holiday, public_holiday, mercantile_holiday, is_recurring)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO holidays (name, holiday_date, holiday_type, bank_holiday, public_holiday, mercantile_holiday, is_recurring, org_id, sync_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
       `, [
         h.name.trim(),
         h.holiday_date.trim(),
@@ -2525,15 +2592,22 @@ router.post('/holidays/upload', async (req, res) => {
         h.bank_holiday ? 1 : 0,
         h.public_holiday !== undefined ? (h.public_holiday ? 1 : 0) : 1,
         h.mercantile_holiday ? 1 : 0,
-        h.is_recurring ? 1 : 0
+        h.is_recurring ? 1 : 0,
+        targetOrg
       ]);
       insertedCount++;
     }
 
+    // Trigger cloud upload for new holidays in background
+    firebaseService.syncHolidays({ orgId: targetOrg, direction: 'upload' }).catch(e => {
+      console.warn('[FIREBASE] Background holidays upload sync notice:', e.message);
+    });
+
     res.json({
       success: true,
       message: `Successfully processed and saved ${insertedCount} holidays.`,
-      count: insertedCount
+      count: insertedCount,
+      org_id: targetOrg
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -2543,8 +2617,43 @@ router.post('/holidays/upload', async (req, res) => {
 router.delete('/holidays/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    const holiday = await dbGet(`SELECT * FROM holidays WHERE id = ?`, [id]);
+    if (!holiday) {
+      return res.status(404).json({ success: false, error: 'Holiday not found' });
+    }
+
     await dbRun(`DELETE FROM holidays WHERE id = ?`, [id]);
+
+    // Delete from Firestore in background
+    firebaseService.deleteHolidayFromCloud(holiday, holiday.org_id).catch(e => {
+      console.warn('[FIREBASE] Background delete holiday notice:', e.message);
+    });
+
     res.json({ success: true, message: 'Holiday removed successfully' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Trigger holidays sync under partition
+router.post('/holidays/sync', async (req, res) => {
+  try {
+    const orgId = req.body.orgId || req.query.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const direction = req.body.direction || 'two_way';
+    const result = await firebaseService.syncHolidays({ orgId, direction });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Trigger combined two-way sync for both Shifts and Holidays under partition
+router.post('/firebase/sync-shifts-holidays', async (req, res) => {
+  try {
+    const orgId = req.body.orgId || req.query.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const direction = req.body.direction || 'two_way';
+    const result = await firebaseService.twoWaySyncShiftsAndHolidays({ orgId, direction });
+    res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

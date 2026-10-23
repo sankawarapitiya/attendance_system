@@ -1116,6 +1116,41 @@
 
       <!-- TAB: WORKING SHIFTS & HOLIDAYS -->
       <section class="tab-content" id="tab-shifts">
+        <!-- Multi-Organization Partition & Cloud Two-Way Sync Bar -->
+        <div class="card" style="margin-bottom: 20px; background: linear-gradient(135deg, rgba(14, 165, 233, 0.05), rgba(99, 102, 241, 0.05)); border: 1px solid rgba(14, 165, 233, 0.25);">
+          <div class="card-body" style="padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 14px;">
+              <div style="background: linear-gradient(135deg, #0284c7, #2563eb); color: white; border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 24px; height: 24px;"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/><polyline points="12 12 15 15 12 18"/><polyline points="12 6 9 9 12 12"/></svg>
+              </div>
+              <div>
+                <div style="font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <span>Multi-Organization Cloud Partition:</span>
+                  <span class="badge" id="shiftsOrgPartitionBadge" style="background: #e0f2fe; color: #0369a1; font-weight: 700; padding: 3px 10px; border-radius: 6px; font-family: monospace; font-size: 13px;">DSOFFICE_LUNUGAMWEHERA</span>
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">
+                  Synchronized two-way under <code style="background: rgba(0,0,0,0.04); padding: 1px 5px; border-radius: 4px; font-size: 11px;">organizations/<span id="shiftsOrgPathSpan">DSOFFICE_LUNUGAMWEHERA</span>/working_shifts</code> &amp; <code style="background: rgba(0,0,0,0.04); padding: 1px 5px; border-radius: 4px; font-size: 11px;">holidays</code>
+                  <span id="shiftsSyncStatusText" style="margin-left: 10px; font-weight: 500; color: #059669;"></span>
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-primary" id="btnTwoWaySyncShifts" type="button" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600;" title="Full two-way synchronization of working shifts and holidays with Firebase">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;" id="shiftsSyncIcon"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <span>Two-Way Cloud Sync</span>
+              </button>
+              <button class="btn btn-outline" id="btnPullShiftsFromCloud" type="button" style="display: inline-flex; align-items: center; gap: 6px;" title="Download shifts & holidays from Cloud Partition to local SQLite">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span>Pull from Cloud</span>
+              </button>
+              <button class="btn btn-outline" id="btnPushShiftsToCloud" type="button" style="display: inline-flex; align-items: center; gap: 6px;" title="Upload local shifts & holidays to Cloud Partition">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span>Push to Cloud</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Working Shifts Card -->
         <div class="card" style="margin-bottom: 24px;">
           <div class="card-header">

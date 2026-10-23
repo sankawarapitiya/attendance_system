@@ -16,7 +16,13 @@ const {
   getAttendanceByDateRange,
   insertAttendanceFromCloud,
   getSystemUsersByOrg,
-  saveSystemUser
+  saveSystemUser,
+  getShiftsByOrg,
+  getHolidaysByOrg,
+  upsertWorkingShiftFromCloud,
+  upsertHolidayFromCloud,
+  markShiftsCloudSynced,
+  markHolidaysCloudSynced
 } = require('./db');
 
 const CREDENTIALS_DIR = path.join(process.cwd(), 'data', 'credentials');
@@ -1421,6 +1427,385 @@ class FirebaseService {
     try {
       await this._commitRestWrites([write]);
       return { success: true, uid, orgId: targetOrg, collection: 'system_users' };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Synchronize Working Shifts for an organization partition (two-way, upload, or download).
+   * Firestore path: organizations/{orgId}/working_shifts/{shiftId}
+   */
+  async syncWorkingShifts(options = {}) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const orgConfig = await this.getOrganizationConfig();
+    const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const direction = options.direction || 'two_way'; // 'two_way', 'upload', 'download'
+    const projectId = this.keyData.project_id;
+    const nowIso = new Date().toISOString();
+
+    let downloadedCount = 0;
+    let uploadedCount = 0;
+
+    try {
+      // 1. Download from Cloud if 'two_way' or 'download'
+      if (direction === 'two_way' || direction === 'download') {
+        const snapshot = await this.firestore.collection(`organizations/${orgId}/working_shifts`).get();
+        if (!snapshot.empty) {
+          for (const doc of snapshot.docs) {
+            const data = doc.data();
+            await upsertWorkingShiftFromCloud(data, orgId);
+            downloadedCount++;
+          }
+        }
+      }
+
+      // 2. Upload local shifts to Cloud if 'two_way' or 'upload'
+      if (direction === 'two_way' || direction === 'upload') {
+        const localShifts = await getShiftsByOrg(orgId);
+        if (localShifts && localShifts.length > 0) {
+          const writes = [];
+          const syncedIds = [];
+          for (const s of localShifts) {
+            const docId = `shift_${s.id}`;
+            const payload = {
+              id: s.id,
+              name: s.name,
+              startTime: s.start_time,
+              endTime: s.end_time,
+              gracePeriodMins: s.grace_period_mins,
+              monthlyGraceDays: s.monthly_grace_days,
+              lateCoverEnd: Boolean(s.late_cover_end),
+              halfDayHours: s.half_day_hours,
+              lateHalfDayHours: s.late_half_day_hours,
+              fullDayHours: s.full_day_hours,
+              workDays: s.work_days || '1,2,3,4,5',
+              color: s.color || '#2563eb',
+              isDefault: Boolean(s.is_default),
+              monthlyShortLeaves: s.monthly_short_leaves,
+              morningShortLeaveStart: s.morning_short_leave_start || '09:00',
+              morningShortLeaveEnd: s.morning_short_leave_end || '10:00',
+              eveningShortLeaveStart: s.evening_short_leave_start || '14:45',
+              eveningShortLeaveEnd: s.evening_short_leave_end || '16:15',
+              disallowGraceAndShortLeaveSameDay: Boolean(s.disallow_grace_and_short_leave_same_day),
+              otMinMins: s.ot_min_mins,
+              otStepMins: s.ot_step_mins,
+              enableMorningGrace: Boolean(s.enable_morning_grace),
+              enableShortLeave: Boolean(s.enable_short_leave),
+              enableHalfDayCalc: Boolean(s.enable_half_day_calc),
+              enableOvertime: Boolean(s.enable_overtime),
+              organizationId: orgId,
+              syncedAt: nowIso
+            };
+
+            writes.push({
+              update: {
+                name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/working_shifts/${docId}`,
+                fields: toFirestoreFields(payload)
+              }
+            });
+            syncedIds.push(s.id);
+          }
+
+          if (writes.length > 0) {
+            await this._commitRestWrites(writes);
+            await markShiftsCloudSynced(syncedIds);
+            uploadedCount = syncedIds.length;
+          }
+        }
+      }
+
+      return {
+        success: true,
+        orgId,
+        direction,
+        downloadedCount,
+        uploadedCount
+      };
+    } catch (err) {
+      console.warn(`[FIREBASE] Working shifts sync notice: ${err.message}`);
+      return { success: false, error: err.message, orgId };
+    }
+  }
+
+  /**
+   * Synchronize Holidays for an organization partition (two-way, upload, or download).
+   * Firestore path: organizations/{orgId}/holidays/{holidayDocId}
+   */
+  async syncHolidays(options = {}) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const orgConfig = await this.getOrganizationConfig();
+    const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const direction = options.direction || 'two_way';
+    const projectId = this.keyData.project_id;
+    const nowIso = new Date().toISOString();
+
+    let downloadedCount = 0;
+    let uploadedCount = 0;
+
+    try {
+      // 1. Download from Cloud if 'two_way' or 'download'
+      if (direction === 'two_way' || direction === 'download') {
+        const snapshot = await this.firestore.collection(`organizations/${orgId}/holidays`).get();
+        if (!snapshot.empty) {
+          for (const doc of snapshot.docs) {
+            const data = doc.data();
+            await upsertHolidayFromCloud(data, orgId);
+            downloadedCount++;
+          }
+        }
+      }
+
+      // 2. Upload local holidays to Cloud if 'two_way' or 'upload'
+      if (direction === 'two_way' || direction === 'upload') {
+        const localHolidays = await getHolidaysByOrg(orgId);
+        if (localHolidays && localHolidays.length > 0) {
+          const writes = [];
+          const syncedIds = [];
+          for (const h of localHolidays) {
+            const cleanName = (h.name || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32);
+            const docId = `h_${h.holiday_date}_${cleanName}`;
+            const payload = {
+              id: h.id,
+              name: h.name,
+              holidayDate: h.holiday_date,
+              holidayType: h.holiday_type || 'Public Holiday',
+              bankHoliday: Boolean(h.bank_holiday),
+              publicHoliday: Boolean(h.public_holiday),
+              mercantileHoliday: Boolean(h.mercantile_holiday),
+              isRecurring: Boolean(h.is_recurring),
+              organizationId: orgId,
+              syncedAt: nowIso
+            };
+
+            writes.push({
+              update: {
+                name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/holidays/${docId}`,
+                fields: toFirestoreFields(payload)
+              }
+            });
+            syncedIds.push(h.id);
+          }
+
+          if (writes.length > 0) {
+            for (let i = 0; i < writes.length; i += 100) {
+              const chunk = writes.slice(i, i + 100);
+              await this._commitRestWrites(chunk);
+            }
+            await markHolidaysCloudSynced(syncedIds);
+            uploadedCount = syncedIds.length;
+          }
+        }
+      }
+
+      return {
+        success: true,
+        orgId,
+        direction,
+        downloadedCount,
+        uploadedCount
+      };
+    } catch (err) {
+      console.warn(`[FIREBASE] Holidays sync notice: ${err.message}`);
+      return { success: false, error: err.message, orgId };
+    }
+  }
+
+  /**
+   * Consolidated two-way sync for Shifts and Holidays under an organization partition
+   */
+  async twoWaySyncShiftsAndHolidays(options = {}) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const orgConfig = await this.getOrganizationConfig();
+    const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const direction = options.direction || 'two_way';
+
+    this.notify('SHIFTS_HOLIDAYS_SYNC_STATUS', {
+      isSyncing: true,
+      orgId,
+      direction,
+      message: `Starting ${direction === 'two_way' ? 'two-way' : direction} sync for shifts & holidays (${orgId})...`
+    });
+
+    const shiftRes = await this.syncWorkingShifts({ orgId, direction });
+    const holidayRes = await this.syncHolidays({ orgId, direction });
+
+    const totalDownloaded = (shiftRes.downloadedCount || 0) + (holidayRes.downloadedCount || 0);
+    const totalUploaded = (shiftRes.uploadedCount || 0) + (holidayRes.uploadedCount || 0);
+
+    const message = `Cloud sync complete for ${orgId}: ${totalUploaded} items uploaded, ${totalDownloaded} items downloaded.`;
+
+    await dbRun(`
+      INSERT INTO sync_logs (sync_type, status, records_synced, total_records, message)
+      VALUES ('SHIFTS_HOLIDAYS_SYNC', 'SUCCESS', ?, ?, ?)
+    `, [totalUploaded + totalDownloaded, totalUploaded + totalDownloaded, message]).catch(() => {});
+
+    this.notify('SHIFTS_HOLIDAYS_SYNC_STATUS', {
+      isSyncing: false,
+      orgId,
+      direction,
+      shifts: shiftRes,
+      holidays: holidayRes,
+      message
+    });
+
+    return {
+      success: true,
+      orgId,
+      direction,
+      shifts: shiftRes,
+      holidays: holidayRes,
+      message
+    };
+  }
+
+  /**
+   * Save or update an individual working shift in Firestore under organizations/{orgId}/working_shifts/shift_{id}
+   */
+  async pushWorkingShiftToCloud(shift, orgId) {
+    if (!shift || !shift.id) return { success: false, error: 'Invalid shift payload' };
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const targetOrg = (orgId || shift.org_id || (await this.getOrganizationConfig()).orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const projectId = this.keyData.project_id;
+    const nowIso = new Date().toISOString();
+    const docId = `shift_${shift.id}`;
+
+    const payload = {
+      id: shift.id,
+      name: shift.name,
+      startTime: shift.start_time,
+      endTime: shift.end_time,
+      gracePeriodMins: shift.grace_period_mins,
+      monthlyGraceDays: shift.monthly_grace_days,
+      lateCoverEnd: Boolean(shift.late_cover_end),
+      halfDayHours: shift.half_day_hours,
+      lateHalfDayHours: shift.late_half_day_hours,
+      fullDayHours: shift.full_day_hours,
+      workDays: shift.work_days || '1,2,3,4,5',
+      color: shift.color || '#2563eb',
+      isDefault: Boolean(shift.is_default),
+      monthlyShortLeaves: shift.monthly_short_leaves,
+      morningShortLeaveStart: shift.morning_short_leave_start || '09:00',
+      morningShortLeaveEnd: shift.morning_short_leave_end || '10:00',
+      eveningShortLeaveStart: shift.evening_short_leave_start || '14:45',
+      eveningShortLeaveEnd: shift.evening_short_leave_end || '16:15',
+      disallowGraceAndShortLeaveSameDay: Boolean(shift.disallow_grace_and_short_leave_same_day),
+      otMinMins: shift.ot_min_mins,
+      otStepMins: shift.ot_step_mins,
+      enableMorningGrace: Boolean(shift.enable_morning_grace),
+      enableShortLeave: Boolean(shift.enable_short_leave),
+      enableHalfDayCalc: Boolean(shift.enable_half_day_calc),
+      enableOvertime: Boolean(shift.enable_overtime),
+      organizationId: targetOrg,
+      syncedAt: nowIso
+    };
+
+    const write = {
+      update: {
+        name: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/working_shifts/${docId}`,
+        fields: toFirestoreFields(payload)
+      }
+    };
+
+    try {
+      await this._commitRestWrites([write]);
+      await markShiftsCloudSynced([shift.id]);
+      return { success: true, id: shift.id, orgId: targetOrg };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Delete a working shift from Firestore
+   */
+  async deleteWorkingShiftFromCloud(shiftId, orgId) {
+    if (!shiftId) return { success: false, error: 'Shift ID is required' };
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const targetOrg = (orgId || (await this.getOrganizationConfig()).orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const projectId = this.keyData.project_id;
+    const docId = `shift_${shiftId}`;
+
+    const write = {
+      delete: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/working_shifts/${docId}`
+    };
+
+    try {
+      await this._commitRestWrites([write]);
+      return { success: true, shiftId, orgId: targetOrg };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Save or update an individual holiday in Firestore under organizations/{orgId}/holidays/{docId}
+   */
+  async pushHolidayToCloud(holiday, orgId) {
+    if (!holiday || !holiday.holiday_date) return { success: false, error: 'Invalid holiday payload' };
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const targetOrg = (orgId || holiday.org_id || (await this.getOrganizationConfig()).orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const projectId = this.keyData.project_id;
+    const nowIso = new Date().toISOString();
+    const cleanName = (holiday.name || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32);
+    const docId = `h_${holiday.holiday_date}_${cleanName}`;
+
+    const payload = {
+      id: holiday.id,
+      name: holiday.name,
+      holidayDate: holiday.holiday_date,
+      holidayType: holiday.holiday_type || 'Public Holiday',
+      bankHoliday: Boolean(holiday.bank_holiday),
+      publicHoliday: Boolean(holiday.public_holiday),
+      mercantileHoliday: Boolean(holiday.mercantile_holiday),
+      isRecurring: Boolean(holiday.is_recurring),
+      organizationId: targetOrg,
+      syncedAt: nowIso
+    };
+
+    const write = {
+      update: {
+        name: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/holidays/${docId}`,
+        fields: toFirestoreFields(payload)
+      }
+    };
+
+    try {
+      await this._commitRestWrites([write]);
+      if (holiday.id) {
+        await markHolidaysCloudSynced([holiday.id]);
+      }
+      return { success: true, docId, orgId: targetOrg };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Delete a holiday from Firestore
+   */
+  async deleteHolidayFromCloud(holiday, orgId) {
+    if (!holiday || !holiday.holiday_date) return { success: false, error: 'Invalid holiday data' };
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const targetOrg = (orgId || (await this.getOrganizationConfig()).orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const projectId = this.keyData.project_id;
+    const cleanName = (holiday.name || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32);
+    const docId = `h_${holiday.holiday_date}_${cleanName}`;
+
+    const write = {
+      delete: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/holidays/${docId}`
+    };
+
+    try {
+      await this._commitRestWrites([write]);
+      return { success: true, docId, orgId: targetOrg };
     } catch (err) {
       return { success: false, error: err.message };
     }

@@ -6363,7 +6363,62 @@ function escapeHtml(str) {
 // 10. Working Shifts & Holidays Module
 // =========================================================
 
+async function updateShiftsOrgPartitionUI() {
+  const org = getActiveOrgFilter();
+  const badge = document.getElementById('shiftsOrgPartitionBadge');
+  const span = document.getElementById('shiftsOrgPathSpan');
+  if (badge) badge.textContent = org;
+  if (span) span.textContent = org;
+}
+
+async function triggerShiftsHolidaysSync(direction = 'two_way') {
+  const orgId = getActiveOrgFilter();
+  const statusText = document.getElementById('shiftsSyncStatusText');
+  const icon = document.getElementById('shiftsSyncIcon');
+  const btn = document.getElementById(
+    direction === 'download' ? 'btnPullShiftsFromCloud' : (direction === 'upload' ? 'btnPushShiftsToCloud' : 'btnTwoWaySyncShifts')
+  );
+
+  try {
+    if (icon) icon.classList.add('spin');
+    if (btn) btn.disabled = true;
+    if (statusText) statusText.textContent = `Syncing (${direction})...`;
+    showToast(`Synchronizing shifts & holidays with Cloud Partition (${orgId})...`, 'info', 3000);
+
+    const res = await fetch('/api/firebase/sync-shifts-holidays', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'X-Organization-Id': orgId
+      },
+      body: JSON.stringify({ orgId, direction })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Failed to sync shifts & holidays');
+
+    const msg = data.message || `Successfully synchronized shifts & holidays under partition "${orgId}"!`;
+    if (statusText) statusText.textContent = `✓ Synced just now`;
+    showToast(msg, 'success', 4000);
+
+    await loadShiftsAndHolidays();
+    if (typeof loadEmployees === 'function') loadEmployees();
+  } catch (err) {
+    if (statusText) statusText.textContent = `Sync failed`;
+    showToast(`Sync notice: ${err.message}`, 'error');
+  } finally {
+    if (icon) icon.classList.remove('spin');
+    if (btn) btn.disabled = false;
+  }
+}
+
 async function initShiftsAndHolidays() {
+  updateShiftsOrgPartitionUI();
+
+  // Multi-Organization Cloud Two-Way Sync event listeners
+  document.getElementById('btnTwoWaySyncShifts')?.addEventListener('click', () => triggerShiftsHolidaysSync('two_way'));
+  document.getElementById('btnPullShiftsFromCloud')?.addEventListener('click', () => triggerShiftsHolidaysSync('download'));
+  document.getElementById('btnPushShiftsToCloud')?.addEventListener('click', () => triggerShiftsHolidaysSync('upload'));
+
   // Add shift button
   document.getElementById('btnAddNewShift')?.addEventListener('click', () => openShiftModal());
   document.getElementById('btnShiftModalClose')?.addEventListener('click', closeShiftModal);
@@ -6424,7 +6479,8 @@ async function initShiftsAndHolidays() {
       enable_half_day_calc: document.getElementById('shiftModalEnableHalfDay').checked ? 1 : 0,
       enable_overtime: document.getElementById('shiftModalEnableOt').checked ? 1 : 0,
       work_days: workDays,
-      is_default: document.getElementById('shiftModalIsDefault').checked ? 1 : 0
+      is_default: document.getElementById('shiftModalIsDefault').checked ? 1 : 0,
+      org_id: getActiveOrgFilter()
     };
 
     try {
@@ -6434,7 +6490,10 @@ async function initShiftsAndHolidays() {
 
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Organization-Id': getActiveOrgFilter()
+        },
         body: JSON.stringify(payload)
       });
       const data = await res.json();
@@ -6537,14 +6596,18 @@ async function initShiftsAndHolidays() {
       public_holiday: isPublic,
       bank_holiday: isBank,
       mercantile_holiday: isMerc,
-      is_recurring: document.getElementById('holidayModalRecurring').checked ? 1 : 0
+      is_recurring: document.getElementById('holidayModalRecurring').checked ? 1 : 0,
+      org_id: getActiveOrgFilter()
     };
 
     try {
       showToast('Saving holiday...', 'info');
       const res = await fetch('/api/holidays', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Organization-Id': getActiveOrgFilter()
+        },
         body: JSON.stringify(payload)
       });
       const data = await res.json();
@@ -6605,6 +6668,7 @@ async function initShiftsAndHolidays() {
 }
 
 async function loadShiftsAndHolidays() {
+  updateShiftsOrgPartitionUI();
   await Promise.all([loadShifts(), loadHolidays()]);
 }
 
@@ -6613,7 +6677,10 @@ async function loadShifts() {
   if (!container) return;
 
   try {
-    const res = await fetch('/api/shifts');
+    const orgId = getActiveOrgFilter();
+    const res = await fetch(`/api/shifts?orgId=${encodeURIComponent(orgId)}`, {
+      headers: { 'X-Organization-Id': orgId }
+    });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
 
@@ -6729,7 +6796,11 @@ async function loadShifts() {
         if (!confirm(`Are you sure you want to delete "${name}"? Assigned employees will be moved to the Default Shift.`)) return;
 
         try {
-          const res = await fetch(`/api/shifts/${id}`, { method: 'DELETE' });
+          const orgId = getActiveOrgFilter();
+          const res = await fetch(`/api/shifts/${id}?orgId=${encodeURIComponent(orgId)}`, { 
+            method: 'DELETE',
+            headers: { 'X-Organization-Id': orgId }
+          });
           const data = await res.json();
           if (data.success) {
             showToast(data.message || 'Shift deleted', 'success');
@@ -6753,7 +6824,10 @@ async function loadHolidays() {
   if (!tbody) return;
 
   try {
-    const res = await fetch('/api/holidays');
+    const orgId = getActiveOrgFilter();
+    const res = await fetch(`/api/holidays?orgId=${encodeURIComponent(orgId)}`, {
+      headers: { 'X-Organization-Id': orgId }
+    });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
 
@@ -6817,7 +6891,11 @@ async function loadHolidays() {
         if (!confirm(`Are you sure you want to remove holiday "${name}"?`)) return;
 
         try {
-          const res = await fetch(`/api/holidays/${id}`, { method: 'DELETE' });
+          const orgId = getActiveOrgFilter();
+          const res = await fetch(`/api/holidays/${id}?orgId=${encodeURIComponent(orgId)}`, { 
+            method: 'DELETE',
+            headers: { 'X-Organization-Id': orgId }
+          });
           const data = await res.json();
           if (data.success) {
             showToast(data.message || 'Holiday removed', 'success');
@@ -7082,12 +7160,17 @@ async function confirmHolidaysImport() {
   }
 
   try {
+    const orgId = getActiveOrgFilter();
     const res = await fetch('/api/holidays/upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'X-Organization-Id': orgId
+      },
       body: JSON.stringify({
         holidays: uploadedHolidaysCache,
-        replaceExisting: isReplace
+        replaceExisting: isReplace,
+        org_id: orgId
       })
     });
     const data = await res.json();

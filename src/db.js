@@ -251,6 +251,21 @@ async function initDatabase() {
     await dbRun(`ALTER TABLE working_shifts ADD COLUMN enable_overtime INTEGER DEFAULT 1`);
   } catch (e) {}
 
+  try {
+    await dbRun(`ALTER TABLE working_shifts ADD COLUMN org_id TEXT DEFAULT 'DSOFFICE_LUNUGAMWEHERA'`);
+  } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE working_shifts ADD COLUMN sync_status TEXT DEFAULT 'PENDING'`);
+  } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE working_shifts ADD COLUMN cloud_synced_at DATETIME DEFAULT NULL`);
+  } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE working_shifts ADD COLUMN updated_at DATETIME DEFAULT NULL`);
+  } catch (e) {}
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_shifts_org ON working_shifts(org_id)`);
+  await dbRun(`UPDATE working_shifts SET org_id = 'DSOFFICE_LUNUGAMWEHERA' WHERE org_id IS NULL OR org_id = ''`);
+
   // Holidays Table
   await dbRun(`
     CREATE TABLE IF NOT EXISTS holidays (
@@ -276,6 +291,21 @@ async function initDatabase() {
   try {
     await dbRun(`ALTER TABLE holidays ADD COLUMN mercantile_holiday INTEGER DEFAULT 0`);
   } catch (e) {}
+
+  try {
+    await dbRun(`ALTER TABLE holidays ADD COLUMN org_id TEXT DEFAULT 'DSOFFICE_LUNUGAMWEHERA'`);
+  } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE holidays ADD COLUMN sync_status TEXT DEFAULT 'PENDING'`);
+  } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE holidays ADD COLUMN cloud_synced_at DATETIME DEFAULT NULL`);
+  } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE holidays ADD COLUMN updated_at DATETIME DEFAULT NULL`);
+  } catch (e) {}
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_holidays_org ON holidays(org_id)`);
+  await dbRun(`UPDATE holidays SET org_id = 'DSOFFICE_LUNUGAMWEHERA' WHERE org_id IS NULL OR org_id = ''`);
 
   await dbRun(`
     CREATE TABLE IF NOT EXISTS settings (
@@ -849,6 +879,215 @@ async function deleteSystemUser(uid) {
   return dbRun(`DELETE FROM system_users WHERE uid = ?`, [uid]);
 }
 
+// -------------------------------------------------------------
+// Multi-Organization Working Shifts & Holidays Helpers
+// -------------------------------------------------------------
+
+// Get shifts for an organization (with fallback to default if none configured)
+async function getShiftsByOrg(orgId) {
+  let sql = `
+    SELECT 
+      s.*,
+      COUNT(e.user_id) as employee_count
+    FROM working_shifts s
+    LEFT JOIN employees e ON s.id = e.shift_id
+  `;
+  const params = [];
+  if (orgId) {
+    sql += ` WHERE (UPPER(s.org_id) = ? OR s.org_id = 'DEFAULT' OR s.org_id IS NULL)`;
+    params.push(String(orgId).trim().toUpperCase());
+  }
+  sql += ` GROUP BY s.id ORDER BY s.id ASC`;
+  const shifts = await dbAll(sql, params);
+  if ((!shifts || shifts.length === 0) && orgId) {
+    return dbAll(`
+      SELECT 
+        s.*,
+        COUNT(e.user_id) as employee_count
+      FROM working_shifts s
+      LEFT JOIN employees e ON s.id = e.shift_id
+      GROUP BY s.id
+      ORDER BY s.id ASC
+    `);
+  }
+  return shifts;
+}
+
+// Get holidays for an organization (with fallback to default if none configured)
+async function getHolidaysByOrg(orgId) {
+  let sql = `SELECT * FROM holidays`;
+  const params = [];
+  if (orgId) {
+    sql += ` WHERE (UPPER(org_id) = ? OR org_id = 'DEFAULT' OR org_id IS NULL)`;
+    params.push(String(orgId).trim().toUpperCase());
+  }
+  sql += ` ORDER BY holiday_date ASC`;
+  const holidays = await dbAll(sql, params);
+  if ((!holidays || holidays.length === 0) && orgId) {
+    return dbAll(`SELECT * FROM holidays ORDER BY holiday_date ASC`);
+  }
+  return holidays;
+}
+
+// Upsert working shift downloaded from Firestore into local SQLite
+async function upsertWorkingShiftFromCloud(shiftData, orgId) {
+  const targetOrg = (orgId || shiftData.org_id || shiftData.organizationId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+  const name = (shiftData.name || '').trim();
+  if (!name) return null;
+
+  let existing = null;
+  const rawId = parseInt(shiftData.id, 10);
+  if (!isNaN(rawId) && rawId > 0) {
+    existing = await dbGet(`SELECT id FROM working_shifts WHERE id = ?`, [rawId]);
+  }
+  if (!existing) {
+    existing = await dbGet(`SELECT id FROM working_shifts WHERE name = ? AND (UPPER(org_id) = ? OR org_id = 'DEFAULT')`, [name, targetOrg]);
+  }
+
+  const startTime = shiftData.start_time || shiftData.startTime || '09:00';
+  const endTime = shiftData.end_time || shiftData.endTime || '18:00';
+  const graceMins = parseInt(shiftData.grace_period_mins ?? shiftData.gracePeriodMins ?? 15, 10);
+  const monthlyGraceDays = parseInt(shiftData.monthly_grace_days ?? shiftData.monthlyGraceDays ?? 2, 10);
+  const lateCoverEnd = shiftData.late_cover_end ?? shiftData.lateCoverEnd ? 1 : 0;
+  const halfDayHours = parseFloat(shiftData.half_day_hours ?? shiftData.halfDayHours ?? 3.5);
+  const lateHalfDayHours = parseFloat(shiftData.late_half_day_hours ?? shiftData.lateHalfDayHours ?? 4.0);
+  const fullDayHours = parseFloat(shiftData.full_day_hours ?? shiftData.fullDayHours ?? 7.75);
+  const workDays = shiftData.work_days || shiftData.workDays || '1,2,3,4,5';
+  const color = shiftData.color || '#2563eb';
+  const isDefault = shiftData.is_default ?? shiftData.isDefault ? 1 : 0;
+  const monthlyShortLeaves = parseInt(shiftData.monthly_short_leaves ?? shiftData.monthlyShortLeaves ?? 2, 10);
+  const morningShortStart = shiftData.morning_short_leave_start || shiftData.morningShortLeaveStart || '09:00';
+  const morningShortEnd = shiftData.morning_short_leave_end || shiftData.morningShortLeaveEnd || '10:00';
+  const eveningShortStart = shiftData.evening_short_leave_start || shiftData.eveningShortLeaveStart || '14:45';
+  const eveningShortEnd = shiftData.evening_short_leave_end || shiftData.eveningShortLeaveEnd || '16:15';
+  const disallowSameDay = shiftData.disallow_grace_and_short_leave_same_day ?? shiftData.disallowGraceAndShortLeaveSameDay ? 1 : 0;
+  const otMin = parseInt(shiftData.ot_min_mins ?? shiftData.otMinMins ?? 60, 10);
+  const otStep = parseInt(shiftData.ot_step_mins ?? shiftData.otStepMins ?? 15, 10);
+  const enableGrace = shiftData.enable_morning_grace ?? shiftData.enableMorningGrace ? 1 : 0;
+  const enableShort = shiftData.enable_short_leave ?? shiftData.enableShortLeave ? 1 : 0;
+  const enableHalf = shiftData.enable_half_day_calc ?? shiftData.enableHalfDayCalc ? 1 : 0;
+  const enableOt = shiftData.enable_overtime ?? shiftData.enableOvertime ? 1 : 0;
+
+  if (existing) {
+    await dbRun(`
+      UPDATE working_shifts SET
+        name = ?, start_time = ?, end_time = ?, grace_period_mins = ?,
+        monthly_grace_days = ?, late_cover_end = ?, half_day_hours = ?, late_half_day_hours = ?, full_day_hours = ?,
+        work_days = ?, color = ?, is_default = ?, monthly_short_leaves = ?,
+        morning_short_leave_start = ?, morning_short_leave_end = ?, evening_short_leave_start = ?, evening_short_leave_end = ?,
+        disallow_grace_and_short_leave_same_day = ?, ot_min_mins = ?, ot_step_mins = ?,
+        enable_morning_grace = ?, enable_short_leave = ?, enable_half_day_calc = ?, enable_overtime = ?,
+        org_id = ?, sync_status = 'SYNCED', cloud_synced_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [
+      name, startTime, endTime, graceMins, monthlyGraceDays, lateCoverEnd, halfDayHours, lateHalfDayHours, fullDayHours,
+      workDays, color, isDefault, monthlyShortLeaves, morningShortStart, morningShortEnd, eveningShortStart, eveningShortEnd,
+      disallowSameDay, otMin, otStep, enableGrace, enableShort, enableHalf, enableOt, targetOrg, existing.id
+    ]);
+    return existing.id;
+  } else {
+    let res;
+    if (!isNaN(rawId) && rawId > 0) {
+      res = await dbRun(`
+        INSERT INTO working_shifts (
+          id, name, start_time, end_time, grace_period_mins,
+          monthly_grace_days, late_cover_end, half_day_hours, late_half_day_hours, full_day_hours,
+          work_days, color, is_default, monthly_short_leaves,
+          morning_short_leave_start, morning_short_leave_end, evening_short_leave_start, evening_short_leave_end,
+          disallow_grace_and_short_leave_same_day, ot_min_mins, ot_step_mins,
+          enable_morning_grace, enable_short_leave, enable_half_day_calc, enable_overtime,
+          org_id, sync_status, cloud_synced_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SYNCED', CURRENT_TIMESTAMP)
+      `, [
+        rawId, name, startTime, endTime, graceMins, monthlyGraceDays, lateCoverEnd, halfDayHours, lateHalfDayHours, fullDayHours,
+        workDays, color, isDefault, monthlyShortLeaves, morningShortStart, morningShortEnd, eveningShortStart, eveningShortEnd,
+        disallowSameDay, otMin, otStep, enableGrace, enableShort, enableHalf, enableOt, targetOrg
+      ]);
+    } else {
+      res = await dbRun(`
+        INSERT INTO working_shifts (
+          name, start_time, end_time, grace_period_mins,
+          monthly_grace_days, late_cover_end, half_day_hours, late_half_day_hours, full_day_hours,
+          work_days, color, is_default, monthly_short_leaves,
+          morning_short_leave_start, morning_short_leave_end, evening_short_leave_start, evening_short_leave_end,
+          disallow_grace_and_short_leave_same_day, ot_min_mins, ot_step_mins,
+          enable_morning_grace, enable_short_leave, enable_half_day_calc, enable_overtime,
+          org_id, sync_status, cloud_synced_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SYNCED', CURRENT_TIMESTAMP)
+      `, [
+        name, startTime, endTime, graceMins, monthlyGraceDays, lateCoverEnd, halfDayHours, lateHalfDayHours, fullDayHours,
+        workDays, color, isDefault, monthlyShortLeaves, morningShortStart, morningShortEnd, eveningShortStart, eveningShortEnd,
+        disallowSameDay, otMin, otStep, enableGrace, enableShort, enableHalf, enableOt, targetOrg
+      ]);
+    }
+    return res.lastID;
+  }
+}
+
+// Upsert holiday downloaded from Firestore into local SQLite
+async function upsertHolidayFromCloud(holidayData, orgId) {
+  const targetOrg = (orgId || holidayData.org_id || holidayData.organizationId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+  const name = (holidayData.name || '').trim();
+  const holidayDate = (holidayData.holiday_date || holidayData.holidayDate || '').slice(0, 10).trim();
+  if (!name || !holidayDate) return null;
+
+  const holidayType = holidayData.holiday_type || holidayData.holidayType || 'Public Holiday';
+  const bankHoliday = holidayData.bank_holiday ?? holidayData.bankHoliday ? 1 : 0;
+  const publicHoliday = holidayData.public_holiday !== undefined ? (holidayData.public_holiday ? 1 : 0) : (holidayData.publicHoliday !== undefined ? (holidayData.publicHoliday ? 1 : 0) : 1);
+  const mercantileHoliday = holidayData.mercantile_holiday ?? holidayData.mercantileHoliday ? 1 : 0;
+  const isRecurring = holidayData.is_recurring ?? holidayData.isRecurring ? 1 : 0;
+
+  const existing = await dbGet(`SELECT id FROM holidays WHERE holiday_date = ? AND name = ?`, [holidayDate, name]);
+
+  if (existing) {
+    await dbRun(`
+      UPDATE holidays SET
+        holiday_type = ?,
+        bank_holiday = ?,
+        public_holiday = ?,
+        mercantile_holiday = ?,
+        is_recurring = ?,
+        org_id = ?,
+        sync_status = 'SYNCED',
+        cloud_synced_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [holidayType, bankHoliday, publicHoliday, mercantileHoliday, isRecurring, targetOrg, existing.id]);
+    return existing.id;
+  } else {
+    const res = await dbRun(`
+      INSERT INTO holidays (
+        name, holiday_date, holiday_type, bank_holiday, public_holiday, mercantile_holiday, is_recurring, org_id, sync_status, cloud_synced_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SYNCED', CURRENT_TIMESTAMP)
+    `, [name, holidayDate, holidayType, bankHoliday, publicHoliday, mercantileHoliday, isRecurring, targetOrg]);
+    return res.lastID;
+  }
+}
+
+// Mark working shifts as synced to cloud
+async function markShiftsCloudSynced(shiftIds = []) {
+  if (!shiftIds || shiftIds.length === 0) return 0;
+  const placeholders = shiftIds.map(() => '?').join(',');
+  const res = await dbRun(`
+    UPDATE working_shifts
+    SET sync_status = 'SYNCED', cloud_synced_at = CURRENT_TIMESTAMP
+    WHERE id IN (${placeholders})
+  `, shiftIds);
+  return res.changes || 0;
+}
+
+// Mark holidays as synced to cloud
+async function markHolidaysCloudSynced(holidayIds = []) {
+  if (!holidayIds || holidayIds.length === 0) return 0;
+  const placeholders = holidayIds.map(() => '?').join(',');
+  const res = await dbRun(`
+    UPDATE holidays
+    SET sync_status = 'SYNCED', cloud_synced_at = CURRENT_TIMESTAMP
+    WHERE id IN (${placeholders})
+  `, holidayIds);
+  return res.changes || 0;
+}
+
 module.exports = {
   db,
   dbRun,
@@ -874,5 +1113,11 @@ module.exports = {
   getSystemUserByUid,
   getSystemUsersByOrg,
   saveSystemUser,
-  deleteSystemUser
+  deleteSystemUser,
+  getShiftsByOrg,
+  getHolidaysByOrg,
+  upsertWorkingShiftFromCloud,
+  upsertHolidayFromCloud,
+  markShiftsCloudSynced,
+  markHolidaysCloudSynced
 };
