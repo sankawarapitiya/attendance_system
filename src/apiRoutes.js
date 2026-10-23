@@ -55,6 +55,12 @@ const {
 } = require('./reportService');
 const { parseHolidaysInput } = require('./holidayParser');
 const { parseEmployeesInput } = require('./employeeParser');
+const {
+  generateLicense,
+  verifyLicense,
+  getStoredLicenseStatus,
+  activateLicense
+} = require('./licenseService');
 const XLSX = require('xlsx');
 
 const router = express.Router();
@@ -2813,6 +2819,111 @@ router.post('/settings', async (req, res) => {
     }, 100);
 
     res.json({ success: true, message: 'Settings saved successfully', settings });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
+// System Licensing & Activation Routes
+// -------------------------------------------------------------
+
+// GET /license/status - Get current license status and remaining days
+router.get('/license/status', async (req, res) => {
+  try {
+    const orgId = req.query.orgId || req.headers['x-organization-id'];
+    const status = await getStoredLicenseStatus(orgId);
+    res.json({ success: true, license: status });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /license/generate - Generate cryptographically signed license for a specific timeframe
+router.post('/license/generate', async (req, res) => {
+  try {
+    const {
+      orgId,
+      orgName,
+      plan = 'Enterprise Edition',
+      timeFrame,
+      durationDays,
+      validFrom,
+      validUntil,
+      maxEmployees,
+      maxDevices
+    } = req.body;
+
+    let computedDays = parseInt(durationDays, 10) || 0;
+    if (!computedDays) {
+      if (timeFrame === '30' || timeFrame === '1m') computedDays = 30;
+      else if (timeFrame === '90' || timeFrame === '3m') computedDays = 90;
+      else if (timeFrame === '180' || timeFrame === '6m') computedDays = 180;
+      else if (timeFrame === '365' || timeFrame === '1y') computedDays = 365;
+      else if (timeFrame === '730' || timeFrame === '2y') computedDays = 730;
+      else if (timeFrame === 'lifetime' || timeFrame === '3650') computedDays = 3650;
+      else computedDays = 365;
+    }
+
+    const result = generateLicense({
+      orgId: (orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase(),
+      orgName: orgName || 'Divisional Secretariat Office Lunugamwehera',
+      plan,
+      durationDays: computedDays,
+      validFrom,
+      validUntil,
+      maxEmployees,
+      maxDevices
+    });
+
+    res.json({
+      success: true,
+      message: `License generated successfully for ${result.payload.durationDays} days.`,
+      license: result
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /license/activate - Upload license file or paste license key to activate system
+router.post('/license/activate', async (req, res) => {
+  try {
+    const orgId = req.body.orgId || req.query.orgId || req.headers['x-organization-id'];
+    let content = req.body.licenseText || '';
+
+    if (req.body.fileData) {
+      const b64 = req.body.fileData.includes(',') ? req.body.fileData.split(',')[1] : req.body.fileData;
+      content = Buffer.from(b64, 'base64').toString('utf8');
+    }
+
+    if (!content || !content.trim()) {
+      return res.status(400).json({ success: false, error: 'No license key or file data provided.' });
+    }
+
+    const result = await activateLicense(content, orgId);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /license/download - Download active license as a .lic file
+router.get('/license/download', async (req, res) => {
+  try {
+    const row = await dbGet(`SELECT value FROM settings WHERE key = 'system_license_data'`);
+    if (!row || !row.value) {
+      return res.status(404).json({ success: false, error: 'No license currently installed to download.' });
+    }
+
+    const orgId = req.query.orgId || 'attendance_system';
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="speedface_license_${orgId.toLowerCase()}.lic"`);
+    res.send(row.value);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

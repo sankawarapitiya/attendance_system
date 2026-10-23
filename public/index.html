@@ -247,6 +247,12 @@
           </div>
         </div>
         <div class="topbar-actions">
+          <!-- License Remaining Days Pill in Topbar -->
+          <div id="headerLicensePill" title="System License Status - Click to manage in System Settings" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:999px; font-size:0.8rem; font-weight:600; cursor:pointer; background:#f0fdf4; color:#166534; border:1px solid #bbf7d0; transition: all 0.2s ease;">
+            <span style="font-size:0.85rem;">🔐</span>
+            <span id="headerLicenseDaysText">License: Active</span>
+          </div>
+
           <!-- Real-Time Cloud Sync Status Pill -->
           <div id="headerCloudSyncPill" title="Firebase Firestore Cloud Sync - Click to view" style="display:inline-flex; align-items:center; gap:7px; padding:6px 14px; border-radius:999px; font-size:0.82rem; font-weight:600; cursor:pointer; background:#f8fafc; color:#475569; border:1px solid #cbd5e1; transition: all 0.2s ease;">
             <span id="headerCloudSyncDot" style="width:8px; height:8px; border-radius:50%; background:#94a3b8; display:inline-block;"></span>
@@ -6251,6 +6257,203 @@ Loading application logs...
                   <button type="button" class="btn btn-sm btn-danger" id="btnSettingsLogoutHero" style="flex: 1; font-size: 0.75rem; padding: 4px 8px; background: #dc2626; border-color: #dc2626; color: #fff;">
                     🚪 Logout
                   </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- System Licensing & Activation Card -->
+        <div class="card" id="cardSystemLicense" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border); margin-bottom: 24px; overflow: hidden;">
+          <div class="card-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; background: #fff;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 1.25rem;">🔐</span>
+                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #1e293b;">System Licensing &amp; Activation</h3>
+                <span class="badge" id="licenseStatusBadge" style="background: #10b981; color: #fff; font-weight: 700; font-size: 0.75rem; padding: 3px 9px; border-radius: 999px;">ACTIVE</span>
+              </div>
+              <p style="margin: 4px 0 0 0; font-size: 0.82rem; color: #64748b;">
+                System subscription validity, remaining active days indicator, license activation file upload, and license generator.
+              </p>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <a href="/api/license/download" download class="btn btn-sm btn-outline" id="btnDownloadActiveLicense" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; font-weight: 600; padding: 6px 12px;" title="Download active license file backup (.lic)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span>Backup License (.lic)</span>
+              </a>
+              <button type="button" class="btn btn-sm btn-outline" id="btnRefreshLicenseStatus" style="height: 32px; padding: 0 10px;" title="Refresh license status">
+                🔄
+              </button>
+            </div>
+          </div>
+
+          <div class="card-body" style="padding: 20px;">
+            <!-- Live License Indicator Hero Widget -->
+            <div id="licenseHeroWidget" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(2, 132, 199, 0.08) 100%); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 12px; padding: 20px; margin-bottom: 22px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+                <div style="display: flex; align-items: center; gap: 16px;">
+                  <!-- Countdown Circle / Icon -->
+                  <div style="width: 60px; height: 60px; border-radius: 50%; background: #10b981; color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35); flex-shrink: 0;" id="licenseIconWrap">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 30px; height: 30px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+                  </div>
+                  <div>
+                    <div style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.5px;">Remaining Subscription Validity</div>
+                    <div style="display: flex; align-items: baseline; gap: 8px; margin: 2px 0;">
+                      <span id="licenseRemainingDaysCount" style="font-size: 2.2rem; font-weight: 800; color: #0f172a; line-height: 1;">--</span>
+                      <span id="licenseRemainingDaysLabel" style="font-size: 1.1rem; font-weight: 700; color: #059669;">Days Remaining</span>
+                    </div>
+                    <div style="font-size: 0.82rem; color: #475569;" id="licenseExpirySummary">
+                      Active until <strong id="licenseValidUntilText">--</strong> &bull; Partition: <code id="licenseOrgText" style="font-weight: 700; color: #0284c7;">--</code>
+                    </div>
+                  </div>
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 6px; min-width: 220px; text-align: right;" id="licenseQuickMeta">
+                  <div style="font-size: 0.82rem; color: #64748b;">
+                    Plan: <strong id="licensePlanName" style="color: #0f172a;">Enterprise Edition</strong>
+                  </div>
+                  <div style="font-size: 0.82rem; color: #64748b;">
+                    License ID: <code id="licenseKeyIdDisplay" style="font-size: 0.78rem; background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 4px;">LIC-2026-XXXX</code>
+                  </div>
+                  <!-- Progress Bar -->
+                  <div style="margin-top: 4px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #64748b; margin-bottom: 3px;">
+                      <span>Subscription Period</span>
+                      <span id="licensePercentText">100%</span>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.08); border-radius: 999px; height: 7px; overflow: hidden; width: 100%;">
+                      <div id="licenseProgressBar" style="background: #10b981; height: 100%; width: 100%; transition: width 0.4s ease;"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Two Columns: (1) License File Upload & Activation | (2) License Generator Tool -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;" class="license-grid-columns">
+              
+              <!-- Column 1: Upload License File & Activate -->
+              <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; background: #fafafa; display: flex; flex-direction: column;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                  <span style="font-size: 1.1rem;">📥</span>
+                  <h4 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: #1e293b;">Upload License File to Activate</h4>
+                </div>
+                <p style="font-size: 0.8rem; color: #64748b; margin: 0 0 14px 0;">
+                  Upload your signed SpeedFace license file (<code>.lic</code>, <code>.key</code>, or <code>.json</code>) or paste the license string to extend or activate the system.
+                </p>
+
+                <!-- Drag & Drop Zone -->
+                <div id="licenseDropzone" style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 22px 14px; text-align: center; background: #ffffff; cursor: pointer; transition: all 0.2s ease; margin-bottom: 14px;">
+                  <input type="file" id="inputLicenseFile" accept=".lic, .key, .json, .txt" style="display: none;">
+                  <div style="font-size: 1.8rem; margin-bottom: 6px;">📄</div>
+                  <div style="font-size: 0.88rem; font-weight: 600; color: #1e293b;">
+                    Drop license file here or <span style="color: #0284c7; text-decoration: underline;">Browse File</span>
+                  </div>
+                  <div style="font-size: 0.74rem; color: #94a3b8; margin-top: 4px;">Supports .lic, .key, .json encrypted license files</div>
+                  <div id="licenseSelectedFileInfo" style="display: none; margin-top: 10px; font-size: 0.8rem; color: #059669; font-weight: 700;"></div>
+                </div>
+
+                <!-- Textarea for manual paste -->
+                <div style="margin-bottom: 12px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <label for="licenseTextInput" style="font-size: 0.78rem; font-weight: 600; color: #64748b; margin: 0;">Or Paste License Key String:</label>
+                    <button type="button" class="btn-link" id="btnClearLicenseText" style="font-size: 0.74rem; color: #94a3b8; background: none; border: none; cursor: pointer;">Clear</button>
+                  </div>
+                  <textarea id="licenseTextInput" class="form-control" rows="3" placeholder="-----BEGIN SPEEDFACE LICENSE-----&#10;eyJwYXlsb2FkIjp7ImxpY2Vuc2VJZCI6...&#10;-----END SPEEDFACE LICENSE-----" style="font-family: monospace; font-size: 0.75rem; resize: vertical;"></textarea>
+                </div>
+
+                <div style="margin-top: auto; display: flex; justify-content: flex-end;">
+                  <button type="button" class="btn btn-primary" id="btnActivateLicense" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 700; width: 100%; justify-content: center; height: 38px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+                    <span>Activate / Update License</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Column 2: License Generator for Time Frame -->
+              <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; background: #fafafa; display: flex; flex-direction: column;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 1.1rem;">⚡</span>
+                    <h4 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: #1e293b;">License Generator Tool</h4>
+                  </div>
+                  <span class="badge" style="background: #0284c7; color: #fff; font-size: 0.68rem; font-weight: 700; padding: 2px 7px; border-radius: 4px;">ADMIN ONLY</span>
+                </div>
+                <p style="font-size: 0.8rem; color: #64748b; margin: 0 0 14px 0;">
+                  Generate a cryptographically signed license for a specific timeframe to activate or extend this system or another organization partition.
+                </p>
+
+                <form id="formGenerateLicense" style="display: flex; flex-direction: column; gap: 10px;">
+                  <!-- Organization Target -->
+                  <div>
+                    <label for="genLicenseOrgId" style="font-size: 0.78rem; font-weight: 600; color: #475569; display: block; margin-bottom: 3px;">Organization Partition:</label>
+                    <input type="text" id="genLicenseOrgId" class="form-control" style="font-size: 0.82rem; height: 34px; font-family: monospace; font-weight: 700;" placeholder="e.g. DSOFFICE_LUNUGAMWEHERA or * for all" required>
+                  </div>
+
+                  <!-- Timeframe Preset Selection -->
+                  <div>
+                    <label for="genLicenseTimeframe" style="font-size: 0.78rem; font-weight: 600; color: #475569; display: block; margin-bottom: 3px;">Activation Time Frame:</label>
+                    <select id="genLicenseTimeframe" class="form-control" style="font-size: 0.82rem; height: 34px; font-weight: 600;">
+                      <option value="30">1 Month (30 Days Evaluation)</option>
+                      <option value="90">3 Months (90 Days Quarterly)</option>
+                      <option value="180">6 Months (180 Days Semi-Annual)</option>
+                      <option value="365" selected>1 Year (365 Days Annual License)</option>
+                      <option value="730">2 Years (730 Days Multi-Year)</option>
+                      <option value="3650">Lifetime / Permanent (10 Years)</option>
+                      <option value="custom">Custom Date Range...</option>
+                    </select>
+                  </div>
+
+                  <!-- Custom Date Range Row (toggleable) -->
+                  <div id="genLicenseCustomDatesRow" style="display: none; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div>
+                      <label for="genLicenseValidFrom" style="font-size: 0.74rem; font-weight: 600; color: #64748b; display: block; margin-bottom: 2px;">Valid From:</label>
+                      <input type="date" id="genLicenseValidFrom" class="form-control" style="font-size: 0.8rem; height: 32px;">
+                    </div>
+                    <div>
+                      <label for="genLicenseValidUntil" style="font-size: 0.74rem; font-weight: 600; color: #64748b; display: block; margin-bottom: 2px;">Valid Until:</label>
+                      <input type="date" id="genLicenseValidUntil" class="form-control" style="font-size: 0.8rem; height: 32px;">
+                    </div>
+                  </div>
+
+                  <!-- Plan Edition Selection -->
+                  <div>
+                    <label for="genLicensePlan" style="font-size: 0.78rem; font-weight: 600; color: #475569; display: block; margin-bottom: 3px;">License Plan / Tier:</label>
+                    <select id="genLicensePlan" class="form-control" style="font-size: 0.82rem; height: 34px;">
+                      <option value="Enterprise Edition" selected>Enterprise Edition (Unlimited Users &amp; Devices)</option>
+                      <option value="Government Department Edition">Government Department Edition</option>
+                      <option value="Professional Edition">Professional Edition</option>
+                      <option value="30-Day Evaluation Trial">30-Day Evaluation Trial</option>
+                    </select>
+                  </div>
+
+                  <div style="margin-top: 6px; display: flex; gap: 8px;">
+                    <button type="submit" class="btn btn-primary" id="btnSubmitGenerateLicense" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700; height: 36px; font-size: 0.82rem;">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                      <span>Generate License</span>
+                    </button>
+                  </div>
+                </form>
+
+                <!-- Generated License Output Box -->
+                <div id="genLicenseOutputBox" style="display: none; margin-top: 12px; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <span style="font-size: 0.75rem; font-weight: 700; color: #059669;">✓ License Generated!</span>
+                    <span id="genLicenseDaysSummary" style="font-size: 0.72rem; color: #64748b;">365 Days</span>
+                  </div>
+                  <textarea id="genLicenseOutputText" readonly class="form-control" rows="3" style="font-family: monospace; font-size: 0.72rem; background: #f8fafc; margin-bottom: 8px;"></textarea>
+                  <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-sm btn-outline" id="btnCopyGeneratedLicense" style="flex: 1; font-size: 0.74rem; padding: 4px 8px;">
+                      📋 Copy Key
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline" id="btnDownloadGeneratedFile" style="flex: 1; font-size: 0.74rem; padding: 4px 8px;">
+                      💾 Download .lic
+                    </button>
+                    <button type="button" class="btn btn-sm btn-primary" id="btnApplyGeneratedDirectly" style="flex: 1.2; font-size: 0.74rem; padding: 4px 8px; background: #059669; border-color: #059669;">
+                      ⚡ Apply &amp; Activate
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

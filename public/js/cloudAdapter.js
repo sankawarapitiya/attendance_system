@@ -717,6 +717,126 @@
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
+      // 8.1 System License (Cloud Mode)
+      if (path === '/api/license/status') {
+        const stored = localStorage.getItem('speedface_cloud_license_' + activeOrgId);
+        let licData;
+        if (stored) {
+          try { licData = JSON.parse(stored); } catch (e) {}
+        }
+        if (!licData) {
+          const now = new Date();
+          const oneYearAhead = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+          licData = {
+            valid: true,
+            status: 'ACTIVE',
+            remainingDays: 365,
+            totalDays: 365,
+            percentRemaining: 100,
+            payload: {
+              licenseId: 'LIC-' + now.getFullYear() + '-CLOUD-ENT',
+              orgId: activeOrgId,
+              orgName: activeOrgId,
+              plan: 'Enterprise Cloud Edition',
+              validFrom: now.toISOString().slice(0, 10),
+              validUntil: oneYearAhead.toISOString().slice(0, 10),
+              durationDays: 365
+            }
+          };
+        } else {
+          // Recalculate remaining days
+          const now = new Date();
+          const end = new Date(licData.payload.validUntil + 'T23:59:59Z');
+          const remaining = Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)));
+          licData.remainingDays = remaining;
+          licData.valid = remaining > 0;
+          licData.status = remaining <= 0 ? 'EXPIRED' : (remaining <= 14 ? 'EXPIRING_SOON' : 'ACTIVE');
+          licData.percentRemaining = Math.max(0, Math.min(100, Math.round((remaining / (licData.payload.durationDays || 365)) * 100)));
+        }
+        return new Response(JSON.stringify({ success: true, license: licData }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (path === '/api/license/generate') {
+        const body = JSON.parse(init.body || '{}');
+        const now = new Date();
+        let days = parseInt(body.durationDays, 10) || 365;
+        if (body.timeFrame === '30') days = 30;
+        else if (body.timeFrame === '90') days = 90;
+        else if (body.timeFrame === '180') days = 180;
+        else if (body.timeFrame === '365') days = 365;
+        else if (body.timeFrame === '730') days = 730;
+        else if (body.timeFrame === '3650') days = 3650;
+
+        const end = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+        const licId = 'LIC-' + now.getFullYear() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+        const payload = {
+          licenseId: licId,
+          orgId: body.orgId || activeOrgId,
+          orgName: body.orgName || activeOrgId,
+          plan: body.plan || 'Enterprise Edition',
+          validFrom: now.toISOString().slice(0, 10),
+          validUntil: end.toISOString().slice(0, 10),
+          durationDays: days
+        };
+        const rawJson = JSON.stringify({ version: '1.0', payload, signature: 'cloud_simulated_sig_' + Date.now() });
+        const b64 = btoa(rawJson);
+        const licenseString = '-----BEGIN SPEEDFACE LICENSE-----\n' + b64 + '\n-----END SPEEDFACE LICENSE-----';
+
+        return new Response(JSON.stringify({
+          success: true,
+          message: `License generated for ${days} days.`,
+          license: {
+            licenseId: licId,
+            payload,
+            licenseString,
+            filename: `license_${(body.orgId || activeOrgId).toLowerCase()}_${payload.validUntil}.lic`
+          }
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (path === '/api/license/activate') {
+        const body = JSON.parse(init.body || '{}');
+        const content = body.licenseText || '';
+        let licData;
+        try {
+          const cleaned = content.replace(/-----BEGIN SPEEDFACE LICENSE-----/g, '').replace(/-----END SPEEDFACE LICENSE-----/g, '').trim();
+          const jsonStr = atob(cleaned);
+          const parsed = JSON.parse(jsonStr);
+          const p = parsed.payload;
+          const end = new Date(p.validUntil + 'T23:59:59Z');
+          const now = new Date();
+          const remaining = Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)));
+          licData = {
+            valid: remaining > 0,
+            status: remaining <= 0 ? 'EXPIRED' : (remaining <= 14 ? 'EXPIRING_SOON' : 'ACTIVE'),
+            remainingDays: remaining,
+            totalDays: p.durationDays || 365,
+            percentRemaining: Math.max(0, Math.min(100, Math.round((remaining / (p.durationDays || 365)) * 100))),
+            payload: p
+          };
+          localStorage.setItem('speedface_cloud_license_' + activeOrgId, JSON.stringify(licData));
+          localStorage.setItem('speedface_cloud_raw_license_' + activeOrgId, content);
+          return new Response(JSON.stringify({
+            success: true,
+            message: `System activated successfully! ${remaining} days remaining (Valid until ${p.validUntil}).`,
+            license: licData
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        } catch (e) {
+          return new Response(JSON.stringify({ success: false, error: 'Invalid license format: ' + e.message }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+      }
+
+      if (path === '/api/license/download') {
+        const raw = localStorage.getItem('speedface_cloud_raw_license_' + activeOrgId) || '-----BEGIN SPEEDFACE LICENSE-----\nCLOUD_LICENSE\n-----END SPEEDFACE LICENSE-----';
+        return new Response(raw, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Content-Disposition': `attachment; filename="speedface_license_${activeOrgId.toLowerCase()}.lic"`
+          }
+        });
+      }
+
       // 9. SpeedFace Device status on Cloud (No direct TCP socket)
       if (path === '/api/device/status') {
         const records = await getCloudAttendance();

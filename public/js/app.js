@@ -283,6 +283,8 @@ document.addEventListener('DOMContentLoaded', () => {
   updateStopSyncButtonsUI();
   initApiServiceTab();
   initSystemAuth();
+  loadLicenseStatus();
+  initLicenseManagement();
 });
 
 // Toast Notifications
@@ -10164,6 +10166,8 @@ function applyRolePermissions(user) {
 let orgUsersList = [];
 
 async function initSettingsTab() {
+  await loadLicenseStatus();
+  initLicenseManagement();
   await loadOrganizationUsers();
   initOrgSettingsTabForm();
   initAddUserModal();
@@ -10578,5 +10582,386 @@ function initOrgSettingsTabForm() {
     } catch (err) {
       showToast(err.message, 'error');
     }
+  });
+}
+
+// =========================================================
+// 14. System Licensing & Activation Module
+// =========================================================
+
+let cachedLicenseStatus = null;
+let isLicenseManagementInitialized = false;
+
+async function loadLicenseStatus() {
+  const curOrg = getActiveOrgFilter();
+  try {
+    const res = await fetch(`/api/license/status?orgId=${encodeURIComponent(curOrg)}`, {
+      headers: { 'X-Organization-Id': curOrg }
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Failed to fetch license status');
+
+    cachedLicenseStatus = data.license;
+    renderLicenseStatusUI(data.license);
+  } catch (err) {
+    console.warn('[LICENSE] Could not load license status:', err.message);
+  }
+}
+
+function renderLicenseStatusUI(lic) {
+  if (!lic) return;
+
+  const valid = Boolean(lic.valid);
+  const remainingDays = lic.remainingDays !== undefined ? lic.remainingDays : 0;
+  const status = (lic.status || (valid ? 'ACTIVE' : 'UNLICENSED')).toUpperCase();
+  const payload = lic.payload || {};
+  const validUntil = payload.validUntil || lic.validUntil || 'N/A';
+  const orgId = payload.orgId || lic.orgId || getActiveOrgFilter();
+  const plan = payload.plan || lic.plan || 'Standard Edition';
+  const licenseId = payload.licenseId || lic.licenseId || 'UNLICENSED';
+  const percentRemaining = lic.percentRemaining !== undefined ? lic.percentRemaining : (valid ? 100 : 0);
+
+  // 1. Topbar License Pill
+  const headerPill = document.getElementById('headerLicensePill');
+  const headerText = document.getElementById('headerLicenseDaysText');
+  if (headerText) {
+    if (!valid || status === 'EXPIRED') {
+      headerText.textContent = 'License: EXPIRED';
+      if (headerPill) {
+        headerPill.style.background = '#fef2f2';
+        headerPill.style.color = '#dc2626';
+        headerPill.style.borderColor = '#fca5a5';
+      }
+    } else if (remainingDays <= 14) {
+      headerText.textContent = `License: ${remainingDays}d left!`;
+      if (headerPill) {
+        headerPill.style.background = '#fffbeb';
+        headerPill.style.color = '#d97706';
+        headerPill.style.borderColor = '#fde68a';
+      }
+    } else {
+      headerText.textContent = `License: ${remainingDays} Days`;
+      if (headerPill) {
+        headerPill.style.background = '#f0fdf4';
+        headerPill.style.color = '#166534';
+        headerPill.style.borderColor = '#bbf7d0';
+      }
+    }
+  }
+
+  // 2. Settings Tab License Elements
+  const statusBadge = document.getElementById('licenseStatusBadge');
+  const daysCount = document.getElementById('licenseRemainingDaysCount');
+  const daysLabel = document.getElementById('licenseRemainingDaysLabel');
+  const validUntilEl = document.getElementById('licenseValidUntilText');
+  const orgTextEl = document.getElementById('licenseOrgText');
+  const planNameEl = document.getElementById('licensePlanName');
+  const keyIdEl = document.getElementById('licenseKeyIdDisplay');
+  const percentTextEl = document.getElementById('licensePercentText');
+  const progressBarEl = document.getElementById('licenseProgressBar');
+  const iconWrap = document.getElementById('licenseIconWrap');
+
+  if (statusBadge) {
+    statusBadge.textContent = status;
+    if (status === 'ACTIVE') {
+      statusBadge.style.background = '#10b981';
+      statusBadge.style.color = '#fff';
+    } else if (status === 'EXPIRING_SOON') {
+      statusBadge.style.background = '#f59e0b';
+      statusBadge.style.color = '#fff';
+    } else {
+      statusBadge.style.background = '#ef4444';
+      statusBadge.style.color = '#fff';
+    }
+  }
+
+  if (daysCount) {
+    daysCount.textContent = valid ? String(remainingDays) : '0';
+  }
+  if (daysLabel) {
+    if (!valid || status === 'EXPIRED') {
+      daysLabel.textContent = 'Subscription Expired';
+      daysLabel.style.color = '#ef4444';
+    } else if (remainingDays <= 14) {
+      daysLabel.textContent = 'Days Remaining (Expiring Soon)';
+      daysLabel.style.color = '#f59e0b';
+    } else {
+      daysLabel.textContent = 'Days Remaining';
+      daysLabel.style.color = '#059669';
+    }
+  }
+
+  if (validUntilEl) validUntilEl.textContent = validUntil;
+  if (orgTextEl) orgTextEl.textContent = orgId;
+  if (planNameEl) planNameEl.textContent = plan;
+  if (keyIdEl) keyIdEl.textContent = licenseId;
+  if (percentTextEl) percentTextEl.textContent = `${percentRemaining}% Remaining`;
+
+  if (progressBarEl) {
+    progressBarEl.style.width = `${percentRemaining}%`;
+    if (!valid || status === 'EXPIRED') {
+      progressBarEl.style.background = '#ef4444';
+    } else if (remainingDays <= 14) {
+      progressBarEl.style.background = '#f59e0b';
+    } else {
+      progressBarEl.style.background = '#10b981';
+    }
+  }
+
+  if (iconWrap) {
+    if (!valid || status === 'EXPIRED') {
+      iconWrap.style.background = '#ef4444';
+      iconWrap.style.boxShadow = '0 4px 12px rgba(239, 68, 68, 0.35)';
+      iconWrap.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 30px; height: 30px;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+    } else if (remainingDays <= 14) {
+      iconWrap.style.background = '#f59e0b';
+      iconWrap.style.boxShadow = '0 4px 12px rgba(245, 158, 11, 0.35)';
+      iconWrap.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 30px; height: 30px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+    } else {
+      iconWrap.style.background = '#10b981';
+      iconWrap.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.35)';
+      iconWrap.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 30px; height: 30px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>`;
+    }
+  }
+
+  // Pre-fill generator org input if empty
+  const genOrgInput = document.getElementById('genLicenseOrgId');
+  if (genOrgInput && !genOrgInput.value) {
+    genOrgInput.value = orgId;
+  }
+}
+
+function initLicenseManagement() {
+  if (isLicenseManagementInitialized) return;
+  isLicenseManagementInitialized = true;
+
+  // Header pill click -> jump to Settings Tab & License card
+  document.getElementById('headerLicensePill')?.addEventListener('click', () => {
+    switchTab('tab-settings');
+    const card = document.getElementById('cardSystemLicense');
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth' });
+      card.style.transition = 'box-shadow 0.3s ease';
+      card.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.4)';
+      setTimeout(() => { card.style.boxShadow = 'var(--shadow-sm)'; }, 1500);
+    }
+  });
+
+  // Refresh status button
+  document.getElementById('btnRefreshLicenseStatus')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnRefreshLicenseStatus');
+    if (btn) btn.classList.add('spin');
+    await loadLicenseStatus();
+    setTimeout(() => { if (btn) btn.classList.remove('spin'); }, 500);
+    showToast('License status refreshed.', 'info');
+  });
+
+  // License File Dropzone & File Input
+  const dropzone = document.getElementById('licenseDropzone');
+  const fileInput = document.getElementById('inputLicenseFile');
+  const fileInfo = document.getElementById('licenseSelectedFileInfo');
+  const textArea = document.getElementById('licenseTextInput');
+
+  dropzone?.addEventListener('click', () => {
+    fileInput?.click();
+  });
+
+  dropzone?.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('dragover');
+  });
+
+  dropzone?.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+  });
+
+  dropzone?.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+      handleLicenseFile(e.dataTransfer.files[0]);
+    }
+  });
+
+  fileInput?.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleLicenseFile(e.target.files[0]);
+    }
+  });
+
+  function handleLicenseFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target.result;
+      if (textArea) textArea.value = content;
+      if (fileInfo) {
+        fileInfo.style.display = 'block';
+        fileInfo.textContent = `✓ Loaded: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      }
+      showToast(`Loaded license file "${file.name}". Click "Activate" to apply.`, 'info');
+    };
+    reader.readAsText(file);
+  }
+
+  // Clear text button
+  document.getElementById('btnClearLicenseText')?.addEventListener('click', () => {
+    if (textArea) textArea.value = '';
+    if (fileInfo) {
+      fileInfo.style.display = 'none';
+      fileInfo.textContent = '';
+    }
+    if (fileInput) fileInput.value = '';
+  });
+
+  // Activate license button
+  document.getElementById('btnActivateLicense')?.addEventListener('click', async () => {
+    const text = (textArea?.value || '').trim();
+    if (!text) {
+      return showToast('Please select a license file or paste a license key string first.', 'warning');
+    }
+
+    const btn = document.getElementById('btnActivateLicense');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spin" style="width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Activating...`;
+    }
+
+    try {
+      const curOrg = getActiveOrgFilter();
+      const res = await fetch('/api/license/activate', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Organization-Id': curOrg
+        },
+        body: JSON.stringify({
+          licenseText: text,
+          orgId: curOrg
+        })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'License activation failed');
+
+      showToast(data.message || 'System license successfully activated!', 'success', 5000);
+      if (fileInfo) {
+        fileInfo.style.display = 'none';
+        fileInfo.textContent = '';
+      }
+      if (textArea) textArea.value = '';
+      if (fileInput) fileInput.value = '';
+
+      await loadLicenseStatus();
+    } catch (err) {
+      showToast(`Activation Error: ${err.message}`, 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg> <span>Activate / Update License</span>`;
+      }
+    }
+  });
+
+  // License Generator Tool
+  const timeframeSelect = document.getElementById('genLicenseTimeframe');
+  const customDatesRow = document.getElementById('genLicenseCustomDatesRow');
+  const genForm = document.getElementById('formGenerateLicense');
+  const outputBox = document.getElementById('genLicenseOutputBox');
+  const outputText = document.getElementById('genLicenseOutputText');
+  const daysSummary = document.getElementById('genLicenseDaysSummary');
+
+  timeframeSelect?.addEventListener('change', () => {
+    if (timeframeSelect.value === 'custom') {
+      if (customDatesRow) customDatesRow.style.display = 'grid';
+      const today = new Date().toISOString().slice(0, 10);
+      const nextMonth = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const fromEl = document.getElementById('genLicenseValidFrom');
+      const untilEl = document.getElementById('genLicenseValidUntil');
+      if (fromEl && !fromEl.value) fromEl.value = today;
+      if (untilEl && !untilEl.value) untilEl.value = nextMonth;
+    } else {
+      if (customDatesRow) customDatesRow.style.display = 'none';
+    }
+  });
+
+  genForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const orgId = document.getElementById('genLicenseOrgId')?.value.trim() || getActiveOrgFilter();
+    const timeFrame = timeframeSelect?.value || '365';
+    const plan = document.getElementById('genLicensePlan')?.value || 'Enterprise Edition';
+    const validFrom = document.getElementById('genLicenseValidFrom')?.value || undefined;
+    const validUntil = document.getElementById('genLicenseValidUntil')?.value || undefined;
+
+    const submitBtn = document.getElementById('btnSubmitGenerateLicense');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = `<span class="spin" style="width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Generating...`;
+    }
+
+    try {
+      const res = await fetch('/api/license/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orgId,
+          timeFrame,
+          plan,
+          validFrom,
+          validUntil
+        })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Failed to generate license');
+
+      const lic = data.license;
+      if (outputBox) outputBox.style.display = 'block';
+      if (outputText) outputText.value = lic.licenseString;
+      if (daysSummary) daysSummary.textContent = `${lic.payload.durationDays} Days (Valid until ${lic.payload.validUntil})`;
+
+      showToast(`Generated signed license for ${lic.payload.durationDays} days!`, 'success');
+    } catch (err) {
+      showToast(`Generation Error: ${err.message}`, 'error');
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> <span>Generate License</span>`;
+      }
+    }
+  });
+
+  // Copy generated license key
+  document.getElementById('btnCopyGeneratedLicense')?.addEventListener('click', () => {
+    if (!outputText || !outputText.value) return;
+    navigator.clipboard.writeText(outputText.value).then(() => {
+      showToast('License key copied to clipboard!', 'success');
+    }).catch(() => {
+      outputText.select();
+      document.execCommand('copy');
+      showToast('License key copied!', 'success');
+    });
+  });
+
+  // Download generated .lic file
+  document.getElementById('btnDownloadGeneratedFile')?.addEventListener('click', () => {
+    if (!outputText || !outputText.value) return;
+    const orgId = document.getElementById('genLicenseOrgId')?.value.trim() || 'organization';
+    const blob = new Blob([outputText.value], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `speedface_license_${orgId.toLowerCase()}.lic`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Downloaded .lic license file.', 'info');
+  });
+
+  // One-click apply & activate generated license
+  document.getElementById('btnApplyGeneratedDirectly')?.addEventListener('click', async () => {
+    if (!outputText || !outputText.value) return;
+    if (textArea) textArea.value = outputText.value;
+    document.getElementById('btnActivateLicense')?.click();
   });
 }

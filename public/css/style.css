@@ -4678,3 +4678,21 @@ body.system-locked .main-content {
   display: none !important;
 }
 
+/* System Licensing & Activation Styles */
+.license-grid-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 900px) {
+  .license-grid-columns {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+#licenseDropzone.dragover {
+  border-color: #0284c7 !important;
+  background: #f0f9ff !important;
+}
+
