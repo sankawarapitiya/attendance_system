@@ -203,6 +203,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
           System Settings
         </button>
+        <button class="nav-item" id="navItemLicenseActivation" style="display: none;" title="Activate or extend system subscription">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+          License Activation
+        </button>
       </nav>
 
       <div class="sidebar-footer">
@@ -230,6 +234,17 @@
           <span class="spin" style="width:14px; height:14px; border:2px solid #991b1b; border-top-color:transparent; border-radius:50%; display:inline-block;"></span>
           <span id="connectionAlertMessage">Connection to Attendance Server lost. Attempting to reconnect automatically...</span>
         </div>
+
+      <!-- License Expiration Warning Banner -->
+      <div id="licenseAlertBanner" style="display:none; background:#fef2f2; border-bottom:1px solid #fca5a5; color:#991b1b; padding:10px 20px; font-weight:600; font-size:0.88rem; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:9998;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:1.15rem;">⚠️</span>
+          <span id="licenseAlertMessage">System license has expired. Please upload a valid license file to activate the system.</span>
+        </div>
+        <button type="button" class="btn btn-sm btn-danger" id="btnActivateFromBanner" style="font-size:0.75rem; padding:4px 12px; font-weight:700; background:#dc2626; color:#fff; border:none; border-radius:6px; cursor:pointer;">
+          Upload License File
+        </button>
+      </div>
         <button class="btn btn-sm btn-outline" id="btnManualReconnect" style="font-size:0.75rem; padding:2px 8px; border-color:#fca5a5; color:#991b1b; background:#fff;">
           Retry Now
         </button>
@@ -7883,6 +7898,76 @@ Loading application logs...
           <button type="submit" class="btn btn-primary" id="btnSaveUserSubmit" style="padding: 7px 20px; font-size: 0.85rem; font-weight: 700;">Save User</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Modal: License Activation (For Manager, Staff, and Non-Admins) -->
+  <div class="modal" id="modalLicenseActivation" style="display: none; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(4px); z-index: 10002; position: fixed; inset: 0;">
+    <div class="modal-content" style="max-width: 540px; width: 92%; background: #ffffff; border-radius: 14px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.28); overflow: hidden; border: 1px solid #cbd5e1; animation: modalFadeIn 0.2s ease;">
+      <!-- Header -->
+      <div style="background: linear-gradient(135deg, #0f172a, #1e293b); color: #ffffff; padding: 20px 22px; position: relative;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4); display: flex; align-items: center; justify-content: center; font-size: 1.35rem; color: #10b981;">
+            🔐
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #ffffff;">Activate System License</h3>
+            <p style="margin: 2px 0 0; font-size: 0.78rem; color: #94a3b8;">Upload your license key file (.lic) or paste license string to activate</p>
+          </div>
+        </div>
+        <button type="button" id="btnCloseLicenseActivationModal" style="position: absolute; top: 16px; right: 16px; background: transparent; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; line-height: 1;">&times;</button>
+      </div>
+
+      <!-- Body -->
+      <div style="padding: 22px;">
+        <!-- Current License Status Banner -->
+        <div id="modalLicCurrentStatusBox" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+          <div>
+            <div style="font-size: 0.74rem; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.5px;">Current License Status</div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
+              <span id="modalLicStatusBadge" class="badge" style="background: #10b981; color: #fff; font-weight: 700; font-size: 0.75rem; padding: 3px 9px; border-radius: 999px;">ACTIVE</span>
+              <span id="modalLicDaysCount" style="font-size: 1.05rem; font-weight: 800; color: #0f172a;">366 Days Remaining</span>
+            </div>
+            <div style="font-size: 0.76rem; color: #64748b; margin-top: 3px;" id="modalLicExpiryNote">Valid until: <strong id="modalLicValidUntil">--</strong></div>
+          </div>
+          <div style="text-align: right;">
+            <div style="font-size: 0.74rem; color: #64748b;">Organization Partition:</div>
+            <code id="modalLicOrgId" style="font-size: 0.78rem; background: #e0f2fe; color: #0284c7; padding: 2px 8px; border-radius: 4px; font-weight: 700;">DSOFFICE_LUNUGAMWEHERA</code>
+          </div>
+        </div>
+
+        <!-- Upload Dropzone -->
+        <div id="modalLicDropzone" style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 22px 14px; text-align: center; background: #ffffff; cursor: pointer; transition: all 0.2s ease; margin-bottom: 14px;">
+          <input type="file" id="inputModalLicFile" accept=".lic, .key, .json, .txt" style="display: none;">
+          <div style="font-size: 2rem; margin-bottom: 6px;">📥</div>
+          <div style="font-size: 0.9rem; font-weight: 600; color: #1e293b;">
+            Drop license file here or <span style="color: #0284c7; text-decoration: underline;">Browse File</span>
+          </div>
+          <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Supports signed <code>.lic</code>, <code>.key</code>, or <code>.json</code> license files</div>
+          <div id="modalLicSelectedFileInfo" style="display: none; margin-top: 10px; font-size: 0.82rem; color: #059669; font-weight: 700; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 6px 12px; border-radius: 6px;"></div>
+        </div>
+
+        <!-- Text Area for Manual Paste -->
+        <div style="margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <label for="modalLicTextInput" style="font-size: 0.78rem; font-weight: 600; color: #475569; margin: 0;">Or Paste License Key String:</label>
+            <button type="button" class="btn-link" id="btnModalClearLicText" style="font-size: 0.74rem; color: #94a3b8; background: none; border: none; cursor: pointer;">Clear</button>
+          </div>
+          <textarea id="modalLicTextInput" class="form-control" rows="3" placeholder="-----BEGIN SPEEDFACE LICENSE-----&#10;eyJwYXlsb2FkIjp7ImxpY2Vuc2VJZCI6...&#10;-----END SPEEDFACE LICENSE-----" style="font-family: monospace; font-size: 0.75rem; resize: vertical;"></textarea>
+        </div>
+
+        <!-- Feedback / Alert -->
+        <div id="modalLicAlertBox" style="display: none; padding: 8px 12px; border-radius: 6px; font-size: 0.82rem; margin-bottom: 14px; font-weight: 600;"></div>
+
+        <!-- Footer Buttons -->
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" class="btn btn-outline" id="btnModalCancelLic" style="padding: 8px 18px; font-size: 0.85rem;">Cancel</button>
+          <button type="button" class="btn btn-primary" id="btnModalSubmitLic" style="padding: 8px 22px; font-size: 0.85rem; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+            <span>Activate System</span>
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 

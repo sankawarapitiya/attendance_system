@@ -350,13 +350,13 @@ function switchTab(tabId) {
     return;
   }
 
-  const adminOnlyTabs = ['tab-device', 'tab-api'];
+  const adminOnlyTabs = ['tab-device', 'tab-api', 'tab-settings'];
   if (adminOnlyTabs.includes(tabId) && role !== 'admin') {
-    showToast('🛡️ Access Restricted: Administrator privileges required for this section.', 'warning');
+    showToast('🛡️ Access Restricted: Administrator privileges required for System Settings & Device Control.', 'warning');
     return;
   }
 
-  if (role === 'staff' && ['tab-device', 'tab-api', 'tab-shifts', 'tab-settings'].includes(tabId)) {
+  if (role === 'staff' && ['tab-device', 'tab-api', 'tab-shifts', 'tab-employees', 'tab-settings'].includes(tabId)) {
     showToast('👤 Staff accounts have access to Dashboard, Logs, and Timesheets only.', 'warning');
     return;
   }
@@ -10053,6 +10053,7 @@ function applyRolePermissions(user) {
   const navShifts = document.querySelector('[data-tab="tab-shifts"]');
   const navEmployees = document.querySelector('[data-tab="tab-employees"]');
   const navSettings = document.querySelector('[data-tab="tab-settings"]');
+  const navLicenseActivation = document.getElementById('navItemLicenseActivation');
 
   if (!user) {
     // Guest / Logged out state
@@ -10064,6 +10065,7 @@ function applyRolePermissions(user) {
     if (navShifts) navShifts.style.display = 'none';
     if (navEmployees) navEmployees.style.display = 'none';
     if (navSettings) navSettings.style.display = 'none';
+    if (navLicenseActivation) navLicenseActivation.style.display = 'none';
 
     const restrictedTabs = ['tab-device', 'tab-api', 'tab-shifts', 'tab-employees', 'tab-settings'];
     if (restrictedTabs.includes(state.currentTab)) {
@@ -10131,30 +10133,40 @@ function applyRolePermissions(user) {
     if (navShifts) { navShifts.style.display = 'flex'; }
     if (navEmployees) { navEmployees.style.display = 'flex'; }
     if (navSettings) { navSettings.style.display = 'flex'; }
-  const btnUploadEmployees = document.getElementById('btnUploadEmployees');
-  const btnSyncUsersTerminal = document.getElementById('btnSyncUsers');
-  if (btnUploadEmployees) btnUploadEmployees.style.display = (role === 'staff') ? 'none' : 'inline-flex';
-  if (btnSyncUsersTerminal) btnSyncUsersTerminal.style.display = (role === 'staff') ? 'none' : 'inline-flex';
-
+    if (navLicenseActivation) { navLicenseActivation.style.display = 'none'; }
+    const btnUploadEmployees = document.getElementById('btnUploadEmployees');
+    const btnSyncUsersTerminal = document.getElementById('btnSyncUsers');
+    if (btnUploadEmployees) btnUploadEmployees.style.display = 'inline-flex';
+    if (btnSyncUsersTerminal) btnSyncUsersTerminal.style.display = 'inline-flex';
   } else if (role === 'manager') {
     if (navDevice) { navDevice.style.display = 'none'; }
     if (navApi) { navApi.style.display = 'none'; }
     if (navShifts) { navShifts.style.display = 'flex'; }
     if (navEmployees) { navEmployees.style.display = 'flex'; }
-    if (navSettings) { navSettings.style.display = 'flex'; }
+    if (navSettings) { navSettings.style.display = 'none'; } // Strict Admin Only
+    if (navLicenseActivation) { navLicenseActivation.style.display = 'flex'; }
+    const btnUploadEmployees = document.getElementById('btnUploadEmployees');
+    const btnSyncUsersTerminal = document.getElementById('btnSyncUsers');
+    if (btnUploadEmployees) btnUploadEmployees.style.display = 'inline-flex';
+    if (btnSyncUsersTerminal) btnSyncUsersTerminal.style.display = 'inline-flex';
   } else {
     // staff role
     if (navDevice) { navDevice.style.display = 'none'; }
     if (navApi) { navApi.style.display = 'none'; }
     if (navShifts) { navShifts.style.display = 'none'; }
     if (navEmployees) { navEmployees.style.display = 'none'; }
-    if (navSettings) { navSettings.style.display = 'none'; }
+    if (navSettings) { navSettings.style.display = 'none'; } // Strict Admin Only
+    if (navLicenseActivation) { navLicenseActivation.style.display = 'flex'; }
+    const btnUploadEmployees = document.getElementById('btnUploadEmployees');
+    const btnSyncUsersTerminal = document.getElementById('btnSyncUsers');
+    if (btnUploadEmployees) btnUploadEmployees.style.display = 'none';
+    if (btnSyncUsersTerminal) btnSyncUsersTerminal.style.display = 'none';
   }
 
-  // 3. Prevent non-admins/non-managers from staying on restricted tabs
-  if (role === 'staff' && ['tab-device', 'tab-api', 'tab-shifts', 'tab-settings'].includes(state.currentTab)) {
+  // 3. Prevent non-admins from staying on restricted tabs
+  if (role !== 'admin' && ['tab-device', 'tab-api', 'tab-settings'].includes(state.currentTab)) {
     switchTab('tab-dashboard');
-  } else if (role === 'manager' && ['tab-device', 'tab-api'].includes(state.currentTab)) {
+  } else if (role === 'staff' && ['tab-shifts', 'tab-employees'].includes(state.currentTab)) {
     switchTab('tab-dashboard');
   }
 }
@@ -10624,6 +10636,16 @@ function renderLicenseStatusUI(lic) {
   // 1. Topbar License Pill
   const headerPill = document.getElementById('headerLicensePill');
   const headerText = document.getElementById('headerLicenseDaysText');
+  const userRole = state.currentUser ? (state.currentUser.role || 'staff').toLowerCase() : 'guest';
+
+  if (headerPill) {
+    if (userRole === 'admin') {
+      headerPill.title = 'System License Status - Click to manage in System Settings';
+    } else {
+      headerPill.title = 'System License Status - Click to upload license file to activate';
+    }
+  }
+
   if (headerText) {
     if (!valid || status === 'EXPIRED') {
       headerText.textContent = 'License: EXPIRED';
@@ -10648,6 +10670,58 @@ function renderLicenseStatusUI(lic) {
       }
     }
   }
+
+  // 1.1 Expiry Warning Alert Banner
+  const alertBanner = document.getElementById('licenseAlertBanner');
+  const alertMsg = document.getElementById('licenseAlertMessage');
+  const alertBtn = document.getElementById('btnActivateFromBanner');
+
+  if (alertBanner) {
+    if (!valid || status === 'EXPIRED') {
+      alertBanner.style.display = 'flex';
+      alertBanner.style.background = '#fef2f2';
+      alertBanner.style.borderBottomColor = '#fca5a5';
+      alertBanner.style.color = '#991b1b';
+      if (alertMsg) alertMsg.textContent = 'System license has expired. Please upload a valid license file to activate the system.';
+      if (alertBtn) alertBtn.style.background = '#dc2626';
+    } else if (remainingDays <= 7) {
+      alertBanner.style.display = 'flex';
+      alertBanner.style.background = '#fffbeb';
+      alertBanner.style.borderBottomColor = '#fde68a';
+      alertBanner.style.color = '#92400e';
+      if (alertMsg) alertMsg.textContent = `Warning: System license will expire in ${remainingDays} day${remainingDays === 1 ? '' : 's'}. Upload a renewal license file to extend.`;
+      if (alertBtn) alertBtn.style.background = '#d97706';
+    } else {
+      alertBanner.style.display = 'none';
+    }
+  }
+
+  // 1.2 Update Modal status indicators if present
+  const modalBadge = document.getElementById('modalLicStatusBadge');
+  const modalDays = document.getElementById('modalLicDaysCount');
+  const modalUntil = document.getElementById('modalLicValidUntil');
+  const modalOrg = document.getElementById('modalLicOrgId');
+
+  if (modalBadge) {
+    modalBadge.textContent = status;
+    if (status === 'ACTIVE') modalBadge.style.background = '#10b981';
+    else if (status === 'EXPIRING_SOON') modalBadge.style.background = '#f59e0b';
+    else modalBadge.style.background = '#ef4444';
+  }
+  if (modalDays) {
+    if (!valid || status === 'EXPIRED') {
+      modalDays.textContent = 'Expired (0 Days)';
+      modalDays.style.color = '#ef4444';
+    } else if (remainingDays <= 14) {
+      modalDays.textContent = `${remainingDays} Days Remaining`;
+      modalDays.style.color = '#f59e0b';
+    } else {
+      modalDays.textContent = `${remainingDays} Days Remaining`;
+      modalDays.style.color = '#059669';
+    }
+  }
+  if (modalUntil) modalUntil.textContent = validUntil;
+  if (modalOrg) modalOrg.textContent = orgId;
 
   // 2. Settings Tab License Elements
   const statusBadge = document.getElementById('licenseStatusBadge');
@@ -10735,15 +10809,196 @@ function initLicenseManagement() {
   if (isLicenseManagementInitialized) return;
   isLicenseManagementInitialized = true;
 
-  // Header pill click -> jump to Settings Tab & License card
+  // Modal open / close functions
+  window.openLicenseActivationModal = function() {
+    const modal = document.getElementById('modalLicenseActivation');
+    if (!modal) return;
+
+    const curOrg = getActiveOrgFilter();
+    const orgEl = document.getElementById('modalLicOrgId');
+    if (orgEl) orgEl.textContent = curOrg;
+
+    if (cachedLicenseStatus) {
+      renderLicenseStatusUI(cachedLicenseStatus);
+    }
+
+    const fileInput = document.getElementById('inputModalLicFile');
+    const textInput = document.getElementById('modalLicTextInput');
+    const fileInfo = document.getElementById('modalLicSelectedFileInfo');
+    const alertBox = document.getElementById('modalLicAlertBox');
+
+    if (fileInput) fileInput.value = '';
+    if (textInput) textInput.value = '';
+    if (fileInfo) { fileInfo.style.display = 'none'; fileInfo.textContent = ''; }
+    if (alertBox) { alertBox.style.display = 'none'; alertBox.textContent = ''; }
+
+    modal.style.display = 'flex';
+  };
+
+  window.closeLicenseActivationModal = function() {
+    const modal = document.getElementById('modalLicenseActivation');
+    if (modal) modal.style.display = 'none';
+  };
+
+  // Header pill click -> jump to Settings Tab for Admin, open Activation Modal for other roles
   document.getElementById('headerLicensePill')?.addEventListener('click', () => {
-    switchTab('tab-settings');
-    const card = document.getElementById('cardSystemLicense');
-    if (card) {
-      card.scrollIntoView({ behavior: 'smooth' });
-      card.style.transition = 'box-shadow 0.3s ease';
-      card.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.4)';
-      setTimeout(() => { card.style.boxShadow = 'var(--shadow-sm)'; }, 1500);
+    const user = state.currentUser;
+    const role = user ? (user.role || 'staff').toLowerCase() : 'guest';
+    if (role === 'admin') {
+      switchTab('tab-settings');
+      const card = document.getElementById('cardSystemLicense');
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth' });
+        card.style.transition = 'box-shadow 0.3s ease';
+        card.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.4)';
+        setTimeout(() => { card.style.boxShadow = 'var(--shadow-sm)'; }, 1500);
+      }
+    } else {
+      openLicenseActivationModal();
+    }
+  });
+
+  // Sidebar License Activation nav item (for non-admins)
+  document.getElementById('navItemLicenseActivation')?.addEventListener('click', () => {
+    openLicenseActivationModal();
+  });
+
+  // Banner "Upload License File" button
+  document.getElementById('btnActivateFromBanner')?.addEventListener('click', () => {
+    openLicenseActivationModal();
+  });
+
+  // Close buttons for License Activation Modal
+  document.getElementById('btnCloseLicenseActivationModal')?.addEventListener('click', closeLicenseActivationModal);
+  document.getElementById('btnModalCancelLic')?.addEventListener('click', closeLicenseActivationModal);
+  document.getElementById('modalLicenseActivation')?.addEventListener('click', (e) => {
+    if (e.target.id === 'modalLicenseActivation') closeLicenseActivationModal();
+  });
+
+  // Modal Dropzone & File Input
+  const modalDropzone = document.getElementById('modalLicDropzone');
+  const modalFileInput = document.getElementById('inputModalLicFile');
+  const modalFileInfo = document.getElementById('modalLicSelectedFileInfo');
+  const modalTextArea = document.getElementById('modalLicTextInput');
+
+  modalDropzone?.addEventListener('click', () => {
+    modalFileInput?.click();
+  });
+
+  modalDropzone?.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    modalDropzone.style.borderColor = '#0284c7';
+    modalDropzone.style.background = '#f0f9ff';
+  });
+
+  modalDropzone?.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    modalDropzone.style.borderColor = '#cbd5e1';
+    modalDropzone.style.background = '#ffffff';
+  });
+
+  modalDropzone?.addEventListener('drop', (e) => {
+    e.preventDefault();
+    modalDropzone.style.borderColor = '#cbd5e1';
+    modalDropzone.style.background = '#ffffff';
+    if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+      handleModalLicFile(e.dataTransfer.files[0]);
+    }
+  });
+
+  modalFileInput?.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleModalLicFile(e.target.files[0]);
+    }
+  });
+
+  function handleModalLicFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const content = ev.target.result;
+      if (modalTextArea) modalTextArea.value = content;
+      if (modalFileInfo) {
+        modalFileInfo.style.display = 'block';
+        modalFileInfo.textContent = `✓ Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      }
+      showToast(`Loaded license file "${file.name}". Click "Activate System" to apply.`, 'info');
+    };
+    reader.readAsText(file);
+  }
+
+  // Clear modal text
+  document.getElementById('btnModalClearLicText')?.addEventListener('click', () => {
+    if (modalTextArea) modalTextArea.value = '';
+    if (modalFileInfo) {
+      modalFileInfo.style.display = 'none';
+      modalFileInfo.textContent = '';
+    }
+    if (modalFileInput) modalFileInput.value = '';
+  });
+
+  // Modal Submit button
+  document.getElementById('btnModalSubmitLic')?.addEventListener('click', async () => {
+    const text = (modalTextArea?.value || '').trim();
+    const alertBox = document.getElementById('modalLicAlertBox');
+    if (!text) {
+      if (alertBox) {
+        alertBox.style.display = 'block';
+        alertBox.style.background = '#fef2f2';
+        alertBox.style.color = '#dc2626';
+        alertBox.textContent = 'Please choose a license file (.lic) or paste a license key string first.';
+      }
+      return showToast('Please select a license file or paste a license string.', 'warning');
+    }
+
+    const btn = document.getElementById('btnModalSubmitLic');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spin" style="width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Activating...`;
+    }
+
+    try {
+      const curOrg = getActiveOrgFilter();
+      const res = await fetch('/api/license/activate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Organization-Id': curOrg
+        },
+        body: JSON.stringify({
+          licenseText: text,
+          orgId: curOrg
+        })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'License activation failed');
+
+      if (alertBox) {
+        alertBox.style.display = 'block';
+        alertBox.style.background = '#ecfdf5';
+        alertBox.style.color = '#059669';
+        alertBox.textContent = `✓ ${data.message || 'System license activated successfully!'}`;
+      }
+      showToast(data.message || 'System license successfully activated!', 'success', 5000);
+
+      await loadLicenseStatus();
+
+      setTimeout(() => {
+        closeLicenseActivationModal();
+      }, 1500);
+    } catch (err) {
+      if (alertBox) {
+        alertBox.style.display = 'block';
+        alertBox.style.background = '#fef2f2';
+        alertBox.style.color = '#dc2626';
+        alertBox.textContent = `Error: ${err.message}`;
+      }
+      showToast(`Activation Error: ${err.message}`, 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg> <span>Activate System</span>`;
+      }
     }
   });
 
