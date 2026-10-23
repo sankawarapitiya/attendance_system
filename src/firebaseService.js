@@ -12,7 +12,9 @@ const {
   markAttendanceCloudSynced,
   getUnsyncedEmployees,
   markEmployeesCloudSynced,
-  getCloudSyncStats
+  getCloudSyncStats,
+  getAttendanceByDateRange,
+  insertAttendanceFromCloud
 } = require('./db');
 
 const CREDENTIALS_DIR = path.join(process.cwd(), 'data', 'credentials');
@@ -878,6 +880,305 @@ class FirebaseService {
         success: false,
         offline: true,
         uploadedCount: totalUploaded,
+        error: err.message,
+        syncProgress: this.syncProgress
+      };
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  /**
+   * Two-Way Synchronization for Selected Date Range.
+   * - Pulls attendance from Firestore: organizations/{orgId}/attendance where punchDate between startDate & endDate
+   *   and inserts any missing punches into local SQLite (insertAttendanceFromCloud).
+   * - Pushes local SQLite attendance for that date range up to Firestore.
+   * - Supports directions: 'two_way' (default), 'upload', 'download'.
+   */
+  async twoWaySync(options = {}) {
+    if (this.isSyncing) {
+      return { success: false, message: 'Sync already in progress', syncProgress: this.syncProgress };
+    }
+
+    await this.init();
+
+    if (!this.keyData) {
+      return { success: false, offline: true, error: 'Firebase credentials are not configured' };
+    }
+
+    const orgConfig = await this.getOrganizationConfig();
+    const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const orgName = options.orgName || orgConfig.orgName || 'General Organization';
+    const direction = options.direction || 'two_way'; // 'two_way', 'upload', 'download'
+
+    const today = new Date().toISOString().slice(0, 10);
+    let startDate = (options.startDate || today).slice(0, 10);
+    let endDate = (options.endDate || today).slice(0, 10);
+
+    if (startDate > endDate) {
+      const tmp = startDate;
+      startDate = endDate;
+      endDate = tmp;
+    }
+
+    this.isSyncing = true;
+    this.stopRequested = false;
+    this.syncStartTime = Date.now();
+
+    this.syncProgress = {
+      isSyncing: true,
+      state: 'SYNCING',
+      direction,
+      startDate,
+      endDate,
+      downloaded: 0,
+      newInserted: 0,
+      uploaded: 0,
+      percent: 5,
+      message: `Starting ${direction === 'two_way' ? 'two-way' : direction} sync for ${startDate} to ${endDate}...`,
+      updatedAt: new Date().toISOString()
+    };
+    this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+    let downloadedCount = 0;
+    let newInsertedCount = 0;
+    let totalUploaded = 0;
+    const projectId = this.keyData.project_id;
+
+    try {
+      // -------------------------------------------------------------
+      // PHASE 1: DOWNLOAD FROM FIRESTORE (if 'two_way' or 'download')
+      // -------------------------------------------------------------
+      if (direction === 'two_way' || direction === 'download') {
+        this.syncProgress.message = `Querying Firestore partition (${orgId}) for ${startDate} to ${endDate}...`;
+        this.syncProgress.percent = 15;
+        this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+        const attCol = this.firestore.collection(`organizations/${orgId}/attendance`);
+        const snapshot = await attCol
+          .where('punchDate', '>=', startDate)
+          .where('punchDate', '<=', endDate)
+          .get();
+
+        const cloudRecords = [];
+        snapshot.forEach(doc => {
+          const d = doc.data();
+          cloudRecords.push({
+            user_id: d.rawUserId || d.userId,
+            punch_time: d.punchTime,
+            verify_mode: d.verifyMode !== undefined ? d.verifyMode : 15,
+            verify_name: d.verifyName || 'Biometric',
+            punch_state: d.punchState !== undefined ? d.punchState : 0,
+            punch_state_name: d.punchStateName || 'Punch',
+            work_code: d.workCode || 0,
+            temperature: d.temperature !== undefined ? d.temperature : null,
+            mask_status: d.maskStatus !== undefined ? d.maskStatus : null,
+            device_ip: d.deviceIp || 'Cloud Firestore',
+            device_sn: d.deviceSn || '',
+            source: d.source || 'CLOUD_SYNC'
+          });
+        });
+
+        downloadedCount = cloudRecords.length;
+
+        if (cloudRecords.length > 0) {
+          this.syncProgress.message = `Merging ${cloudRecords.length} cloud records into local SQLite...`;
+          this.syncProgress.percent = 35;
+          this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+          const insertRes = await insertAttendanceFromCloud(cloudRecords);
+          newInsertedCount = insertRes.inserted;
+        }
+
+        this.syncProgress.downloaded = downloadedCount;
+        this.syncProgress.newInserted = newInsertedCount;
+        this.syncProgress.percent = (direction === 'download') ? 95 : 50;
+        this.syncProgress.message = `Downloaded ${downloadedCount} records from Firestore (${newInsertedCount} new inserted locally).`;
+        this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+      }
+
+      // Check stop flag
+      if (this.stopRequested) {
+        throw new Error('Sync stopped by user');
+      }
+
+      // -------------------------------------------------------------
+      // PHASE 2: UPLOAD LOCAL TO FIRESTORE (if 'two_way' or 'upload')
+      // -------------------------------------------------------------
+      if (direction === 'two_way' || direction === 'upload') {
+        this.syncProgress.message = `Gathering local records for ${startDate} to ${endDate}...`;
+        this.syncProgress.percent = (direction === 'upload') ? 15 : 55;
+        this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+        const localRecords = await getAttendanceByDateRange(startDate, endDate, false);
+        const totalToUpload = localRecords.length;
+        const batchSize = 50;
+
+        for (let i = 0; i < localRecords.length; i += batchSize) {
+          if (this.stopRequested) break;
+
+          const batch = localRecords.slice(i, i + batchSize);
+          const writes = [];
+          const syncedIds = [];
+          const nowIso = new Date().toISOString();
+
+          for (const rec of batch) {
+            const rawUserId = String(rec.user_id || '').trim();
+            const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F-\x9F\/]/g, '_').trim() || 'USER';
+            const punchKey = this._formatPunchKey(rec.punch_time);
+            const docId = `${orgId}_${cleanUserId}_${punchKey}`;
+
+            const punchEpoch = Date.parse(rec.punch_time) || Date.now();
+            const punchIso = new Date(punchEpoch).toISOString();
+            const punchDate = rec.punch_time ? String(rec.punch_time).slice(0, 10) : punchIso.slice(0, 10);
+
+            const payload = {
+              id: docId,
+              organizationId: orgId,
+              organizationName: orgName,
+              userId: cleanUserId,
+              rawUserId: rawUserId,
+              employeeName: rec.employee_name || '',
+              department: rec.department || 'General',
+              role: rec.role || 'Staff',
+              serviceId: rec.employee_service_id || '',
+              cardNo: rec.card_no || '',
+              punchTime: rec.punch_time,
+              punchIso,
+              punchEpoch,
+              punchDate,
+              verifyMode: rec.verify_mode !== undefined ? rec.verify_mode : 15,
+              verifyName: rec.verify_name || 'Biometric',
+              punchState: rec.punch_state !== undefined ? rec.punch_state : 0,
+              punchStateName: rec.punch_state_name || 'Punch',
+              workCode: rec.work_code || 0,
+              temperature: rec.temperature !== null ? rec.temperature : null,
+              maskStatus: rec.mask_status !== null ? rec.mask_status : null,
+              deviceIp: rec.device_ip || '192.168.10.15',
+              deviceSn: rec.device_sn || '',
+              source: rec.source || 'DIRECT_SYNC',
+              syncedAt: nowIso
+            };
+
+            writes.push({
+              update: {
+                name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/attendance/${docId}`,
+                fields: toFirestoreFields(payload)
+              }
+            });
+            syncedIds.push(rec.id);
+          }
+
+          await this._commitRestWrites(writes);
+          await markAttendanceCloudSynced(syncedIds);
+          totalUploaded += syncedIds.length;
+
+          const uploadPercent = Math.min(45, Math.round((totalUploaded / (totalToUpload || 1)) * 45));
+          this.syncProgress.uploaded = totalUploaded;
+          this.syncProgress.percent = (direction === 'upload') ? Math.round((totalUploaded / (totalToUpload || 1)) * 100) : (50 + uploadPercent);
+          this.syncProgress.message = `Uploaded ${totalUploaded} of ${totalToUpload} punches to Firestore...`;
+          this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+        }
+      }
+
+      // -------------------------------------------------------------
+      // PHASE 3: METADATA & FINALIZATION
+      // -------------------------------------------------------------
+      const nowIso = new Date().toISOString();
+      this.isOnline = true;
+      this.lastSyncTime = nowIso;
+      this.lastError = null;
+
+      // Update organization document lastSyncAt
+      try {
+        const orgMetaWrite = [{
+          update: {
+            name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}`,
+            fields: toFirestoreFields({
+              organizationId: orgId,
+              organizationName: orgName,
+              lastSyncAt: nowIso,
+              updatedAt: nowIso
+            })
+          }
+        }];
+        await this._commitRestWrites(orgMetaWrite).catch(() => {});
+      } catch (e) {}
+
+      let summaryMsg = '';
+      if (direction === 'two_way') {
+        summaryMsg = `Two-way sync complete for ${startDate} to ${endDate}: ${totalUploaded} uploaded to cloud, ${downloadedCount} verified in cloud (${newInsertedCount} new local records added).`;
+      } else if (direction === 'upload') {
+        summaryMsg = `Upload complete for ${startDate} to ${endDate}: ${totalUploaded} punches uploaded to Firestore.`;
+      } else {
+        summaryMsg = `Download complete for ${startDate} to ${endDate}: ${downloadedCount} punches retrieved from cloud (${newInsertedCount} new local records added).`;
+      }
+
+      this.syncProgress = {
+        isSyncing: false,
+        state: 'COMPLETED',
+        direction,
+        startDate,
+        endDate,
+        downloaded: downloadedCount,
+        newInserted: newInsertedCount,
+        uploaded: totalUploaded,
+        percent: 100,
+        message: summaryMsg,
+        updatedAt: nowIso
+      };
+      this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+      // Record in sync_logs
+      await dbRun(`
+        INSERT INTO sync_logs (sync_type, status, records_synced, total_records, message)
+        VALUES ('TWO_WAY_CLOUD_SYNC', 'SUCCESS', ?, ?, ?)
+      `, [totalUploaded + newInsertedCount, totalUploaded + downloadedCount, summaryMsg]);
+
+      return {
+        success: true,
+        direction,
+        startDate,
+        endDate,
+        downloaded: downloadedCount,
+        newInserted: newInsertedCount,
+        uploaded: totalUploaded,
+        orgId,
+        message: summaryMsg,
+        syncProgress: this.syncProgress
+      };
+    } catch (err) {
+      this.isOnline = false;
+      this.lastError = err.message;
+
+      this.syncProgress = {
+        isSyncing: false,
+        state: 'ERROR',
+        direction,
+        startDate,
+        endDate,
+        downloaded: downloadedCount,
+        newInserted: newInsertedCount,
+        uploaded: totalUploaded,
+        percent: 0,
+        message: `Sync failed: ${err.message}`,
+        updatedAt: new Date().toISOString()
+      };
+      this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+      await dbRun(`
+        INSERT INTO sync_logs (sync_type, status, records_synced, total_records, message)
+        VALUES ('TWO_WAY_CLOUD_SYNC', 'ERROR', 0, 0, ?)
+      `, [`Two-way sync failed for ${startDate} - ${endDate}: ${err.message}`]);
+
+      return {
+        success: false,
+        direction,
+        startDate,
+        endDate,
+        downloaded: downloadedCount,
+        newInserted: newInsertedCount,
+        uploaded: totalUploaded,
         error: err.message,
         syncProgress: this.syncProgress
       };

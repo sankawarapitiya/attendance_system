@@ -1772,6 +1772,68 @@
                     </button>
                   </div>
                 </form>
+
+                <!-- Two-Way Date Range Synchronization Section -->
+                <div class="two-way-sync-section" id="twoWaySyncSection" style="margin-top: 20px; padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+                    <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                      <span style="font-size: 1.15rem;">🔄</span>
+                      <span>Two-Way Date Range Synchronization</span>
+                      <span class="badge" style="background:#e0f2fe; color:#0369a1; font-size:0.72rem; font-weight:700; border:1px solid #bae6fd;">BI-DIRECTIONAL</span>
+                    </div>
+                    <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                      <button type="button" class="btn btn-xs btn-outline btn-tw-date-preset" data-preset="today" style="font-size: 0.72rem; padding: 2px 8px;">Today</button>
+                      <button type="button" class="btn btn-xs btn-outline btn-tw-date-preset" data-preset="this-month" style="font-size: 0.72rem; padding: 2px 8px;">This Month</button>
+                      <button type="button" class="btn btn-xs btn-outline btn-tw-date-preset" data-preset="last-month" style="font-size: 0.72rem; padding: 2px 8px;">Last Month</button>
+                      <button type="button" class="btn btn-xs btn-outline btn-tw-date-preset" data-preset="all-time" style="font-size: 0.72rem; padding: 2px 8px;">All Records</button>
+                    </div>
+                  </div>
+
+                  <div style="font-size: 0.79rem; color: #64748b; margin-bottom: 12px; line-height: 1.45;">
+                    Synchronize attendance punches bidirectionally between your local SQLite database and active partition <code>organizations/<span id="twoWayOrgIdDisplay">DSOFFICE_LUNUGAMWEHERA</span>/attendance</code>. Missing cloud punches are inserted locally, and local punches are uploaded to Firestore.
+                  </div>
+
+                  <!-- Date Range & Direction Inputs -->
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 12px;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                      <label for="twoWayStartDate" style="font-size: 0.78rem; font-weight: 600; color: #334155; margin-bottom: 3px; display: block;">From Date (Start)</label>
+                      <input type="date" id="twoWayStartDate" class="form-control" style="font-size: 0.82rem; padding: 5px 8px;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                      <label for="twoWayEndDate" style="font-size: 0.78rem; font-weight: 600; color: #334155; margin-bottom: 3px; display: block;">To Date (End)</label>
+                      <input type="date" id="twoWayEndDate" class="form-control" style="font-size: 0.82rem; padding: 5px 8px;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                      <label for="twoWayDirection" style="font-size: 0.78rem; font-weight: 600; color: #334155; margin-bottom: 3px; display: block;">Sync Mode</label>
+                      <select id="twoWayDirection" class="form-control" style="font-size: 0.82rem; padding: 5px 8px;">
+                        <option value="two_way" selected>🔄 Two-Way (Cloud ⇄ Local)</option>
+                        <option value="download">⬇️ Pull from Cloud (Cloud → Local)</option>
+                        <option value="upload">⬆️ Push to Cloud (Local → Cloud)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <!-- Action Controls & Status Feedback Strip -->
+                  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                    <button type="button" class="btn btn-primary btn-sm" id="btnRunTwoWaySync" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600;">
+                      <span id="btnRunTwoWaySyncIcon">🔄</span>
+                      <span id="btnRunTwoWaySyncText">Run Two-Way Sync for Selected Range</span>
+                    </button>
+                    
+                    <div id="twoWaySyncResultBadge" style="display: none; font-size: 0.76rem; padding: 4px 10px; border-radius: 6px; font-weight: 600;"></div>
+                  </div>
+
+                  <!-- Two-Way Sync Live Progress Box -->
+                  <div id="twoWayLiveProgressBox" style="display: none; margin-top: 10px; padding: 8px 12px; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.78rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                      <span id="twoWayLiveStatusText" style="font-weight: 600; color: #0369a1;">Syncing...</span>
+                      <span id="twoWayLiveCounters" style="color: #64748b; font-family: monospace;"></span>
+                    </div>
+                    <div style="height: 6px; background: #e2e8f0; border-radius: 999px; overflow: hidden;">
+                      <div id="twoWayLiveProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #0284c7, #2563eb); transition: width 0.3s ease;"></div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <!-- Right Column: Service Account Private Key Management -->

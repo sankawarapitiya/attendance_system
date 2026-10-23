@@ -609,6 +609,88 @@ async function markEmployeesCloudSynced(userIds = []) {
   return res.changes || 0;
 }
 
+// Get attendance records for a specific date range
+async function getAttendanceByDateRange(startDate, endDate, onlyUnsynced = false) {
+  const startStr = `${startDate} 00:00:00`;
+  const endStr = `${endDate} 23:59:59`;
+  let sql = `
+    SELECT a.*, 
+           e.name as employee_name, 
+           e.department, 
+           e.role, 
+           e.employee_service_id,
+           e.card_no
+    FROM attendance_records a
+    LEFT JOIN employees e ON a.user_id = e.user_id
+    WHERE a.punch_time >= ? AND a.punch_time <= ?
+  `;
+  const params = [startStr, endStr];
+  if (onlyUnsynced) {
+    sql += ` AND (a.synced_to_cloud = 0 OR a.synced_to_cloud IS NULL)`;
+  }
+  sql += ` ORDER BY a.punch_time ASC`;
+  return dbAll(sql, params);
+}
+
+// Insert / merge attendance records downloaded from Cloud Firestore into local SQLite
+async function insertAttendanceFromCloud(records) {
+  if (!records || records.length === 0) return { inserted: 0, total: 0 };
+
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+      const stmt = db.prepare(`
+        INSERT OR IGNORE INTO attendance_records (
+          user_sn, user_id, punch_time, verify_mode, verify_name,
+          punch_state, punch_state_name, work_code, temperature,
+          mask_status, device_ip, device_sn, source, synced_to_cloud, cloud_synced_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+      `);
+
+      let insertedCount = 0;
+      for (const rec of records) {
+        const verifyName = rec.verify_name || getVerifyModeName(rec.verify_mode || rec.verifyMode);
+        const punchStateName = rec.punch_state_name || getPunchStateName(rec.punch_state || rec.punchState);
+        const userId = String(rec.user_id || rec.userId || '').trim();
+        const punchTime = rec.punch_time || rec.punchTime;
+        if (!userId || !punchTime) continue;
+
+        stmt.run(
+          rec.user_sn || 0,
+          userId,
+          punchTime,
+          rec.verify_mode !== undefined ? rec.verify_mode : (rec.verifyMode !== undefined ? rec.verifyMode : 15),
+          verifyName,
+          rec.punch_state !== undefined ? rec.punch_state : (rec.punchState !== undefined ? rec.punchState : 0),
+          punchStateName,
+          rec.work_code || rec.workCode || 0,
+          rec.temperature !== undefined ? rec.temperature : null,
+          rec.mask_status !== undefined ? rec.mask_status : (rec.maskStatus !== undefined ? rec.maskStatus : null),
+          rec.device_ip || rec.deviceIp || 'Cloud Firestore',
+          rec.device_sn || rec.deviceSn || '',
+          rec.source || 'CLOUD_SYNC',
+          function (err) {
+            if (!err && this.changes > 0) {
+              insertedCount++;
+            }
+          }
+        );
+      }
+
+      stmt.finalize((err) => {
+        if (err) {
+          db.run('ROLLBACK');
+          return reject(err);
+        }
+        db.run('COMMIT', (commitErr) => {
+          if (commitErr) return reject(commitErr);
+          resolve({ inserted: insertedCount, total: records.length });
+        });
+      });
+    });
+  });
+}
+
 // Get cloud synchronization metrics
 async function getCloudSyncStats() {
   const row = await dbGet(`
@@ -648,5 +730,7 @@ module.exports = {
   markAttendanceCloudSynced,
   getUnsyncedEmployees,
   markEmployeesCloudSynced,
-  getCloudSyncStats
+  getCloudSyncStats,
+  getAttendanceByDateRange,
+  insertAttendanceFromCloud
 };

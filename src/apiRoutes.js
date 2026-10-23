@@ -2973,6 +2973,22 @@ router.post('/firebase/reset-sync', async (req, res) => {
   }
 });
 
+// 8. Two-Way Sync for Selected Date Range
+router.post('/firebase/two-way-sync', async (req, res) => {
+  try {
+    const { startDate, endDate, direction, orgId } = req.body || {};
+    const result = await firebaseService.twoWaySync({
+      startDate,
+      endDate,
+      direction: direction || 'two_way',
+      orgId
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 8. Stop active Firestore cloud sync
 router.post('/firebase/stop-sync', async (req, res) => {
   try {

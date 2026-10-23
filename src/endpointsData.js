@@ -544,6 +544,20 @@ const API_ENDPOINTS = [
     body: {}
   },
   {
+    id: 'two-way-firebase-sync',
+    category: 'cloud',
+    categoryName: '🔥 Cloud Sync (Firestore)',
+    method: 'POST',
+    path: '/api/firebase/two-way-sync',
+    description: 'Two-way synchronization for selected date range between local database and Firestore organization partition',
+    body: {
+      startDate: 'string (required, format: "YYYY-MM-DD", e.g. "2026-10-01")',
+      endDate: 'string (required, format: "YYYY-MM-DD", e.g. "2026-10-23")',
+      direction: 'string (optional: "two_way", "upload", "download". Default: "two_way")',
+      orgId: 'string (optional, e.g. "DSOFFICE_LUNUGAMWEHERA")'
+    }
+  },
+  {
     id: 'reset-firebase-sync',
     category: 'cloud',
     categoryName: '🔥 Cloud Sync (Firestore)',

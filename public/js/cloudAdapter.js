@@ -761,6 +761,26 @@
         }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
 
+      if (path === '/api/firebase/two-way-sync') {
+        let body = {};
+        try { body = options.body ? JSON.parse(options.body) : {}; } catch (e) {}
+        if (typeof window.refreshCloudData === 'function') {
+          await window.refreshCloudData();
+        }
+        return new Response(JSON.stringify({
+          success: true,
+          cloudMode: true,
+          direction: body.direction || 'two_way',
+          startDate: body.startDate,
+          endDate: body.endDate,
+          uploaded: 0,
+          downloaded: 0,
+          newInserted: 0,
+          orgId: activeOrgId,
+          message: `Cloud Live Mode: Attendance records for ${body.startDate || ''} to ${body.endDate || ''} are streamed live from partition "${activeOrgId}" in Firestore.`
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+
       if (path === '/api/firebase/sync-now' || path === '/api/firebase/sync-employees' || path === '/api/firebase/reset-sync') {
         return new Response(JSON.stringify({
           success: true,
@@ -931,6 +951,11 @@
       const fbLiveTitle = document.getElementById('fbLiveSyncTitle');
       if (fbLiveTitle) {
         fbLiveTitle.textContent = `Partition: ${activeOrgId}`;
+      }
+
+      const twoWayOrg = document.getElementById('twoWayOrgIdDisplay');
+      if (twoWayOrg) {
+        twoWayOrg.textContent = activeOrgId;
       }
 
       const fbLiveSub = document.getElementById('fbLiveSyncSubtitle');

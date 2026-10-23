@@ -8485,6 +8485,155 @@ function initFirebaseSync() {
     }
   });
 
+  // 4c. Two-Way Date Range Synchronization Handlers
+  const twStartInput = document.getElementById('twoWayStartDate');
+  const twEndInput = document.getElementById('twoWayEndDate');
+  const twDirSelect = document.getElementById('twoWayDirection');
+  const btnTwoWaySync = document.getElementById('btnRunTwoWaySync');
+  const btnTwoWayIcon = document.getElementById('btnRunTwoWaySyncIcon');
+  const btnTwoWayText = document.getElementById('btnRunTwoWaySyncText');
+  const twResultBadge = document.getElementById('twoWaySyncResultBadge');
+  const twProgressBox = document.getElementById('twoWayLiveProgressBox');
+  const twStatusText = document.getElementById('twoWayLiveStatusText');
+  const twCounters = document.getElementById('twoWayLiveCounters');
+  const twProgressBar = document.getElementById('twoWayLiveProgressBar');
+
+  // Initialize default date range: From 1st of current month to Today
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const todayStr = `${yyyy}-${mm}-${dd}`;
+  const firstOfMonthStr = `${yyyy}-${mm}-01`;
+
+  if (twStartInput && !twStartInput.value) twStartInput.value = firstOfMonthStr;
+  if (twEndInput && !twEndInput.value) twEndInput.value = todayStr;
+
+  // Preset buttons
+  document.querySelectorAll('.btn-tw-date-preset').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const preset = btn.dataset.preset;
+      const cur = new Date();
+      if (preset === 'today') {
+        const dStr = cur.toISOString().slice(0, 10);
+        if (twStartInput) twStartInput.value = dStr;
+        if (twEndInput) twEndInput.value = dStr;
+      } else if (preset === 'this-month') {
+        const mStr = String(cur.getMonth() + 1).padStart(2, '0');
+        if (twStartInput) twStartInput.value = `${cur.getFullYear()}-${mStr}-01`;
+        if (twEndInput) twEndInput.value = cur.toISOString().slice(0, 10);
+      } else if (preset === 'last-month') {
+        const lastM = new Date(cur.getFullYear(), cur.getMonth() - 1, 1);
+        const lastMEnd = new Date(cur.getFullYear(), cur.getMonth(), 0);
+        const lmStr = String(lastM.getMonth() + 1).padStart(2, '0');
+        const endDay = String(lastMEnd.getDate()).padStart(2, '0');
+        if (twStartInput) twStartInput.value = `${lastM.getFullYear()}-${lmStr}-01`;
+        if (twEndInput) twEndInput.value = `${lastM.getFullYear()}-${lmStr}-${endDay}`;
+      } else if (preset === 'all-time') {
+        if (twStartInput) twStartInput.value = '2024-01-01';
+        if (twEndInput) twEndInput.value = cur.toISOString().slice(0, 10);
+      }
+    });
+  });
+
+  // Direction select changes button text
+  twDirSelect?.addEventListener('change', () => {
+    const val = twDirSelect.value;
+    if (btnTwoWayText) {
+      if (val === 'download') {
+        btnTwoWayText.textContent = 'Pull Cloud Records for Selected Range';
+        if (btnTwoWayIcon) btnTwoWayIcon.textContent = '⬇️';
+      } else if (val === 'upload') {
+        btnTwoWayText.textContent = 'Push Local Records for Selected Range';
+        if (btnTwoWayIcon) btnTwoWayIcon.textContent = '⬆️';
+      } else {
+        btnTwoWayText.textContent = 'Run Two-Way Sync for Selected Range';
+        if (btnTwoWayIcon) btnTwoWayIcon.textContent = '🔄';
+      }
+    }
+  });
+
+  // Run Two-Way Sync Click Handler
+  btnTwoWaySync?.addEventListener('click', async () => {
+    const startDate = twStartInput?.value;
+    const endDate = twEndInput?.value;
+    const direction = twDirSelect?.value || 'two_way';
+
+    if (!startDate || !endDate) {
+      showToast('Please select both Start Date and End Date for synchronization', 'warning');
+      return;
+    }
+
+    if (startDate > endDate) {
+      showToast('Start Date cannot be after End Date', 'warning');
+      return;
+    }
+
+    const origText = btnTwoWayText ? btnTwoWayText.textContent : '';
+    const origIcon = btnTwoWayIcon ? btnTwoWayIcon.textContent : '';
+    btnTwoWaySync.disabled = true;
+    if (btnTwoWayIcon) btnTwoWayIcon.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;"></span>`;
+    if (btnTwoWayText) btnTwoWayText.textContent = 'Synchronizing...';
+
+    if (twProgressBox) twProgressBox.style.display = 'block';
+    if (twStatusText) twStatusText.textContent = `Syncing (${direction}) ${startDate} to ${endDate}...`;
+    if (twProgressBar) twProgressBar.style.width = '20%';
+    if (twCounters) twCounters.textContent = 'Connecting to Firestore...';
+    if (twResultBadge) twResultBadge.style.display = 'none';
+
+    try {
+      showToast(`Starting ${direction === 'two_way' ? 'Two-Way' : direction} synchronization for ${startDate} to ${endDate}...`, 'info', 4000);
+      const res = await fetch('/api/firebase/two-way-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate, endDate, direction })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        if (twProgressBar) twProgressBar.style.width = '100%';
+        if (twStatusText) twStatusText.textContent = 'Completed successfully!';
+        if (twCounters) twCounters.textContent = `☁️ Uploaded: ${data.uploaded || 0} | ⬇️ Checked: ${data.downloaded || 0} (${data.newInserted || 0} new local)`;
+
+        if (twResultBadge) {
+          twResultBadge.style.display = 'inline-block';
+          twResultBadge.style.background = '#dcfce7';
+          twResultBadge.style.color = '#15803d';
+          twResultBadge.style.border = '1px solid #bbf7d0';
+          twResultBadge.innerHTML = `✅ Synced: ${data.uploaded || 0} uploaded, ${data.downloaded || 0} checked (${data.newInserted || 0} new local punches)`;
+        }
+
+        showToast(data.message || 'Two-way sync completed successfully!', 'success', 6000);
+        await loadFirebaseStatus();
+        if (typeof loadDashboardStats === 'function') loadDashboardStats();
+        if (typeof loadAttendanceRecords === 'function') loadAttendanceRecords();
+      } else {
+        if (twStatusText) twStatusText.textContent = 'Sync failed';
+        if (twResultBadge) {
+          twResultBadge.style.display = 'inline-block';
+          twResultBadge.style.background = '#fee2e2';
+          twResultBadge.style.color = '#991b1b';
+          twResultBadge.style.border = '1px solid #fecaca';
+          twResultBadge.textContent = '❌ ' + (data.error || 'Sync failed');
+        }
+        showToast(data.error || 'Two-way sync failed', 'error', 6000);
+      }
+    } catch (err) {
+      if (twStatusText) twStatusText.textContent = 'Network error';
+      if (twResultBadge) {
+        twResultBadge.style.display = 'inline-block';
+        twResultBadge.style.background = '#fee2e2';
+        twResultBadge.style.color = '#991b1b';
+        twResultBadge.textContent = '❌ ' + err.message;
+      }
+      showToast('Error running two-way sync: ' + err.message, 'error');
+    } finally {
+      btnTwoWaySync.disabled = false;
+      if (btnTwoWayIcon) btnTwoWayIcon.textContent = origIcon || '🔄';
+      if (btnTwoWayText) btnTwoWayText.textContent = origText || 'Run Two-Way Sync for Selected Range';
+    }
+  });
+
   // 5. File Upload Dropzone
   const dropZone = document.getElementById('fbKeyDropZone');
   const fileInput = document.getElementById('fbKeyFileInput');
@@ -8848,6 +8997,8 @@ function updateFirebaseStatusUI(status) {
   // Update Paired Partition Badge
   const pairedText = document.getElementById('fbPairedOrgIdText');
   if (pairedText && status.orgId) pairedText.textContent = status.orgId;
+  const twoWayOrg = document.getElementById('twoWayOrgIdDisplay');
+  if (twoWayOrg && status.orgId) twoWayOrg.textContent = status.orgId;
 
   // Populate form fields if not currently focused by user
   const orgNameEl = document.getElementById('settingFirestoreOrgName');
