@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+logs
+data/backups
+data/*.db-shm
+data/*.db-wal
+.git
+.gitignore
+.firebase
+functions
+scratch_chrome
+edge_temp
+*.bat
