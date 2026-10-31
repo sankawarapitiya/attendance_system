@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=3.2.0">
+  <link rel="stylesheet" href="css/style.css?v=3.4.0">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%231d4ed8'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/></svg>">
   <script>
     // Immediate global handlers to ensure zero ReferenceError on early clicks
@@ -1802,287 +1802,6 @@
           <!-- RIGHT COLUMN: Firebase Sync, Sync Logs, System Health, Data Reset -->
           <div class="device-col" id="deviceColRight">
             <!-- Firebase Firestore Cloud Sync & Multi-Organization Card -->
-        <div class="card device-card" id="firebaseSyncCard" data-section="firebase">
-          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-            <div>
-              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                <h3 style="margin-bottom: 2px;">🔥 Firebase Firestore Cloud Sync</h3>
-                <span class="badge" id="fbStatusBadge" style="background:#fee2e2; color:#991b1b; font-weight:700;">Checking...</span>
-                <span class="badge" id="fbProjectBadge" style="background:#f1f5f9; color:#475569; font-family:monospace; display:none;"></span>
-              </div>
-              <p class="subtitle" style="margin-bottom: 0;">Multi-Organization Cloud Architecture with Offline-First Local Storage. Punches stay local when offline and sync to Firestore when connected.</p>
-            </div>
-            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-              <button class="btn btn-sm btn-outline" id="btnTestFirestoreConn" type="button" title="Test Firestore Read/Write Ping">
-                ⚡ Test Connection
-              </button>
-              <button class="btn btn-sm btn-primary" id="btnSyncFirestoreNow" type="button" title="Upload all pending records to Firestore">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                Upload Pending Data Now
-              </button>
-              <button class="btn btn-sm btn-danger-outline" id="btnStopFirestoreSync" type="button" style="display: inline-flex; align-items: center; gap: 6px;" title="Stop or pause Firestore cloud sync">
-                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:12px;height:12px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
-                <span id="btnStopFirestoreSyncText">Stop Cloud Sync</span>
-              </button>
-            </div>
-          </div>
-          <div class="card-body device-scroll-body">
-            <!-- Live Cloud Sync Status Banner with Real-time Progress Bar -->
-            <div id="fbLiveSyncBanner" style="margin-bottom: 20px; border-radius: 12px; padding: 16px 20px; border: 1px solid #e2e8f0; background: #f8fafc; transition: all 0.3s ease;">
-              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                  <div id="fbLiveSyncIcon" style="width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; background: #e2e8f0; color: #475569; flex-shrink: 0;">
-                    ☁️
-                  </div>
-                  <div>
-                    <div id="fbLiveSyncTitle" style="font-weight: 700; font-size: 1rem; color: #1e293b; display: flex; align-items: center; gap: 8px;">
-                      Cloud Sync: Checking status...
-                    </div>
-                    <div id="fbLiveSyncSubtitle" style="font-size: 0.82rem; color: #64748b; margin-top: 2px;">
-                      Connecting to multi-organization cloud partition...
-                    </div>
-                  </div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <button class="btn btn-sm btn-danger-outline" id="fbLiveSyncStopBtn" type="button" style="display: none; padding: 4px 12px; font-size: 0.78rem; font-weight: 700; border-radius: 999px; align-items: center; gap: 5px;" title="Cancel ongoing cloud upload">
-                    ⏹️ Stop Sync
-                  </button>
-                  <span id="fbLiveSyncPercentBadge" class="badge" style="font-size: 0.85rem; padding: 5px 12px; font-weight: 700; background: var(--accent-light); color: var(--accent-dark); border: 1px solid var(--accent-border); display: none;">0%</span>
-                  <span id="fbLiveSyncStatePill" class="badge" style="font-size: 0.82rem; padding: 5px 14px; font-weight: 700; background: #f1f5f9; color: #475569;">CHECKING</span>
-                </div>
-              </div>
-
-              <!-- Animated Progress Bar Container -->
-              <div id="fbLiveProgressBarWrap" style="margin-top: 14px; display: none;">
-                <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: #64748b; font-weight: 600; margin-bottom: 6px;">
-                  <span id="fbLiveProgressDetails">Uploading attendance punches to Firestore...</span>
-                  <span id="fbLiveProgressRatio">0 / 0</span>
-                </div>
-                <div style="height: 10px; background: #e2e8f0; border-radius: 999px; overflow: hidden; position: relative;">
-                  <div id="fbLiveProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #38bdf8, #1d4ed8); border-radius: 999px; transition: width 0.3s ease;"></div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Quota & Offline Resilience Guide Strip -->
-            <div id="fbQuotaGuideBox" style="display:none; margin-bottom: 20px; border-radius: 10px; padding: 16px 20px; border: 1px solid #fed7aa; background: #fffaf5; font-size: 0.83rem; color: #7c2d12;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
-                <div style="font-weight: 700; display: flex; align-items: center; gap: 6px; color: #9a3412; font-size: 0.92rem;">
-                  ℹ️ Google Cloud Firestore Daily Free-Tier Write Quota Notice
-                </div>
-                <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:12px; background:#dcfce7; color:#15803d; font-weight:700; font-size:0.75rem;">
-                  🟢 Option 1 Active: Auto-Resumption (100% Free)
-                </div>
-              </div>
-              <div style="line-height: 1.6; color: #7c2d12;">
-                <b>🛡️ Local Punches Safe:</b> All 36,704 attendance records remain 100% intact and preserved in your local SQLite database.<br>
-                Google Cloud's <b>Spark Free Plan</b> allows <b>20,000 document writes per 24-hour cycle</b>. When reached, writes pause safely.<br>
-                &bull; <b>Option 1 (Active):</b> Quota resets daily at <b>midnight Pacific Time (12:30 PM local / 07:00 UTC)</b>. Cloud background sync will resume uploading automatically without any manual action.<br>
-                &bull; <b>Instant Unlimited Sync (Optional):</b> You can switch project <code><span id="fbQuotaGuideProjId">officeattendancesystem-ddae3</span></code> to the <b>Blaze (Pay-as-you-go)</b> plan in the Firebase Console. 20,000 writes/day remain free, and the remaining 16,704 records cost ~\$0.03 total.
-              </div>
-            </div>
-
-            <!-- Real-time Cloud Sync Stats KPI Strip -->
-            <div class="fb-stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 22px;">
-              <div class="kpi-card" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px;">
-                <div style="font-size:0.8rem; color:#64748b; font-weight:600; text-transform:uppercase;">Local DB Records</div>
-                <div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin-top:4px;" id="fbStatTotal">0</div>
-                <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Saved locally in SQLite</div>
-              </div>
-              <div class="kpi-card" style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:14px;">
-                <div style="font-size:0.8rem; color:#166534; font-weight:600; text-transform:uppercase;">Synced to Firestore</div>
-                <div style="font-size:1.45rem; font-weight:800; color:#15803d; margin-top:4px;" id="fbStatSynced">0</div>
-                <div style="font-size:0.75rem; color:#22c55e; margin-top:2px;">Safely backed up in cloud</div>
-              </div>
-              <div class="kpi-card" style="background:var(--primary-light); border:1px solid var(--primary-border); border-radius:8px; padding:14px;" id="fbPendingKpiCard">
-                <div style="font-size:0.8rem; color:var(--primary); font-weight:700; text-transform:uppercase;">Pending Cloud Upload</div>
-                <div style="font-size:1.45rem; font-weight:800; color:var(--primary); margin-top:4px;" id="fbStatPending">0</div>
-                <div style="font-size:0.75rem; color:#60a5fa; margin-top:2px;" id="fbPendingSubtext">Queue waiting for sync</div>
-              </div>
-              <div class="kpi-card" style="background:#faf5ff; border:1px solid #e9d5ff; border-radius:10px; padding:14px;">
-                <div style="font-size:0.8rem; color:#6b21a8; font-weight:600; text-transform:uppercase;">Last Cloud Sync</div>
-                <div style="font-size:1.05rem; font-weight:700; color:#7e22ce; margin-top:6px;" id="fbStatLastSync">Never</div>
-                <div style="font-size:0.75rem; color:#a855f7; margin-top:2px;">Automated background job</div>
-              </div>
-            </div>
-
-            <!-- Two-Column Configuration & Key Upload Section -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
-              <!-- Left Column: Multi-Organization Partitioning Config -->
-              <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; background: #fff;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
-                  <h4 style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 1rem;">
-                    🏛️ Multi-Organization Partitioning
-                  </h4>
-                  <div id="fbPairedBadge" style="display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:12px; font-size:0.74rem; font-weight:700; background:#dcfce7; color:#15803d;">
-                    <span>✅ Paired:</span> <code id="fbPairedOrgIdText" style="font-size:0.74rem; color:#15803d; background:transparent;">DSOFFICE_LUNUGAMWEHERA</code>
-                  </div>
-                </div>
-
-                <form id="firestoreConfigForm">
-                  <!-- Display Name First (Primary Input for Multi-Place Implementation) -->
-                  <div class="form-group">
-                    <label for="settingFirestoreOrgName" style="font-weight: 600;">
-                      Organization Cloud Display Name <span class="text-danger">*</span>
-                    </label>
-                    <input type="text" id="settingFirestoreOrgName" class="form-control" placeholder="e.g. DS Office Lunugamwehera or Regional Hospital Galle" required>
-                    <small class="form-hint">Setting this automatically pairs this location with a dedicated partition in Google Cloud Firestore.</small>
-                  </div>
-
-                  <!-- Auto-Derived Partition Code -->
-                  <div class="form-group">
-                    <label for="settingFirestoreOrgId" style="font-weight: 600; display:flex; justify-content:space-between; align-items:center;">
-                      <span>Organization ID / Partition Code <span class="text-danger">*</span></span>
-                      <span id="orgIdAutoTag" style="font-size:0.72rem; font-weight:700; color:var(--primary); background:var(--primary-light); border:1px solid var(--primary-border); padding:2px 6px; border-radius:4px;">AUTO-PAIRED</span>
-                    </label>
-                    <input type="text" id="settingFirestoreOrgId" class="form-control font-mono" placeholder="Auto-generated (e.g. DSOFFICE_LUNUGAMWEHERA)" required style="font-weight: 700; text-transform: uppercase;">
-                    <small class="form-hint">Unique Firestore namespace. All records store under <code>organizations/{orgId}/attendance</code>.</small>
-                  </div>
-
-                  <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                    <div class="form-group">
-                      <label for="settingFirestoreInterval" style="font-weight: 600;">Sync Interval (Sec)</label>
-                      <input type="number" id="settingFirestoreInterval" class="form-control" value="60" min="15">
-                    </div>
-                    <div class="form-group" style="display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 8px;">
-                      <div class="form-check" style="margin-bottom: 0;">
-                        <input type="checkbox" id="settingFirestoreAutoSync" checked>
-                        <label for="settingFirestoreAutoSync" style="font-size: 0.85rem; font-weight: 600;">Auto-Sync Enabled</label>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="form-group form-check">
-                    <input type="checkbox" id="settingFirestoreEnabled" checked>
-                    <label for="settingFirestoreEnabled" style="font-weight: 600;">Enable Cloud Firestore Sync Engine</label>
-                  </div>
-
-                  <div style="display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap;">
-                    <button type="submit" class="btn btn-primary btn-sm" id="btnSaveFirestoreConfig">
-                      🔗 Save &amp; Pair with Cloud
-                    </button>
-                    <button type="button" class="btn btn-outline btn-sm" id="btnSyncEmployeesFirestore" title="Push all employees to organizations/{orgId}/employees">
-                      👥 Sync Employees to Cloud
-                    </button>
-                    <button type="button" class="btn btn-outline btn-sm" id="btnResetCloudSync" title="Queue all records to be uploaded to current organization partition">
-                      🔄 Re-Queue All Records
-                    </button>
-                  </div>
-                </form>
-
-                <!-- Two-Way Date Range Synchronization Section -->
-                <div class="two-way-sync-section" id="twoWaySyncSection" style="margin-top: 20px; padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;">
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
-                    <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b; display: flex; align-items: center; gap: 8px;">
-                      <span style="font-size: 1.15rem;">🔄</span>
-                      <span>Two-Way Date Range Synchronization</span>
-                      <span class="badge" style="background:#e0f2fe; color:#0369a1; font-size:0.72rem; font-weight:700; border:1px solid #bae6fd;">BI-DIRECTIONAL</span>
-                    </div>
-                    <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
-                      <button type="button" class="btn btn-xs btn-outline btn-tw-date-preset" data-preset="today" style="font-size: 0.72rem; padding: 2px 8px;">Today</button>
-                      <button type="button" class="btn btn-xs btn-outline btn-tw-date-preset" data-preset="this-month" style="font-size: 0.72rem; padding: 2px 8px;">This Month</button>
-                      <button type="button" class="btn btn-xs btn-outline btn-tw-date-preset" data-preset="last-month" style="font-size: 0.72rem; padding: 2px 8px;">Last Month</button>
-                      <button type="button" class="btn btn-xs btn-outline btn-tw-date-preset" data-preset="all-time" style="font-size: 0.72rem; padding: 2px 8px;">All Records</button>
-                    </div>
-                  </div>
-
-                  <div style="font-size: 0.79rem; color: #64748b; margin-bottom: 12px; line-height: 1.45;">
-                    Synchronize attendance punches bidirectionally between your local SQLite database and active partition <code>organizations/<span id="twoWayOrgIdDisplay">DSOFFICE_LUNUGAMWEHERA</span>/attendance</code>. Missing cloud punches are inserted locally, and local punches are uploaded to Firestore.
-                  </div>
-
-                  <!-- Date Range & Direction Inputs -->
-                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 12px;">
-                    <div class="form-group" style="margin-bottom: 0;">
-                      <label for="twoWayStartDate" style="font-size: 0.78rem; font-weight: 600; color: #334155; margin-bottom: 3px; display: block;">From Date (Start)</label>
-                      <input type="date" id="twoWayStartDate" class="form-control" style="font-size: 0.82rem; padding: 5px 8px;">
-                    </div>
-                    <div class="form-group" style="margin-bottom: 0;">
-                      <label for="twoWayEndDate" style="font-size: 0.78rem; font-weight: 600; color: #334155; margin-bottom: 3px; display: block;">To Date (End)</label>
-                      <input type="date" id="twoWayEndDate" class="form-control" style="font-size: 0.82rem; padding: 5px 8px;">
-                    </div>
-                    <div class="form-group" style="margin-bottom: 0;">
-                      <label for="twoWayDirection" style="font-size: 0.78rem; font-weight: 600; color: #334155; margin-bottom: 3px; display: block;">Sync Mode</label>
-                      <select id="twoWayDirection" class="form-control" style="font-size: 0.82rem; padding: 5px 8px;">
-                        <option value="two_way" selected>🔄 Two-Way (Cloud ⇄ Local)</option>
-                        <option value="download">⬇️ Pull from Cloud (Cloud → Local)</option>
-                        <option value="upload">⬆️ Push to Cloud (Local → Cloud)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <!-- Action Controls & Status Feedback Strip -->
-                  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-                    <button type="button" class="btn btn-primary btn-sm" id="btnRunTwoWaySync" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600;">
-                      <span id="btnRunTwoWaySyncIcon">🔄</span>
-                      <span id="btnRunTwoWaySyncText">Run Two-Way Sync for Selected Range</span>
-                    </button>
-                    
-                    <div id="twoWaySyncResultBadge" style="display: none; font-size: 0.76rem; padding: 4px 10px; border-radius: 6px; font-weight: 600;"></div>
-                  </div>
-
-                  <!-- Two-Way Sync Live Progress Box -->
-                  <div id="twoWayLiveProgressBox" style="display: none; margin-top: 10px; padding: 8px 12px; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.78rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                      <span id="twoWayLiveStatusText" style="font-weight: 600; color: #0369a1;">Syncing...</span>
-                      <span id="twoWayLiveCounters" style="color: #64748b; font-family: monospace;"></span>
-                    </div>
-                    <div style="height: 6px; background: #e2e8f0; border-radius: 999px; overflow: hidden;">
-                      <div id="twoWayLiveProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #0284c7, #2563eb); transition: width 0.3s ease;"></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Right Column: Service Account Private Key Management -->
-              <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; background: #fff;">
-                <h4 style="margin-top: 0; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; font-size: 1rem;">
-                  🔑 Service Account Private Key
-                </h4>
-
-                <!-- Current Key Summary Card -->
-                <div id="fbKeySummaryBox" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-bottom:14px;">
-                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                    <span style="font-weight:600; font-size:0.85rem;">Active Service Account:</span>
-                    <span class="badge" id="fbKeyInstalledBadge" style="background:#dcfce7; color:#15803d; font-size:0.75rem;">Installed &amp; Active</span>
-                  </div>
-                  <div style="font-size:0.8rem; color:#475569; word-break:break-all;" id="fbKeyEmailText">
-                    Loading credentials info...
-                  </div>
-                  <div style="font-size:0.78rem; color:#64748b; margin-top:4px;" id="fbKeyProjectText">
-                    Project: -
-                  </div>
-                </div>
-
-                <!-- Key Upload Dropzone & Controls -->
-                <div class="key-upload-wrapper">
-                  <div id="fbKeyDropZone" style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 16px; text-align: center; cursor: pointer; transition: all 0.2s ease; background: #fafafa;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" style="width: 28px; height: 28px; margin-bottom: 6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-                    <div style="font-weight: 600; font-size: 0.88rem; color: #334155;">Choose or Drag &amp; Drop Service Account JSON</div>
-                    <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 2px;">Accepts .json private key files downloaded from Google Cloud / Firebase Console</div>
-                    <input type="file" id="fbKeyFileInput" accept=".json,application/json" style="display: none;">
-                  </div>
-
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-                    <button type="button" class="btn btn-sm btn-outline" id="btnTogglePasteKey">
-                      📝 Paste JSON Directly
-                    </button>
-                    <span style="font-size: 0.75rem; color: #94a3b8;">Protected &amp; Encrypted locally</span>
-                  </div>
-
-                  <!-- Collapsible Paste JSON Box -->
-                  <div id="fbPasteKeyBox" style="display: none; margin-top: 10px;">
-                    <textarea id="fbKeyTextarea" class="form-control font-mono" rows="5" placeholder='Paste your Firebase service account JSON key here (e.g. {"type": "service_account", "project_id": ...})' style="font-size: 0.78rem;"></textarea>
-                    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
-                      <button type="button" class="btn btn-sm btn-outline" id="btnCancelPasteKey">Cancel</button>
-                      <button type="button" class="btn btn-sm btn-primary" id="btnSavePastedKey">Install Pasted Key</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
             <!-- Recent Sync Log Card -->
         <div class="card device-card" id="cardRecentSyncLogs" data-section="logs">
           <div class="card-header">
@@ -6887,6 +6606,326 @@ Loading application logs...
           </div>
         </div>
 
+        <div class="card" id="firebaseSyncCard" data-section="firebase" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border); margin-bottom: 24px; overflow: hidden;">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <h3 style="margin-bottom: 2px;">🔥 Firebase Firestore Cloud Sync</h3>
+                <span class="badge" id="fbStatusBadge" style="background:#fee2e2; color:#991b1b; font-weight:700;">Checking...</span>
+                <span class="badge" id="fbProjectBadge" style="background:#f1f5f9; color:#475569; font-family:monospace; display:none;"></span>
+              </div>
+              <p class="subtitle" style="margin-bottom: 0;">Multi-Organization Cloud Architecture with Offline-First Local Storage. Punches stay local when offline and sync to Firestore when connected.</p>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <button class="btn btn-sm btn-outline" id="btnTestFirestoreConn" type="button" title="Test Firestore Read/Write Ping">
+                ⚡ Test Connection
+              </button>
+              <button class="btn btn-sm btn-outline" id="btnOpenCloudRestoreModal" type="button" style="border-color: #0284c7; color: #0284c7; font-weight: 600;" title="Restore all metadata and attendance logs from Cloud Firestore">
+                🛡️ Disaster Recovery
+              </button>
+              <button class="btn btn-sm btn-primary" id="btnSyncFirestoreNow" type="button" title="Upload all pending records to Firestore">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                Upload Pending Data Now
+              </button>
+              <button class="btn btn-sm btn-danger-outline" id="btnStopFirestoreSync" type="button" style="display: inline-flex; align-items: center; gap: 6px;" title="Stop or pause Firestore cloud sync">
+                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:12px;height:12px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
+                <span id="btnStopFirestoreSyncText">Stop Cloud Sync</span>
+              </button>
+            </div>
+          </div>
+          <div class="card-body" style="padding: 20px;">
+            <!-- Live Cloud Sync Status Banner with Real-time Progress Bar -->
+            <div id="fbLiveSyncBanner" style="margin-bottom: 20px; border-radius: 12px; padding: 16px 20px; border: 1px solid #e2e8f0; background: #f8fafc; transition: all 0.3s ease;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div id="fbLiveSyncIcon" style="width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; background: #e2e8f0; color: #475569; flex-shrink: 0;">
+                    ☁️
+                  </div>
+                  <div>
+                    <div id="fbLiveSyncTitle" style="font-weight: 700; font-size: 1rem; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                      Cloud Sync: Checking status...
+                    </div>
+                    <div id="fbLiveSyncSubtitle" style="font-size: 0.82rem; color: #64748b; margin-top: 2px;">
+                      Connecting to multi-organization cloud partition...
+                    </div>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <button class="btn btn-sm btn-danger-outline" id="fbLiveSyncStopBtn" type="button" style="display: none; padding: 4px 12px; font-size: 0.78rem; font-weight: 700; border-radius: 999px; align-items: center; gap: 5px;" title="Cancel ongoing cloud upload">
+                    ⏹️ Stop Sync
+                  </button>
+                  <span id="fbLiveSyncPercentBadge" class="badge" style="font-size: 0.85rem; padding: 5px 12px; font-weight: 700; background: var(--accent-light); color: var(--accent-dark); border: 1px solid var(--accent-border); display: none;">0%</span>
+                  <span id="fbLiveSyncStatePill" class="badge" style="font-size: 0.82rem; padding: 5px 14px; font-weight: 700; background: #f1f5f9; color: #475569;">CHECKING</span>
+                </div>
+              </div>
+
+              <!-- Animated Progress Bar Container -->
+              <div id="fbLiveProgressBarWrap" style="margin-top: 14px; display: none;">
+                <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: #64748b; font-weight: 600; margin-bottom: 6px;">
+                  <span id="fbLiveProgressDetails">Uploading attendance punches to Firestore...</span>
+                  <span id="fbLiveProgressRatio">0 / 0</span>
+                </div>
+                <div style="height: 10px; background: #e2e8f0; border-radius: 999px; overflow: hidden; position: relative;">
+                  <div id="fbLiveProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #38bdf8, #1d4ed8); border-radius: 999px; transition: width 0.3s ease;"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Quota & Offline Resilience Guide Strip -->
+            <div id="fbQuotaGuideBox" style="display:none; margin-bottom: 20px; border-radius: 10px; padding: 16px 20px; border: 1px solid #fed7aa; background: #fffaf5; font-size: 0.83rem; color: #7c2d12;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+                <div style="font-weight: 700; display: flex; align-items: center; gap: 6px; color: #9a3412; font-size: 0.92rem;">
+                  ℹ️ Google Cloud Firestore Daily Free-Tier Write Quota Notice
+                </div>
+                <div style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:12px; background:#dcfce7; color:#15803d; font-weight:700; font-size:0.75rem;">
+                  🟢 Option 1 Active: Auto-Resumption (100% Free)
+                </div>
+              </div>
+              <div style="line-height: 1.6; color: #7c2d12;">
+                <b>🛡️ Local Punches Safe:</b> All 36,704 attendance records remain 100% intact and preserved in your local SQLite database.<br>
+                Google Cloud's <b>Spark Free Plan</b> allows <b>20,000 document writes per 24-hour cycle</b>. When reached, writes pause safely.<br>
+                &bull; <b>Option 1 (Active):</b> Quota resets daily at <b>midnight Pacific Time (12:30 PM local / 07:00 UTC)</b>. Cloud background sync will resume uploading automatically without any manual action.<br>
+                &bull; <b>Instant Unlimited Sync (Optional):</b> You can switch project <code><span id="fbQuotaGuideProjId">officeattendancesystem-ddae3</span></code> to the <b>Blaze (Pay-as-you-go)</b> plan in the Firebase Console. 20,000 writes/day remain free, and the remaining 16,704 records cost ~\$0.03 total.
+              </div>
+            </div>
+
+            <!-- Real-time Cloud Sync Stats KPI Strip -->
+            <div class="fb-stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 22px;">
+              <div class="kpi-card" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:14px;">
+                <div style="font-size:0.8rem; color:#64748b; font-weight:600; text-transform:uppercase;">Local DB Records</div>
+                <div style="font-size:1.45rem; font-weight:800; color:#0f172a; margin-top:4px;" id="fbStatTotal">0</div>
+                <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Saved locally in SQLite</div>
+              </div>
+              <div class="kpi-card" style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:14px;">
+                <div style="font-size:0.8rem; color:#166534; font-weight:600; text-transform:uppercase;">Synced to Firestore</div>
+                <div style="font-size:1.45rem; font-weight:800; color:#15803d; margin-top:4px;" id="fbStatSynced">0</div>
+                <div style="font-size:0.75rem; color:#22c55e; margin-top:2px;">Safely backed up in cloud</div>
+              </div>
+              <div class="kpi-card" style="background:var(--primary-light); border:1px solid var(--primary-border); border-radius:8px; padding:14px;" id="fbPendingKpiCard">
+                <div style="font-size:0.8rem; color:var(--primary); font-weight:700; text-transform:uppercase;">Pending Cloud Upload</div>
+                <div style="font-size:1.45rem; font-weight:800; color:var(--primary); margin-top:4px;" id="fbStatPending">0</div>
+                <div style="font-size:0.75rem; color:#60a5fa; margin-top:2px;" id="fbPendingSubtext">Queue waiting for sync</div>
+              </div>
+              <div class="kpi-card" style="background:#faf5ff; border:1px solid #e9d5ff; border-radius:10px; padding:14px;">
+                <div style="font-size:0.8rem; color:#6b21a8; font-weight:600; text-transform:uppercase;">Last Cloud Sync</div>
+                <div style="font-size:1.05rem; font-weight:700; color:#7e22ce; margin-top:6px;" id="fbStatLastSync">Never</div>
+                <div style="font-size:0.75rem; color:#a855f7; margin-top:2px;">Automated background job</div>
+              </div>
+              <div class="kpi-card" style="background:#ecfdf5; border:1px solid #a7f3d0; border-radius:10px; padding:14px;" id="fbWritesSavedKpiCard">
+                <div style="font-size:0.8rem; color:#047857; font-weight:700; text-transform:uppercase;">Cloud Writes Saved</div>
+                <div style="font-size:1.45rem; font-weight:800; color:#059669; margin-top:4px;" id="fbStatWritesSaved">0</div>
+                <div style="font-size:0.75rem; color:#10b981; margin-top:2px;">Quota protected by pre-check</div>
+              </div>
+            </div>
+
+            <!-- Two-Column Configuration & Key Upload Section -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+              <!-- Left Column: Multi-Organization Partitioning Config -->
+              <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; background: #fff;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+                  <h4 style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 1rem;">
+                    🏛️ Multi-Organization Partitioning
+                  </h4>
+                  <div id="fbPairedBadge" style="display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:12px; font-size:0.74rem; font-weight:700; background:#dcfce7; color:#15803d;">
+                    <span>✅ Paired:</span> <code id="fbPairedOrgIdText" style="font-size:0.74rem; color:#15803d; background:transparent;">DSOFFICE_LUNUGAMWEHERA</code>
+                  </div>
+                </div>
+
+                <form id="firestoreConfigForm">
+                  <!-- Display Name First (Primary Input for Multi-Place Implementation) -->
+                  <div class="form-group">
+                    <label for="settingFirestoreOrgName" style="font-weight: 600;">
+                      Organization Cloud Display Name <span class="text-danger">*</span>
+                    </label>
+                    <input type="text" id="settingFirestoreOrgName" class="form-control" placeholder="e.g. DS Office Lunugamwehera or Regional Hospital Galle" required>
+                    <small class="form-hint">Setting this automatically pairs this location with a dedicated partition in Google Cloud Firestore.</small>
+                  </div>
+
+                  <!-- Cryptographically Locked Partition Code -->
+                  <div class="form-group">
+                    <label for="settingFirestoreOrgId" style="font-weight: 600; display:flex; justify-content:space-between; align-items:center;">
+                      <span>Organization ID / Partition Code <span class="text-danger">*</span></span>
+                      <span id="orgIdAutoTag" style="font-size:0.72rem; font-weight:700; color:#15803d; background:#dcfce7; border:1px solid #bbf7d0; padding:2px 8px; border-radius:4px;">🔒 LOCKED BY LICENSE FILE</span>
+                    </label>
+                    <div style="position: relative;">
+                      <input type="text" id="settingFirestoreOrgId" class="form-control font-mono" placeholder="Defined by License File (e.g. DSOFFICE_LUNUGAMWEHERA)" readonly required style="font-weight: 700; text-transform: uppercase; background: #f8fafc; color: #334155; cursor: not-allowed; padding-right: 32px;">
+                      <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 0.9rem;" title="Locked by active license file. Cannot change manually.">🔒</span>
+                    </div>
+                    <small class="form-hint">🔒 Defined cryptographically by your installed license file. Cannot be changed manually.</small>
+                  </div>
+
+                  <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                    <div class="form-group">
+                      <label for="settingFirestoreInterval" style="font-weight: 600;">Sync Interval (Sec)</label>
+                      <input type="number" id="settingFirestoreInterval" class="form-control" value="60" min="15">
+                    </div>
+                    <div class="form-group" style="display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 8px;">
+                      <div class="form-check" style="margin-bottom: 0;">
+                        <input type="checkbox" id="settingFirestoreAutoSync" checked>
+                        <label for="settingFirestoreAutoSync" style="font-size: 0.85rem; font-weight: 600;">Auto-Sync Enabled</label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="form-group form-check">
+                    <input type="checkbox" id="settingFirestoreEnabled" checked>
+                    <label for="settingFirestoreEnabled" style="font-weight: 600;">Enable Cloud Firestore Sync Engine</label>
+                  </div>
+
+                  <div style="display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap;">
+                    <button type="submit" class="btn btn-primary btn-sm" id="btnSaveFirestoreConfig">
+                      🔗 Save &amp; Pair with Cloud
+                    </button>
+                    <button type="button" class="btn btn-outline btn-sm" id="btnSyncEmployeesFirestore" title="Push all employees to organizations/{orgId}/employees">
+                      👥 Sync Employees to Cloud
+                    </button>
+                    <button type="button" class="btn btn-outline btn-sm" id="btnResetCloudSync" title="Queue all records to be uploaded to current organization partition">
+                      🔄 Re-Queue All Records
+                    </button>
+                  </div>
+                </form>
+
+                <!-- Two-Way Date Range Synchronization Section -->
+                <div class="two-way-sync-section" id="twoWaySyncSection" style="margin-top: 20px; padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+                    <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                      <span style="font-size: 1.15rem;">🔄</span>
+                      <span>Two-Way Date Range Synchronization</span>
+                      <span class="badge" style="background:#e0f2fe; color:#0369a1; font-size:0.72rem; font-weight:700; border:1px solid #bae6fd;">BI-DIRECTIONAL</span>
+                    </div>
+                    <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                      <button type="button" class="btn btn-xs btn-outline btn-tw-date-preset" data-preset="today" style="font-size: 0.72rem; padding: 2px 8px;">Today</button>
+                      <button type="button" class="btn btn-xs btn-outline btn-tw-date-preset" data-preset="this-month" style="font-size: 0.72rem; padding: 2px 8px;">This Month</button>
+                      <button type="button" class="btn btn-xs btn-outline btn-tw-date-preset" data-preset="last-month" style="font-size: 0.72rem; padding: 2px 8px;">Last Month</button>
+                      <button type="button" class="btn btn-xs btn-outline btn-tw-date-preset" data-preset="all-time" style="font-size: 0.72rem; padding: 2px 8px;">All Records</button>
+                    </div>
+                  </div>
+
+                  <div style="font-size: 0.79rem; color: #64748b; margin-bottom: 12px; line-height: 1.45;">
+                    Synchronize attendance punches bidirectionally between your local SQLite database and active partition <code>organizations/<span id="twoWayOrgIdDisplay">DSOFFICE_LUNUGAMWEHERA</span>/attendance</code>. Missing cloud punches are inserted locally, and local punches are uploaded to Firestore.
+                  </div>
+
+                  <!-- Date Range & Direction Inputs -->
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 12px;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                      <label for="twoWayStartDate" style="font-size: 0.78rem; font-weight: 600; color: #334155; margin-bottom: 3px; display: block;">From Date (Start)</label>
+                      <input type="date" id="twoWayStartDate" class="form-control" style="font-size: 0.82rem; padding: 5px 8px;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                      <label for="twoWayEndDate" style="font-size: 0.78rem; font-weight: 600; color: #334155; margin-bottom: 3px; display: block;">To Date (End)</label>
+                      <input type="date" id="twoWayEndDate" class="form-control" style="font-size: 0.82rem; padding: 5px 8px;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                      <label for="twoWayDirection" style="font-size: 0.78rem; font-weight: 600; color: #334155; margin-bottom: 3px; display: block;">Sync Mode</label>
+                      <select id="twoWayDirection" class="form-control" style="font-size: 0.82rem; padding: 5px 8px;">
+                        <option value="two_way" selected>🔄 Two-Way (Cloud ⇄ Local)</option>
+                        <option value="download">⬇️ Pull from Cloud (Cloud → Local)</option>
+                        <option value="upload">⬆️ Push to Cloud (Local → Cloud)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <!-- Action Controls & Status Feedback Strip -->
+                  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                    <button type="button" class="btn btn-primary btn-sm" id="btnRunTwoWaySync" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600;">
+                      <span id="btnRunTwoWaySyncIcon">🔄</span>
+                      <span id="btnRunTwoWaySyncText">Run Two-Way Sync for Selected Range</span>
+                    </button>
+                    
+                    <div id="twoWaySyncResultBadge" style="display: none; font-size: 0.76rem; padding: 4px 10px; border-radius: 6px; font-weight: 600;"></div>
+                  </div>
+
+                  <!-- Two-Way Sync Live Progress Box -->
+                  <div id="twoWayLiveProgressBox" style="display: none; margin-top: 10px; padding: 8px 12px; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.78rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                      <span id="twoWayLiveStatusText" style="font-weight: 600; color: #0369a1;">Syncing...</span>
+                      <span id="twoWayLiveCounters" style="color: #64748b; font-family: monospace;"></span>
+                    </div>
+                    <div style="height: 6px; background: #e2e8f0; border-radius: 999px; overflow: hidden;">
+                      <div id="twoWayLiveProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #0284c7, #2563eb); transition: width 0.3s ease;"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Settings & Configuration Cloud Sync Section -->
+                <div class="settings-cloud-sync-section" style="margin-top: 20px; padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+                    <div style="font-weight: 700; font-size: 0.95rem; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                      <span style="font-size: 1.15rem;">⚙️</span>
+                      <span>System &amp; Organization Settings Cloud Sync</span>
+                      <span class="badge" style="background:#dcfce7; color:#15803d; font-size:0.72rem; font-weight:700; border:1px solid #bbf7d0;">BIDIRECTIONAL</span>
+                    </div>
+                  </div>
+                  <div style="font-size: 0.79rem; color: #64748b; margin-bottom: 12px; line-height: 1.45;">
+                    Synchronize your organization profile (name, subtitle, address, letterhead) and system settings with cloud partition <code>organizations/<span class="active-partition-text">DSOFFICE_LUNUGAMWEHERA</span>/settings/system_config</code>.
+                  </div>
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-outline btn-sm" id="btnPushSettingsToCloud" style="font-weight: 600;">
+                      ⬆️ Push Local Settings to Cloud
+                    </button>
+                    <button type="button" class="btn btn-outline btn-sm" id="btnPullSettingsFromCloud" style="font-weight: 600;">
+                      ⬇️ Pull Cloud Settings to Local
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm" id="btnTwoWaySettingsSync" style="font-weight: 600;">
+                      🔄 Two-Way Settings Sync
+                    </button>
+                  </div>
+                  <div id="settingsSyncResultBadge" style="display: none; margin-top: 10px; font-size: 0.76rem; padding: 4px 10px; border-radius: 6px; font-weight: 600;"></div>
+                </div>
+              </div>
+
+              <!-- Right Column: Service Account Private Key Management -->
+              <div style="border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px; background: #fff;">
+                <h4 style="margin-top: 0; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; font-size: 1rem;">
+                  🔑 Service Account Private Key
+                </h4>
+
+                <!-- Current Key Summary Card -->
+                <div id="fbKeySummaryBox" style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; margin-bottom:14px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <span style="font-weight:600; font-size:0.85rem;">Active Service Account:</span>
+                    <span class="badge" id="fbKeyInstalledBadge" style="background:#dcfce7; color:#15803d; font-size:0.75rem;">Installed &amp; Active</span>
+                  </div>
+                  <div style="font-size:0.8rem; color:#475569; word-break:break-all;" id="fbKeyEmailText">
+                    Loading credentials info...
+                  </div>
+                  <div style="font-size:0.78rem; color:#64748b; margin-top:4px;" id="fbKeyProjectText">
+                    Project: -
+                  </div>
+                </div>
+
+                <!-- Key Upload Dropzone & Controls -->
+                <div class="key-upload-wrapper">
+                  <div id="fbKeyDropZone" style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 16px; text-align: center; cursor: pointer; transition: all 0.2s ease; background: #fafafa;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" style="width: 28px; height: 28px; margin-bottom: 6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    <div style="font-weight: 600; font-size: 0.88rem; color: #334155;">Choose or Drag &amp; Drop Service Account JSON</div>
+                    <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 2px;">Accepts .json private key files downloaded from Google Cloud / Firebase Console</div>
+                    <input type="file" id="fbKeyFileInput" accept=".json,application/json" style="display: none;">
+                  </div>
+
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                    <button type="button" class="btn btn-sm btn-outline" id="btnTogglePasteKey">
+                      📝 Paste JSON Directly
+                    </button>
+                    <span style="font-size: 0.75rem; color: #94a3b8;">Protected &amp; Encrypted locally</span>
+                  </div>
+
+                  <!-- Collapsible Paste JSON Box -->
+                  <div id="fbPasteKeyBox" style="display: none; margin-top: 10px;">
+                    <textarea id="fbKeyTextarea" class="form-control font-mono" rows="5" placeholder='Paste your Firebase service account JSON key here (e.g. {"type": "service_account", "project_id": ...})' style="font-size: 0.78rem;"></textarea>
+                    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
+                      <button type="button" class="btn btn-sm btn-outline" id="btnCancelPasteKey">Cancel</button>
+                      <button type="button" class="btn btn-sm btn-primary" id="btnSavePastedKey">Install Pasted Key</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+
+
         <!-- 1. Organization User Management Card -->
         <div class="card" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border); margin-bottom: 24px;">
           <div class="card-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
@@ -8941,6 +8980,73 @@ Loading application logs...
   <div class="toast-container" id="toastContainer"></div>
 
   <script src="js/cloudAdapter.js?v=2.9.8"></script>
-  <script src="js/app.js?v=3.2.1"></script>
+  <script src="js/app.js?v=3.4.0"></script>
+
+  <!-- Modal: Cloud Disaster Recovery & Database Restore -->
+  <div class="modal-backdrop" id="modalCloudRestore" style="display: none;">
+    <div class="modal" style="max-width: 600px;">
+      <div class="modal-header" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.3rem;">🛡️</span>
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #fff;">Cloud Disaster Recovery &amp; Restore</h3>
+            <p style="margin: 2px 0 0; font-size: 0.78rem; color: #e0f2fe;">Restore system metadata and attendance logs from your cloud partition</p>
+          </div>
+        </div>
+        <button class="modal-close" id="btnCloseCloudRestoreModal" type="button" style="color: #fff;">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 20px;">
+        <div style="margin-bottom: 16px; padding: 12px 16px; border-radius: 8px; background: #f0f9ff; border: 1px solid #bae6fd; font-size: 0.85rem; color: #0369a1;">
+          <div style="font-weight: 700; margin-bottom: 4px;">Active Cloud Partition:</div>
+          <code id="restoreModalPartitionBadge" style="font-weight: 700; font-size: 0.9rem; background: #e0f2fe; padding: 2px 8px; border-radius: 4px;">DSOFFICE_LUNUGAMWEHERA</code>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label style="font-weight: 700; margin-bottom: 6px; display: block;">Select Data to Restore:</label>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 0.88rem; cursor: pointer;">
+              <input type="checkbox" id="restoreCheckMetadata" checked>
+              <span><strong>All Organization Metadata</strong> (Settings, Shifts, Holidays, Leave Categories &amp; Policies, Balances, Employees, System Users)</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 0.88rem; cursor: pointer;">
+              <input type="checkbox" id="restoreCheckAttendance" checked>
+              <span><strong>Attendance Punch Logs</strong> (from selected start date)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group" id="restoreDateGroup" style="margin-bottom: 16px;">
+          <label for="restoreFromDateInput" style="font-weight: 700; margin-bottom: 4px; display: block;">Restore Attendance From Date:</label>
+          <input type="date" id="restoreFromDateInput" class="form-control" style="font-size: 0.9rem; padding: 6px 10px; margin-bottom: 8px;">
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button type="button" class="btn btn-xs btn-outline btn-restore-preset" data-preset="this-year" style="font-size: 0.72rem; padding: 2px 8px;">This Year (Jan 1)</button>
+            <button type="button" class="btn btn-xs btn-outline btn-restore-preset" data-preset="6-months" style="font-size: 0.72rem; padding: 2px 8px;">Last 6 Months</button>
+            <button type="button" class="btn btn-xs btn-outline btn-restore-preset" data-preset="90-days" style="font-size: 0.72rem; padding: 2px 8px;">Last 90 Days</button>
+            <button type="button" class="btn btn-xs btn-outline btn-restore-preset" data-preset="30-days" style="font-size: 0.72rem; padding: 2px 8px;">Last 30 Days</button>
+            <button type="button" class="btn btn-xs btn-outline btn-restore-preset" data-preset="all-time" style="font-size: 0.72rem; padding: 2px 8px;">All Records (2020)</button>
+          </div>
+        </div>
+
+        <!-- Live Progress Container -->
+        <div id="restoreLiveProgressWrap" style="display: none; margin-top: 16px; padding: 12px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span id="restoreLiveStatusText" style="font-weight: 700; font-size: 0.85rem; color: #0284c7;">Restoring database from cloud...</span>
+            <span id="restoreLivePercent" style="font-size: 0.85rem; font-weight: 700; color: #0284c7;">0%</span>
+          </div>
+          <div style="height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden;">
+            <div id="restoreLiveProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #0284c7, #2563eb); transition: width 0.3s ease;"></div>
+          </div>
+          <div id="restoreLiveDetailText" style="font-size: 0.78rem; color: #64748b; margin-top: 6px;"></div>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 12px 20px; display: flex; justify-content: flex-end; gap: 10px; background: #f8fafc; border-top: 1px solid #e2e8f0;">
+        <button type="button" class="btn btn-outline" id="btnCancelCloudRestore">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btnExecuteCloudRestore" style="background: #0284c7; border-color: #0284c7;">
+          <span>🚀 Start Cloud Restore</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

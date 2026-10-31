@@ -4648,6 +4648,15 @@ select.form-control {
   border: 1px solid #fed7aa;
   background: linear-gradient(180deg, #fffcf9 0%, #ffffff 120px);
   box-shadow: 0 4px 16px rgba(249, 115, 22, 0.05);
+  margin-bottom: 24px;
+}
+
+#settingFirestoreOrgId[readonly] {
+  background-color: #f8fafc !important;
+  color: #334155 !important;
+  cursor: not-allowed !important;
+  border-color: #cbd5e1 !important;
+  user-select: all;
 }
 
 #fbKeyDropZone:hover {

@@ -398,10 +398,10 @@ function switchTab(tabId) {
     'tab-employees': ['Employee Registry', 'Assign names, departments, and working shifts to User IDs'],
     'tab-leave': ['Leave Management & Policies', 'Configure leave categories, quotas, carry-forward policies, and employee leave allocations'],
     'tab-shifts': ['Working Shifts & Holidays Schedule', 'Define shifts, work schedules, grace periods, and official company holidays'],
-    'tab-device': ['SpeedFace Device Control', 'Hardware status, clock sync, and background scheduler'],
+    'tab-device': ['SpeedFace Device Control', 'Hardware status, connection settings, diagnostics, and system reset'],
     'tab-guide': ['SpeedFace Setup Assistant', 'Step-by-step terminal network and ADMS push setup'],
     'tab-api': ['API Service & Integration Gateway', 'REST API endpoints for third-party ERP, Payroll, and HR software integration'],
-    'tab-settings': ['System Settings & User Management', 'Manage organization details, system users, letterheads, and access control']
+    'tab-settings': ['System Settings & Cloud Sync', 'Manage organization partition, Firestore cloud sync, system license, users, and permissions']
   };
 
   if (titleMap[tabId]) {
@@ -9147,36 +9147,18 @@ function initFirebaseSync() {
   const orgIdInput = document.getElementById('settingFirestoreOrgId');
   const autoTag = document.getElementById('orgIdAutoTag');
 
-  function slugifyOrg(name) {
-    if (!name) return '';
-    return name
-      .trim()
-      .toUpperCase()
-      .replace(/[^A-Z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
+  // Organization ID / Partition Code is strictly locked to active license file
+  if (orgIdInput) {
+    orgIdInput.readOnly = true;
+    orgIdInput.style.background = '#f8fafc';
+    orgIdInput.style.cursor = 'not-allowed';
   }
-
-  let isManualOrgId = false;
-  orgIdInput?.addEventListener('input', () => {
-    isManualOrgId = Boolean(orgIdInput.value.trim());
-    if (autoTag) {
-      autoTag.textContent = isManualOrgId ? 'CUSTOM CODE' : 'AUTO-PAIRED';
-      autoTag.style.background = isManualOrgId ? '#fef3c7' : '#eff6ff';
-      autoTag.style.color = isManualOrgId ? '#92400e' : '#1d4ed8';
-    }
-  });
-
-  // When user types or changes the Organization Display Name, auto-generate partition code
-  orgNameInput?.addEventListener('input', () => {
-    if (!isManualOrgId || !orgIdInput.value) {
-      orgIdInput.value = slugifyOrg(orgNameInput.value);
-      if (autoTag) {
-        autoTag.textContent = 'AUTO-PAIRED';
-        autoTag.style.background = '#eff6ff';
-        autoTag.style.color = '#1d4ed8';
-      }
-    }
-  });
+  if (autoTag) {
+    autoTag.textContent = '🔒 LOCKED BY LICENSE FILE';
+    autoTag.style.background = '#dcfce7';
+    autoTag.style.color = '#15803d';
+    autoTag.style.border = '1px solid #bbf7d0';
+  }
 
   // 1. Config Form Submit - Auto-Pair with Cloud
   const configForm = document.getElementById('firestoreConfigForm');
@@ -9184,11 +9166,8 @@ function initFirebaseSync() {
   configForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const orgName = orgNameInput?.value.trim() || '';
-    let orgId = orgIdInput?.value.trim().toUpperCase() || '';
-    if (!orgId && orgName) {
-      orgId = slugifyOrg(orgName);
-      if (orgIdInput) orgIdInput.value = orgId;
-    }
+    // Organization ID is cryptographically derived from the active license file
+    const orgId = orgIdInput?.value.trim().toUpperCase() || '';
     const intervalSeconds = document.getElementById('settingFirestoreInterval')?.value || '60';
     const autoSync = document.getElementById('settingFirestoreAutoSync')?.checked;
     const enabled = document.getElementById('settingFirestoreEnabled')?.checked;
@@ -9492,6 +9471,174 @@ function initFirebaseSync() {
       btnTwoWaySync.disabled = false;
       if (btnTwoWayIcon) btnTwoWayIcon.textContent = origIcon || '🔄';
       if (btnTwoWayText) btnTwoWayText.textContent = origText || 'Run Two-Way Sync for Selected Range';
+    }
+  });
+
+  // 4d. Settings & Configuration Cloud Sync Handlers
+  async function triggerSettingsSync(direction) {
+    const badge = document.getElementById('settingsSyncResultBadge');
+    try {
+      showToast(`Syncing system settings (${direction})...`, 'info', 2500);
+      const res = await fetch('/api/firebase/sync-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ direction })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`✓ ${data.message}`, 'success', 4000);
+        if (badge) {
+          badge.style.display = 'inline-block';
+          badge.style.background = '#dcfce7';
+          badge.style.color = '#15803d';
+          badge.textContent = `✓ Settings synced (${direction}): ${data.downloaded || 0} pulled, ${data.uploaded || 0} pushed`;
+        }
+        if (typeof loadDeviceControlData === 'function') await loadDeviceControlData();
+      } else {
+        showToast(data.error || 'Failed to sync settings', 'error');
+      }
+    } catch (err) {
+      showToast(`Settings sync error: ${err.message}`, 'error');
+    }
+  }
+
+  document.getElementById('btnPushSettingsToCloud')?.addEventListener('click', () => triggerSettingsSync('upload'));
+  document.getElementById('btnPullSettingsFromCloud')?.addEventListener('click', () => triggerSettingsSync('download'));
+  document.getElementById('btnTwoWaySettingsSync')?.addEventListener('click', () => triggerSettingsSync('two_way'));
+  document.getElementById('btnSyncLetterheadCloud')?.addEventListener('click', () => triggerSettingsSync('two_way'));
+
+  // 4e. Disaster Recovery: Restore Database from Cloud Handlers
+  const modalRestore = document.getElementById('modalCloudRestore');
+  const restoreFromDateInput = document.getElementById('restoreFromDateInput');
+  const restorePartitionBadge = document.getElementById('restoreModalPartitionBadge');
+  const btnExecuteRestore = document.getElementById('btnExecuteCloudRestore');
+
+  // Set default restore date to Jan 1 of current year
+  const curYr = new Date().getFullYear();
+  if (restoreFromDateInput && !restoreFromDateInput.value) {
+    restoreFromDateInput.value = `${curYr}-01-01`;
+  }
+
+  function openCloudRestoreModal() {
+    if (!modalRestore) return;
+    const activeOrg = (window.currentUser && window.currentUser.orgId) || localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
+    if (restorePartitionBadge) restorePartitionBadge.textContent = activeOrg;
+    if (restoreFromDateInput && !restoreFromDateInput.value) {
+      restoreFromDateInput.value = `${new Date().getFullYear()}-01-01`;
+    }
+    const progWrap = document.getElementById('restoreLiveProgressWrap');
+    if (progWrap) progWrap.style.display = 'none';
+    if (btnExecuteRestore) {
+      btnExecuteRestore.disabled = false;
+      btnExecuteRestore.innerHTML = '<span>🚀 Start Cloud Restore</span>';
+    }
+    modalRestore.style.display = 'flex';
+  }
+
+  function closeCloudRestoreModal() {
+    if (modalRestore) modalRestore.style.display = 'none';
+  }
+
+  window.openCloudRestoreModal = openCloudRestoreModal;
+  window.closeCloudRestoreModal = closeCloudRestoreModal;
+
+  document.getElementById('btnOpenCloudRestoreModal')?.addEventListener('click', openCloudRestoreModal);
+  document.getElementById('btnCloseCloudRestoreModal')?.addEventListener('click', closeCloudRestoreModal);
+  document.getElementById('btnCancelCloudRestore')?.addEventListener('click', closeCloudRestoreModal);
+  modalRestore?.addEventListener('click', (e) => {
+    if (e.target === modalRestore) closeCloudRestoreModal();
+  });
+
+  // Presets for restore from date
+  document.querySelectorAll('.btn-restore-preset').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const preset = btn.dataset.preset;
+      const now = new Date();
+      if (!restoreFromDateInput) return;
+      if (preset === 'this-year') {
+        restoreFromDateInput.value = `${now.getFullYear()}-01-01`;
+      } else if (preset === '6-months') {
+        const d = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+        restoreFromDateInput.value = d.toISOString().slice(0, 10);
+      } else if (preset === '90-days') {
+        const d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+        restoreFromDateInput.value = d.toISOString().slice(0, 10);
+      } else if (preset === '30-days') {
+        const d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        restoreFromDateInput.value = d.toISOString().slice(0, 10);
+      } else if (preset === 'all-time') {
+        restoreFromDateInput.value = '2020-01-01';
+      }
+    });
+  });
+
+  // Execute Cloud Restore
+  btnExecuteRestore?.addEventListener('click', async () => {
+    const fromDate = restoreFromDateInput?.value || `${new Date().getFullYear()}-01-01`;
+    const includeMetadata = document.getElementById('restoreCheckMetadata')?.checked !== false;
+    const includeAttendance = document.getElementById('restoreCheckAttendance')?.checked !== false;
+    const progWrap = document.getElementById('restoreLiveProgressWrap');
+    const statusText = document.getElementById('restoreLiveStatusText');
+    const percentText = document.getElementById('restoreLivePercent');
+    const progressBar = document.getElementById('restoreLiveProgressBar');
+    const detailText = document.getElementById('restoreLiveDetailText');
+
+    if (!includeMetadata && !includeAttendance) {
+      showToast('Please select at least one data category to restore.', 'warning');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to restore database from cloud?\n\n- From Date: ${fromDate}\n- Metadata: ${includeMetadata ? 'Yes' : 'No'}\n- Attendance: ${includeAttendance ? 'Yes' : 'No'}\n\nLocal data will be safely merged and updated.`)) return;
+
+    btnExecuteRestore.disabled = true;
+    btnExecuteRestore.innerHTML = '<span class="spin" style="width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Restoring...';
+
+    if (progWrap) progWrap.style.display = 'block';
+    if (statusText) statusText.textContent = 'Connecting to Firestore cloud partition...';
+    if (percentText) percentText.textContent = '10%';
+    if (progressBar) progressBar.style.width = '10%';
+    if (detailText) detailText.textContent = 'Querying partition data...';
+
+    try {
+      showToast(`Restoring local database from cloud partition (From ${fromDate})...`, 'info', 5000);
+      const res = await fetch('/api/firebase/restore-from-cloud', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromDate, includeMetadata, includeAttendance })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        if (progressBar) progressBar.style.width = '100%';
+        if (percentText) percentText.textContent = '100%';
+        if (statusText) statusText.textContent = 'Restore Complete!';
+        const r = data.results || {};
+        if (detailText) {
+          detailText.textContent = `Restored ${r.employees || 0} employees, ${r.shifts || 0} shifts, ${r.holidays || 0} holidays, ${r.settings || 0} settings, and ${r.attendance || 0} attendance logs.`;
+        }
+
+        showToast(`🎉 ${data.message || 'Database restored from cloud successfully!'}`, 'success', 8000);
+
+        // Refresh all application views
+        if (typeof loadDeviceControlData === 'function') await loadDeviceControlData();
+        if (typeof loadLicenseStatus === 'function') await loadLicenseStatus();
+        if (typeof loadFirebaseStatus === 'function') await loadFirebaseStatus();
+        if (typeof loadOrganizationUsers === 'function') await loadOrganizationUsers();
+        if (typeof loadAttendanceRecords === 'function') await loadAttendanceRecords();
+
+        setTimeout(() => {
+          closeCloudRestoreModal();
+        }, 3000);
+      } else {
+        throw new Error(data.error || 'Restore failed');
+      }
+    } catch (err) {
+      if (statusText) statusText.textContent = 'Restore Failed';
+      if (detailText) detailText.textContent = err.message;
+      showToast(`Cloud Restore Error: ${err.message}`, 'error', 6000);
+    } finally {
+      btnExecuteRestore.disabled = false;
+      btnExecuteRestore.innerHTML = '<span>🚀 Start Cloud Restore</span>';
     }
   });
 
@@ -9904,7 +10051,7 @@ function updateFirebaseStatusUI(status) {
   if (headerPill && !headerPill.dataset.hasListener) {
     headerPill.dataset.hasListener = 'true';
     headerPill.addEventListener('click', () => {
-      if (typeof switchTab === 'function') switchTab('tab-device');
+      if (typeof switchTab === 'function') switchTab('tab-settings');
       const el = document.getElementById('firebaseSyncCard');
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
@@ -10214,6 +10361,11 @@ function updateFirebaseStatusUI(status) {
   if (statTotal) statTotal.textContent = Number(stats.totalAttendance || 0).toLocaleString();
   if (statSynced) statSynced.textContent = Number(stats.syncedAttendance || 0).toLocaleString();
   if (statPending) statPending.textContent = Number(stats.pendingAttendance || 0).toLocaleString();
+  const statWritesSaved = document.getElementById('fbStatWritesSaved');
+  if (statWritesSaved) {
+    const saved = Number(stats.writesSaved || status.writesSaved || 0);
+    statWritesSaved.textContent = saved.toLocaleString();
+  }
 
   if (pendingKpi) {
     if ((stats.pendingAttendance || 0) > 0) {
@@ -10797,9 +10949,9 @@ function initSystemAuth() {
   userPill?.addEventListener('click', openLoginModal);
   btnCloseModal?.addEventListener('click', closeLoginModal);
 
-  // Hook sidebar Cloud Sync pill click -> navigate to device tab / firebase section
+  // Hook sidebar Cloud Sync pill click -> navigate to System Settings / firebase section
   document.getElementById('sidebarCloudSyncPill')?.addEventListener('click', () => {
-    if (typeof switchTab === 'function') switchTab('tab-device');
+    if (typeof switchTab === 'function') switchTab('tab-settings');
     const el = document.getElementById('firebaseSyncCard');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
@@ -11106,6 +11258,8 @@ let orgUsersList = [];
 async function initSettingsTab() {
   await loadLicenseStatus();
   initLicenseManagement();
+  await loadFirebaseStatus();
+  initFirebaseSync();
   await loadOrganizationUsers();
   initOrgSettingsTabForm();
   initAddUserModal();
@@ -11917,17 +12071,10 @@ function initLicenseManagement() {
     }
 
     try {
-      const curOrg = getActiveOrgFilter();
       const res = await fetch('/api/license/activate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Organization-Id': curOrg
-        },
-        body: JSON.stringify({
-          licenseText: text,
-          orgId: curOrg
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ licenseText: text })
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'License activation failed');
@@ -11941,6 +12088,20 @@ function initLicenseManagement() {
       showToast(data.message || 'System license successfully activated!', 'success', 5000);
 
       await loadLicenseStatus();
+      await loadFirebaseStatus();
+
+      if (data.orgId) {
+        localStorage.setItem('speedface_cloud_org_id', data.orgId);
+        ['settingsOrgIdDisplay', 'twoWayOrgIdDisplay', 'shiftsOrgPartitionBadge', 'leaveOrgPartitionBadge', 'fbPairedOrgIdText'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = data.orgId;
+        });
+        const inputOrgId = document.getElementById('settingFirestoreOrgId');
+        if (inputOrgId) {
+          inputOrgId.value = data.orgId;
+          inputOrgId.readOnly = true;
+        }
+      }
 
       setTimeout(() => {
         closeLicenseActivationModal();
@@ -12043,17 +12204,10 @@ function initLicenseManagement() {
     }
 
     try {
-      const curOrg = getActiveOrgFilter();
       const res = await fetch('/api/license/activate', {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Organization-Id': curOrg
-        },
-        body: JSON.stringify({
-          licenseText: text,
-          orgId: curOrg
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ licenseText: text })
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'License activation failed');
@@ -12067,6 +12221,20 @@ function initLicenseManagement() {
       if (fileInput) fileInput.value = '';
 
       await loadLicenseStatus();
+      await loadFirebaseStatus();
+
+      if (data.orgId) {
+        localStorage.setItem('speedface_cloud_org_id', data.orgId);
+        ['settingsOrgIdDisplay', 'twoWayOrgIdDisplay', 'shiftsOrgPartitionBadge', 'leaveOrgPartitionBadge', 'fbPairedOrgIdText'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = data.orgId;
+        });
+        const inputOrgId = document.getElementById('settingFirestoreOrgId');
+        if (inputOrgId) {
+          inputOrgId.value = data.orgId;
+          inputOrgId.readOnly = true;
+        }
+      }
     } catch (err) {
       showToast(`Activation Error: ${err.message}`, 'error');
     } finally {

@@ -265,7 +265,9 @@ async function getStoredLicenseStatus(targetOrgId = null) {
  * Activates a license by validating it and storing it in SQLite
  */
 async function activateLicense(licenseContent, targetOrgId = null) {
-  const check = verifyLicense(licenseContent, targetOrgId);
+  // During activation, the license payload defines the organization partition.
+  // Validate signature and date validity without blocking on targetOrgId mismatches.
+  const check = verifyLicense(licenseContent, null);
   if (!check.valid) {
     return {
       success: false,
@@ -283,10 +285,36 @@ async function activateLicense(licenseContent, targetOrgId = null) {
     INSERT OR REPLACE INTO settings (key, value) VALUES ('system_license_status', ?)
   `, [check.status]);
 
+  // Extract Organization Partition and auto-bind into Multi-Organization Partitioning
+  const licOrgId = String(check.payload?.orgId || '').trim().toUpperCase();
+  const licOrgName = String(check.payload?.orgName || '').trim();
+
+  if (licOrgId && licOrgId !== '*' && licOrgId !== 'ALL') {
+    await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_org_id', ?)`, [licOrgId]);
+    await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cloud_org_id', ?)`, [licOrgId]);
+    if (licOrgName) {
+      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_org_name', ?)`, [licOrgName]);
+      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('org_name', ?)`, [licOrgName]);
+    }
+
+    try {
+      const { firebaseService } = require('./firebaseService');
+      await firebaseService.pairOrganization({
+        orgId: licOrgId,
+        orgName: licOrgName || undefined
+      });
+      console.log(`[LICENSE] Activated license for organization partition: "${licOrgId}" (${licOrgName || 'Standard'}). Firestore paired successfully.`);
+    } catch (syncErr) {
+      console.warn('[LICENSE] Warning: Cloud pairing deferred:', syncErr.message);
+    }
+  }
+
   return {
     success: true,
-    message: `System activated successfully! ${check.remainingDays} days remaining (Valid until ${check.payload.validUntil}).`,
-    license: check
+    message: `System activated successfully! ${check.remainingDays} days remaining (Valid until ${check.payload.validUntil}). Organization Partition: ${licOrgId || 'DEFAULT'}`,
+    license: check,
+    orgId: licOrgId,
+    orgName: licOrgName
   };
 }
 

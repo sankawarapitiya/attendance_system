@@ -499,6 +499,14 @@ async function initDatabase() {
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_sys_user_username ON system_users(username)`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_sys_user_org ON system_users(org_id)`);
 
+  // Safe migrations for system_users cloud sync columns
+  try {
+    await dbRun(`ALTER TABLE system_users ADD COLUMN synced_to_cloud INTEGER DEFAULT 0`);
+  } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE system_users ADD COLUMN cloud_synced_at DATETIME DEFAULT NULL`);
+  } catch (e) {}
+
   // Seed default organization system users if empty
   const userCount = await dbGet(`SELECT COUNT(*) as count FROM system_users`);
   if (!userCount || userCount.count === 0) {
@@ -2992,6 +3000,223 @@ async function getCompensatoryEligibleDates({ userId, year, orgId }) {
 }
 
 
+
+/**
+ * Upsert full employee profiles downloaded from Cloud Firestore into local SQLite
+ */
+async function upsertEmployeesFromCloud(employeesList = [], targetOrgId = 'DSOFFICE_LUNUGAMWEHERA') {
+  if (!employeesList || employeesList.length === 0) return { inserted: 0, total: 0 };
+  const org = (targetOrgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION');
+      const stmt = db.prepare(`
+        INSERT INTO employees (
+          user_id, name, department, role, employee_service_id, card_no,
+          email, phone, nic, gender, birthday, appointment_date,
+          employment_status, is_active, leave_category_id, photo, org_id,
+          synced_to_cloud, cloud_synced_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id) DO UPDATE SET
+          name = CASE WHEN excluded.name IS NOT NULL AND excluded.name != '' THEN excluded.name ELSE employees.name END,
+          department = COALESCE(excluded.department, employees.department),
+          role = COALESCE(excluded.role, employees.role),
+          employee_service_id = COALESCE(excluded.employee_service_id, employees.employee_service_id),
+          card_no = COALESCE(excluded.card_no, employees.card_no),
+          email = COALESCE(excluded.email, employees.email),
+          phone = COALESCE(excluded.phone, employees.phone),
+          nic = COALESCE(excluded.nic, employees.nic),
+          gender = COALESCE(excluded.gender, employees.gender),
+          birthday = COALESCE(excluded.birthday, employees.birthday),
+          appointment_date = COALESCE(excluded.appointment_date, employees.appointment_date),
+          employment_status = COALESCE(excluded.employment_status, employees.employment_status),
+          is_active = excluded.is_active,
+          leave_category_id = COALESCE(excluded.leave_category_id, employees.leave_category_id),
+          photo = COALESCE(excluded.photo, employees.photo),
+          org_id = excluded.org_id,
+          synced_to_cloud = 1,
+          cloud_synced_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+      `);
+
+      let count = 0;
+      for (const e of employeesList) {
+        const uid = String(e.userId || e.user_id || e.rawUserId || '').trim();
+        if (!uid) continue;
+        const name = (e.name || e.employeeName || '').trim();
+        const dept = e.department || 'General';
+        const role = e.role || 'Staff';
+        const serviceId = e.employeeServiceId || e.employee_service_id || '';
+        const cardNo = e.cardNo || e.card_no || '';
+        const email = e.email || '';
+        const phone = e.phone || '';
+        const nic = e.nic || '';
+        const gender = e.gender || '';
+        const bday = e.birthday || '';
+        const appDate = e.appointmentDate || e.appointment_date || '';
+        const empStatus = e.employmentStatus || e.employment_status || 'Active';
+        const isActive = (e.isActive !== undefined ? (e.isActive ? 1 : 0) : (e.is_active !== undefined ? e.is_active : 1));
+        const leaveCatId = parseInt(e.leaveCategoryId || e.leave_category_id, 10) || 1;
+        const photo = e.photoUrl || e.photo || null;
+        const empOrg = (e.organizationId || e.org_id || org).trim().toUpperCase();
+
+        stmt.run(
+          uid, name, dept, role, serviceId, cardNo,
+          email, phone, nic, gender, bday, appDate,
+          empStatus, isActive, leaveCatId, photo, empOrg,
+          function (err) {
+            if (!err) count++;
+          }
+        );
+      }
+
+      stmt.finalize((err) => {
+        if (err) {
+          db.run('ROLLBACK');
+          return reject(err);
+        }
+        db.run('COMMIT', (commitErr) => {
+          if (commitErr) return reject(commitErr);
+          resolve({ inserted: count, total: employeesList.length });
+        });
+      });
+    });
+  });
+}
+
+/**
+ * Upsert system users downloaded from Cloud Firestore into local SQLite
+ */
+async function upsertSystemUsersFromCloud(usersList = [], targetOrgId = 'DSOFFICE_LUNUGAMWEHERA') {
+  if (!usersList || usersList.length === 0) return { inserted: 0, total: 0 };
+  const org = (targetOrgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+
+  let count = 0;
+  for (const u of usersList) {
+    const uid = String(u.uid || u.id || '').trim();
+    if (!uid) continue;
+    const username = (u.username || '').trim() || uid;
+    const email = (u.email || '').trim().toLowerCase();
+    const displayName = (u.displayName || u.display_name || username).trim();
+    const role = (u.role || 'staff').toLowerCase();
+    const pwdHash = u.passwordHash || u.password_hash || '';
+    const userOrg = (u.organizationId || u.org_id || org).trim().toUpperCase();
+    const isActive = u.isActive !== undefined ? (u.isActive ? 1 : 0) : (u.is_active !== undefined ? u.is_active : 1);
+
+    await dbRun(`
+      INSERT INTO system_users (
+        uid, username, email, display_name, role, password_hash, org_id, is_active,
+        synced_to_cloud, cloud_synced_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ON CONFLICT(uid) DO UPDATE SET
+        username = excluded.username,
+        email = excluded.email,
+        display_name = excluded.display_name,
+        role = excluded.role,
+        password_hash = CASE WHEN excluded.password_hash != '' THEN excluded.password_hash ELSE system_users.password_hash END,
+        org_id = excluded.org_id,
+        is_active = excluded.is_active,
+        synced_to_cloud = 1,
+        cloud_synced_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+    `, [uid, username, email, displayName, role, pwdHash, userOrg, isActive]);
+    count++;
+  }
+  return { inserted: count, total: usersList.length };
+}
+
+/**
+ * Upsert leave requests downloaded from Cloud Firestore into local SQLite
+ */
+async function upsertLeaveRequestsFromCloud(requestsList = [], targetOrgId = 'DSOFFICE_LUNUGAMWEHERA') {
+  if (!requestsList || requestsList.length === 0) return { inserted: 0, total: 0 };
+  const org = (targetOrgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+
+  let count = 0;
+  for (const r of requestsList) {
+    const id = parseInt(r.id || r.requestId, 10);
+    const userId = String(r.userId || r.user_id || '').trim();
+    const leaveTypeId = parseInt(r.leaveTypeId || r.leave_type_id, 10) || 1;
+    const startDate = r.startDate || r.start_date;
+    const endDate = r.endDate || r.end_date || startDate;
+    const daysReq = parseFloat(r.daysRequested || r.days_requested) || 1.0;
+    const dayType = r.dayType || r.day_type || 'FULL_DAY';
+    const reason = r.reason || '';
+    const contact = r.emergencyContact || r.emergency_contact || '';
+    const qDate = r.qualifyingDate || r.qualifying_date || null;
+    const cSource = r.compensatorySourceType || r.compensatory_source_type || null;
+    const status = (r.status || 'PENDING').toUpperCase();
+    const reqOrg = (r.organizationId || r.org_id || org).trim().toUpperCase();
+
+    if (!userId || !startDate) continue;
+
+    if (id) {
+      await dbRun(`
+        INSERT INTO leave_requests (
+          id, user_id, leave_type_id, start_date, end_date, days_requested, day_type, reason,
+          emergency_contact, qualifying_date, compensatory_source_type, status, org_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(id) DO UPDATE SET
+          user_id = excluded.user_id,
+          leave_type_id = excluded.leave_type_id,
+          start_date = excluded.start_date,
+          end_date = excluded.end_date,
+          days_requested = excluded.days_requested,
+          day_type = excluded.day_type,
+          reason = excluded.reason,
+          emergency_contact = excluded.emergency_contact,
+          qualifying_date = excluded.qualifying_date,
+          compensatory_source_type = excluded.compensatory_source_type,
+          status = excluded.status,
+          org_id = excluded.org_id,
+          updated_at = CURRENT_TIMESTAMP
+      `, [id, userId, leaveTypeId, startDate, endDate, daysReq, dayType, reason, contact, qDate, cSource, status, reqOrg]);
+    } else {
+      await dbRun(`
+        INSERT INTO leave_requests (
+          user_id, leave_type_id, start_date, end_date, days_requested, day_type, reason,
+          emergency_contact, qualifying_date, compensatory_source_type, status, org_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `, [userId, leaveTypeId, startDate, endDate, daysReq, dayType, reason, contact, qDate, cSource, status, reqOrg]);
+    }
+    count++;
+  }
+  return { inserted: count, total: requestsList.length };
+}
+
+/**
+ * Get map of settings from SQLite
+ */
+async function getSettingsMap(keys = []) {
+  let rows;
+  if (keys && keys.length > 0) {
+    const placeholders = keys.map(() => '?').join(',');
+    rows = await dbAll(`SELECT key, value FROM settings WHERE key IN (${placeholders})`, keys);
+  } else {
+    rows = await dbAll(`SELECT key, value FROM settings`);
+  }
+  const map = {};
+  rows.forEach(r => { map[r.key] = r.value; });
+  return map;
+}
+
+/**
+ * Upsert key-value pairs into SQLite settings table
+ */
+async function upsertSettings(settingsMap = {}) {
+  if (!settingsMap || typeof settingsMap !== 'object') return 0;
+  const entries = Object.entries(settingsMap);
+  let count = 0;
+  for (const [k, v] of entries) {
+    if (k && v !== undefined && v !== null) {
+      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)`, [String(k), String(v)]);
+      count++;
+    }
+  }
+  return count;
+}
+
 module.exports = {
   db,
   dbRun,
@@ -3052,5 +3277,11 @@ module.exports = {
   updateLeaveRequestStatus,
   deleteLeaveRequest,
   getCompensatoryEligibleDates,
+  upsertEmployeesFromCloud,
+  upsertSystemUsersFromCloud,
+  upsertLeaveRequestsFromCloud,
+  getSettingsMap,
+  upsertSettings,
+
 
 };

@@ -38,7 +38,12 @@ const {
   upsertLeaveCategoryFromCloud,
   upsertLeaveBalancesFromCloud,
   markLeaveCategoriesCloudSynced,
-  markEmployeeBalancesCloudSynced
+  markEmployeeBalancesCloudSynced,
+  upsertEmployeesFromCloud,
+  upsertSystemUsersFromCloud,
+  upsertLeaveRequestsFromCloud,
+  getSettingsMap,
+  upsertSettings
 } = require('./db');
 
 const CREDENTIALS_DIR = path.join(process.cwd(), 'data', 'credentials');
@@ -97,6 +102,7 @@ class FirebaseService {
     this.httpsAgent = new https.Agent({ keepAlive: true, timeout: 30000 });
     this.isOnline = false;
     this.isSyncing = false;
+    this.writesSavedCount = 0;
     this.stopRequested = false;
     this.activeRestReq = null;
     this.quotaExceeded = false;
@@ -428,6 +434,18 @@ class FirebaseService {
       ? params.orgId.trim().toUpperCase()
       : this.slugifyOrganization(orgName);
 
+    // If active cryptographic license is installed, partition code is locked to the active license
+    try {
+      const { getStoredLicenseStatus } = require('./licenseService');
+      const lic = await getStoredLicenseStatus();
+      if (lic && lic.valid && lic.payload?.orgId && lic.payload.orgId !== '*' && lic.payload.orgId !== 'ALL') {
+        orgId = String(lic.payload.orgId).trim().toUpperCase();
+        if (lic.payload.orgName && !params.orgName) {
+          orgName = String(lic.payload.orgName).trim();
+        }
+      }
+    } catch (e) {}
+
     // Save to local SQLite settings
     await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_org_id', ?)`, [orgId]);
     await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_org_name', ?)`, [orgName]);
@@ -572,6 +590,7 @@ class FirebaseService {
         totalAttendance: stats.total_attendance || 0,
         syncedAttendance: stats.synced_attendance || 0,
         pendingAttendance: stats.pending_attendance || 0,
+        writesSaved: this.writesSavedCount || 0,
         lastCloudSyncedAt: stats.last_cloud_synced_at || this.lastSyncTime || null,
         totalEmployees: stats.total_employees || 0,
         syncedEmployees: stats.synced_employees || 0
@@ -668,17 +687,47 @@ class FirebaseService {
           break;
         }
 
-        // 2. Prepare Firestore REST writes
+        // 2. Prepare Firestore REST writes with Differential Pre-Check
         const writes = [];
         const syncedIds = [];
+        const alreadySyncedIds = [];
         const nowIso = new Date().toISOString();
 
+        // Build mapping of docId -> rec
+        const docIdToRec = {};
         for (const rec of pending) {
           const rawUserId = String(rec.user_id || '').trim();
           const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F-\x9F\/]/g, '_').trim() || 'USER';
           const punchKey = this._formatPunchKey(rec.punch_time);
           const docId = `${orgId}_${cleanUserId}_${punchKey}`;
+          docIdToRec[docId] = rec;
+        }
 
+        // Differential Pre-Check: Check which document IDs already exist in Firestore
+        const cloudExistingDocIds = new Set();
+        if (this.firestore) {
+          try {
+            const docRefs = Object.keys(docIdToRec).map(id => this.firestore.doc(`organizations/${orgId}/attendance/${id}`));
+            const docSnapshots = await this.firestore.getAll(...docRefs, { fieldMask: ['id'] });
+            docSnapshots.forEach(snap => {
+              if (snap.exists) cloudExistingDocIds.add(snap.id);
+            });
+          } catch (checkErr) {
+            console.warn('[FIREBASE] Differential pre-check warning (falling back to direct write):', checkErr.message);
+          }
+        }
+
+        for (const [docId, rec] of Object.entries(docIdToRec)) {
+          if (cloudExistingDocIds.has(docId)) {
+            // Document already exists in Firestore! Skip write!
+            alreadySyncedIds.push(rec.id);
+            this.writesSavedCount = (this.writesSavedCount || 0) + 1;
+            continue;
+          }
+
+          // Document does not exist in cloud, prepare write
+          const rawUserId = String(rec.user_id || '').trim();
+          const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F-\x9F\/]/g, '_').trim() || 'USER';
           const punchEpoch = Date.parse(rec.punch_time) || Date.now();
           const punchIso = new Date(punchEpoch).toISOString();
           const punchDate = rec.punch_time ? String(rec.punch_time).slice(0, 10) : punchIso.slice(0, 10);
@@ -720,13 +769,25 @@ class FirebaseService {
           syncedIds.push(rec.id);
         }
 
-        // 3. Commit batch via direct Firestore REST API
-        await this._commitRestWrites(writes);
+        // 3. Mark pre-existing records as synced locally immediately (0 cloud writes consumed)
+        if (alreadySyncedIds.length > 0) {
+          await markAttendanceCloudSynced(alreadySyncedIds);
+          totalUploaded += alreadySyncedIds.length;
+          console.log(`[FIREBASE] Saved ${alreadySyncedIds.length} cloud writes (already backed up in cloud).`);
+        }
 
-        // 4. Mark local SQLite records as synced (only after cloud commit confirms)
-        await markAttendanceCloudSynced(syncedIds);
-
-        totalUploaded += syncedIds.length;
+        // 4. Commit truly new batch writes to Firestore REST API
+        if (writes.length > 0) {
+          if (alreadySyncedIds.length > 0) {
+            await markAttendanceCloudSynced(alreadySyncedIds);
+            totalUploaded += alreadySyncedIds.length;
+          }
+          if (writes.length > 0) {
+            await this._commitRestWrites(writes);
+            await markAttendanceCloudSynced(syncedIds);
+            totalUploaded += syncedIds.length;
+          }
+        }
         batchesProcessed++;
 
         const percent = totalToUpload > 0 ? Math.min(100, Math.round((totalUploaded / totalToUpload) * 100)) : 100;
@@ -985,7 +1046,9 @@ class FirebaseService {
           .get();
 
         const cloudRecords = [];
+        const cloudDocIds = new Set();
         snapshot.forEach(doc => {
+          cloudDocIds.add(doc.id);
           const d = doc.data();
           cloudRecords.push({
             user_id: d.rawUserId || d.userId,
@@ -1046,11 +1109,19 @@ class FirebaseService {
           const syncedIds = [];
           const nowIso = new Date().toISOString();
 
+          const alreadySyncedIds = [];
           for (const rec of batch) {
             const rawUserId = String(rec.user_id || '').trim();
             const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F-\x9F\/]/g, '_').trim() || 'USER';
             const punchKey = this._formatPunchKey(rec.punch_time);
             const docId = `${orgId}_${cleanUserId}_${punchKey}`;
+
+            // If already present in cloud from Phase 1, skip write!
+            if (typeof cloudDocIds !== 'undefined' && cloudDocIds.has(docId)) {
+              alreadySyncedIds.push(rec.id);
+              this.writesSavedCount = (this.writesSavedCount || 0) + 1;
+              continue;
+            }
 
             const punchEpoch = Date.parse(rec.punch_time) || Date.now();
             const punchIso = new Date(punchEpoch).toISOString();
@@ -2255,6 +2326,232 @@ class FirebaseService {
       message: `Reset cloud sync status for ${scope}. Records queued for cloud upload.`,
       stats
     };
+  }
+
+/**
+   * Synchronize System & Organization Settings with Cloud Firestore
+   * Firestore path: organizations/{orgId}/settings/system_config
+   */
+  async syncSettings(options = {}) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+
+    const orgConfig = await this.getOrganizationConfig();
+    const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const direction = options.direction || 'two_way'; // 'two_way', 'upload', 'download'
+    const docRef = this.firestore.doc(`organizations/${orgId}/settings/system_config`);
+
+    const keysToSync = [
+      'org_name', 'org_subtitle', 'org_address', 'org_phone', 'org_email', 'org_website', 'org_footer',
+      'device_ip', 'device_port', 'auto_sync_interval', 'auto_sync_enabled',
+      'firestore_org_name', 'firestore_enabled', 'firestore_auto_sync', 'firestore_sync_interval'
+    ];
+
+    let downloaded = 0;
+    let uploaded = 0;
+
+    try {
+      if (direction === 'two_way' || direction === 'download') {
+        const docSnap = await docRef.get();
+        if (docSnap.exists) {
+          const cloudData = docSnap.data();
+          const settingsToUpsert = {};
+          keysToSync.forEach(k => {
+            if (cloudData[k] !== undefined && cloudData[k] !== null) {
+              settingsToUpsert[k] = String(cloudData[k]);
+            }
+          });
+          if (Object.keys(settingsToUpsert).length > 0) {
+            await upsertSettings(settingsToUpsert);
+            downloaded = Object.keys(settingsToUpsert).length;
+          }
+        }
+      }
+
+      if (direction === 'two_way' || direction === 'upload') {
+        const localSettings = await getSettingsMap(keysToSync);
+        const nowIso = new Date().toISOString();
+        const payload = {
+          ...localSettings,
+          organizationId: orgId,
+          updatedAt: nowIso
+        };
+        await docRef.set(payload, { merge: true });
+        uploaded = Object.keys(localSettings).length;
+      }
+
+      return {
+        success: true,
+        orgId,
+        direction,
+        downloaded,
+        uploaded,
+        message: `Settings synchronized (${direction}): ${downloaded} downloaded, ${uploaded} uploaded.`
+      };
+    } catch (err) {
+      console.error('[FIREBASE] syncSettings error:', err.message);
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Complete Disaster Recovery / Restore Database from Cloud Partition
+   * Restores all metadata and attendance logs from a selected start date
+   */
+  async restoreDatabaseFromCloud(options = {}) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+
+    const orgConfig = await this.getOrganizationConfig();
+    const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const fromDate = (options.fromDate || '2026-01-01').slice(0, 10);
+    const includeMetadata = options.includeMetadata !== false;
+    const includeAttendance = options.includeAttendance !== false;
+
+    const results = {
+      settings: 0,
+      shifts: 0,
+      holidays: 0,
+      leaveCategories: 0,
+      employees: 0,
+      systemUsers: 0,
+      attendance: 0
+    };
+
+    this.isSyncing = true;
+    this.syncProgress = {
+      isSyncing: true,
+      state: 'RESTORING',
+      percent: 5,
+      message: `Connecting to Cloud Partition ${orgId}...`,
+      updatedAt: new Date().toISOString()
+    };
+    this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+    try {
+      if (includeMetadata) {
+        // 1. Settings
+        this.syncProgress.message = 'Restoring system settings from cloud...';
+        this.syncProgress.percent = 10;
+        this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+        const setRes = await this.syncSettings({ orgId, direction: 'download' });
+        results.settings = setRes.downloaded || 0;
+
+        // 2. Working Shifts
+        this.syncProgress.message = 'Restoring working shifts from cloud...';
+        this.syncProgress.percent = 20;
+        this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+        const shiftRes = await this.syncWorkingShifts({ orgId, direction: 'download' });
+        results.shifts = shiftRes.downloaded || 0;
+
+        // 3. Holidays
+        this.syncProgress.message = 'Restoring holidays from cloud...';
+        this.syncProgress.percent = 30;
+        this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+        const holRes = await this.syncHolidays({ orgId, direction: 'download' });
+        results.holidays = holRes.downloaded || 0;
+
+        // 4. Leave Categories & Types
+        this.syncProgress.message = 'Restoring leave categories and policies from cloud...';
+        this.syncProgress.percent = 40;
+        this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+        const leaveRes = await this.syncLeaveManagement({ orgId, direction: 'download' });
+        results.leaveCategories = leaveRes.downloaded || 0;
+
+        // 5. Employees Directory
+        this.syncProgress.message = 'Restoring employee directory from cloud...';
+        this.syncProgress.percent = 50;
+        this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+        const empSnapshot = await this.firestore.collection(`organizations/${orgId}/employees`).get();
+        if (!empSnapshot.empty) {
+          const empList = empSnapshot.docs.map(d => d.data());
+          const empRes = await upsertEmployeesFromCloud(empList, orgId);
+          results.employees = empRes.inserted || 0;
+        }
+
+        // 6. System Users
+        this.syncProgress.message = 'Restoring system users from cloud...';
+        this.syncProgress.percent = 60;
+        this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+        const usersSnapshot = await this.firestore.collection(`organizations/${orgId}/system_users`).get();
+        if (!usersSnapshot.empty) {
+          const usersList = usersSnapshot.docs.map(d => d.data());
+          const usersRes = await upsertSystemUsersFromCloud(usersList, orgId);
+          results.systemUsers = usersRes.inserted || 0;
+        }
+      }
+
+      if (includeAttendance) {
+        // 7. Attendance Logs from selected date
+        this.syncProgress.message = `Restoring attendance logs from ${fromDate} to today...`;
+        this.syncProgress.percent = 70;
+        this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+        const attCol = this.firestore.collection(`organizations/${orgId}/attendance`);
+        const snapshot = await attCol
+          .where('punchDate', '>=', fromDate)
+          .orderBy('punchDate', 'asc')
+          .get();
+
+        if (!snapshot.empty) {
+          const cloudRecords = [];
+          snapshot.forEach(doc => {
+            const d = doc.data();
+            cloudRecords.push({
+              user_id: d.rawUserId || d.userId,
+              punch_time: d.punchTime,
+              verify_mode: d.verifyMode !== undefined ? d.verifyMode : 15,
+              verify_name: d.verifyName || 'Biometric',
+              punch_state: d.punchState !== undefined ? d.punchState : 0,
+              punch_state_name: d.punchStateName || 'Punch',
+              work_code: d.workCode || 0,
+              temperature: d.temperature !== undefined ? d.temperature : null,
+              mask_status: d.maskStatus !== undefined ? d.maskStatus : null,
+              device_ip: d.deviceIp || 'Cloud Firestore',
+              device_sn: d.deviceSn || '',
+              source: d.source || 'CLOUD_RESTORE'
+            });
+          });
+
+          this.syncProgress.message = `Inserting ${cloudRecords.length} attendance logs into SQLite...`;
+          this.syncProgress.percent = 85;
+          this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+          const insertRes = await insertAttendanceFromCloud(cloudRecords);
+          results.attendance = insertRes.inserted || 0;
+        }
+      }
+
+      this.syncProgress = {
+        isSyncing: false,
+        state: 'COMPLETE',
+        percent: 100,
+        message: `Database restored from cloud successfully! Restored ${results.employees} employees, ${results.shifts} shifts, ${results.holidays} holidays, and ${results.attendance} attendance logs (From: ${fromDate}).`,
+        updatedAt: new Date().toISOString()
+      };
+      this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+      return {
+        success: true,
+        orgId,
+        fromDate,
+        results,
+        message: `Cloud Disaster Recovery complete! Restored ${results.employees} employees, ${results.settings} settings, and ${results.attendance} attendance logs.`
+      };
+    } catch (err) {
+      console.error('[FIREBASE] restoreDatabaseFromCloud error:', err.message);
+      this.syncProgress = {
+        isSyncing: false,
+        state: 'ERROR',
+        percent: 0,
+        message: `Restore failed: ${err.message}`,
+        updatedAt: new Date().toISOString()
+      };
+      this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+      return { success: false, error: err.message };
+    } finally {
+      this.isSyncing = false;
+    }
   }
 }
 

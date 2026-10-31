@@ -2959,7 +2959,7 @@ router.post('/license/activate', async (req, res) => {
       return res.status(400).json({ success: false, error: 'No license key or file data provided.' });
     }
 
-    const result = await activateLicense(content, orgId);
+    const result = await activateLicense(content);
     if (!result.success) {
       return res.status(400).json(result);
     }
@@ -3382,6 +3382,49 @@ router.post('/firebase/stop-sync', async (req, res) => {
   try {
     const result = await firebaseService.stopSync();
     res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 8b. Synchronize Organization & System Settings with Cloud
+router.post('/firebase/sync-settings', async (req, res) => {
+  try {
+    const { direction, orgId } = req.body || {};
+    const result = await firebaseService.syncSettings({ direction: direction || 'two_way', orgId });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 8c. Complete Disaster Recovery / Restore Database from Cloud
+router.post('/firebase/restore-from-cloud', async (req, res) => {
+  try {
+    const { fromDate, includeMetadata, includeAttendance, orgId } = req.body || {};
+    const result = await firebaseService.restoreDatabaseFromCloud({
+      fromDate,
+      includeMetadata,
+      includeAttendance,
+      orgId
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 8d. Get Cloud vs Local Diff Summary & Writes Saved
+router.get('/firebase/diff-summary', async (req, res) => {
+  try {
+    const status = await firebaseService.getStatus();
+    res.json({
+      success: true,
+      orgId: status.orgId,
+      orgName: status.orgName,
+      writesSaved: firebaseService.writesSavedCount || 0,
+      status
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
