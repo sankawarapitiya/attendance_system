@@ -109,7 +109,28 @@ async function generateDailyReport(targetDate, { userId = null, search = '', sta
   `;
 
   const records = await dbAll(dataSql, params);
-  let dailyRows = computeDailyAttendanceSummary(records, holidays, allEmployees, [dateStr]);
+  // Fetch leave requests overlapping this period
+  const leaveConds = ['lr.start_date <= ?', 'lr.end_date >= ?'];
+  const leaveParams = [dateStr, dateStr];
+  if (userId) {
+    leaveConds.push('lr.user_id = ?');
+    leaveParams.push(String(userId));
+  }
+  if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+    leaveConds.push("COALESCE(lr.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?");
+    leaveParams.push(String(orgId));
+  }
+  const leaveSql = `
+    SELECT lr.*, lt.name as leave_type_name, lt.code as leave_type_code,
+           lt.color as leave_type_color, lt.is_duty_leave, lt.is_compensatory_leave,
+           lt.is_paid
+    FROM leave_requests lr
+    LEFT JOIN leave_types lt ON lr.leave_type_id = lt.id
+    WHERE ${leaveConds.join(' AND ')}
+  `;
+  const leaveRequests = await dbAll(leaveSql, leaveParams);
+
+  let dailyRows = computeDailyAttendanceSummary(records, holidays, allEmployees, [dateStr], leaveRequests);
 
   const stats = {
     date: dateStr,
@@ -118,7 +139,12 @@ async function generateDailyReport(targetDate, { userId = null, search = '', sta
     absent: dailyRows.filter(r => r.punch_count === 0).length,
     onTime: dailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.includes('Full Day'))).length,
     lateOrGrace: dailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace'))).length,
-    otCount: dailyRows.filter(r => r.ot_hours > 0).length
+    otCount: dailyRows.filter(r => r.ot_hours > 0).length,
+    totalOnLeave: dailyRows.filter(r => String(r.leave_status || '').toUpperCase() === 'APPROVED').length,
+    pendingLeaves: dailyRows.filter(r => String(r.leave_status || '').toUpperCase() === 'PENDING').length,
+    dutyLeaves: dailyRows.filter(r => r.is_duty_leave === 1 && String(r.leave_status || '').toUpperCase() === 'APPROVED').length,
+    compensatoryLeaves: dailyRows.filter(r => r.is_compensatory_leave === 1 && String(r.leave_status || '').toUpperCase() === 'APPROVED').length,
+    absentNoLeave: dailyRows.filter(r => r.punch_count === 0 && String(r.leave_status || '').toUpperCase() !== 'APPROVED' && r.day_type === 'WEEKDAY').length
   };
 
   if (statusFilter === 'present') {
@@ -129,6 +155,16 @@ async function generateDailyReport(targetDate, { userId = null, search = '', sta
     dailyRows = dailyRows.filter(r => r.daily_status && (r.daily_status.includes('Late') || r.daily_status.includes('Grace')));
   } else if (statusFilter === 'ontime') {
     dailyRows = dailyRows.filter(r => r.daily_status && (r.daily_status.includes('On Time') || r.daily_status.includes('Full Day')));
+  } else if (statusFilter === 'on_leave') {
+    dailyRows = dailyRows.filter(r => String(r.leave_status || '').toUpperCase() === 'APPROVED');
+  } else if (statusFilter === 'pending_leave') {
+    dailyRows = dailyRows.filter(r => String(r.leave_status || '').toUpperCase() === 'PENDING');
+  } else if (statusFilter === 'duty_leave') {
+    dailyRows = dailyRows.filter(r => r.is_duty_leave === 1);
+  } else if (statusFilter === 'compensatory_leave') {
+    dailyRows = dailyRows.filter(r => r.is_compensatory_leave === 1);
+  } else if (statusFilter === 'absent_no_leave') {
+    dailyRows = dailyRows.filter(r => r.punch_count === 0 && String(r.leave_status || '').toUpperCase() !== 'APPROVED');
   }
 
   return {
@@ -215,7 +251,26 @@ async function generateWeeklyReport(startDateStr, endDateStr, { userId = null, s
   `;
 
   const records = await dbAll(dataSql, params);
-  const dailyRows = computeDailyAttendanceSummary(records, holidays, allEmployees, dateList);
+  const leaveConds = ['lr.start_date <= ?', 'lr.end_date >= ?'];
+  const leaveParams = [eYmd, sYmd];
+  if (userId) {
+    leaveConds.push('lr.user_id = ?');
+    leaveParams.push(String(userId));
+  }
+  if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+    leaveConds.push("COALESCE(lr.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?");
+    leaveParams.push(String(orgId));
+  }
+  const leaveSql = `
+    SELECT lr.*, lt.name as leave_type_name, lt.code as leave_type_code,
+           lt.color as leave_type_color, lt.is_duty_leave, lt.is_compensatory_leave,
+           lt.is_paid
+    FROM leave_requests lr
+    LEFT JOIN leave_types lt ON lr.leave_type_id = lt.id
+    WHERE ${leaveConds.join(' AND ')}
+  `;
+  const leaveRequests = await dbAll(leaveSql, leaveParams);
+  const dailyRows = computeDailyAttendanceSummary(records, holidays, allEmployees, dateList, leaveRequests);
 
   if (scope === 'single' && userId) {
     const userRows = dailyRows.filter(r => String(r.user_id) === String(userId));
@@ -408,7 +463,26 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
   `;
 
   const records = await dbAll(dataSql, params);
-  const dailyRows = computeDailyAttendanceSummary(records, holidays, allEmployees, dateList);
+  const leaveConds = ['lr.start_date <= ?', 'lr.end_date >= ?'];
+  const leaveParams = [eYmd, sYmd];
+  if (userId) {
+    leaveConds.push('lr.user_id = ?');
+    leaveParams.push(String(userId));
+  }
+  if (orgId && orgId !== 'ALL' && orgId !== 'all') {
+    leaveConds.push("COALESCE(lr.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?");
+    leaveParams.push(String(orgId));
+  }
+  const leaveSql = `
+    SELECT lr.*, lt.name as leave_type_name, lt.code as leave_type_code,
+           lt.color as leave_type_color, lt.is_duty_leave, lt.is_compensatory_leave,
+           lt.is_paid
+    FROM leave_requests lr
+    LEFT JOIN leave_types lt ON lr.leave_type_id = lt.id
+    WHERE ${leaveConds.join(' AND ')}
+  `;
+  const leaveRequests = await dbAll(leaveSql, leaveParams);
+  const dailyRows = computeDailyAttendanceSummary(records, holidays, allEmployees, dateList, leaveRequests);
 
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const monthTitle = `${monthNames[month - 1]} ${year}`;
@@ -864,7 +938,16 @@ async function getUserCalculatedAttendance(userId, options = {}) {
   const contextRecords = await dbAll(punchSql, [uid, contextStartStr, endDateStr]);
 
   // 6. Compute daily attendance summary using shiftEngine
-  const allDailyRows = computeDailyAttendanceSummary(contextRecords, holidays, [emp], targetDates);
+  const leaveSql = `
+    SELECT lr.*, lt.name as leave_type_name, lt.code as leave_type_code,
+           lt.color as leave_type_color, lt.is_duty_leave, lt.is_compensatory_leave,
+           lt.is_paid
+    FROM leave_requests lr
+    LEFT JOIN leave_types lt ON lr.leave_type_id = lt.id
+    WHERE lr.user_id = ? AND lr.start_date <= ? AND lr.end_date >= ?
+  `;
+  const leaveRequests = await dbAll(leaveSql, [uid, endDateStr, startDateStr]);
+  const allDailyRows = computeDailyAttendanceSummary(contextRecords, holidays, [emp], targetDates, leaveRequests);
 
   // Filter to requested range only (in case context fetched earlier dates)
   const targetDateSet = new Set(targetDates);

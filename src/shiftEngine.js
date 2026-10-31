@@ -778,7 +778,7 @@ function buildMonthlyGraceAndLateMap(records, holidays = []) {
  * where first punch is Check-In and last punch is Check-Out.
  * If allEmployees is provided, also generates rows for absent employees.
  */
-function computeDailyAttendanceSummary(records, holidays = [], allEmployees = [], targetDates = []) {
+function computeDailyAttendanceSummary(records, holidays = [], allEmployees = [], targetDates = [], leaveRequests = []) {
   const userDateMap = {};
   const foundDates = new Set();
 
@@ -802,6 +802,9 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
   const graceHelper = buildMonthlyGraceAndLateMap(records, holidays);
   const dailyRows = [];
   const processedKeys = new Set();
+  const targetDateSet = (Array.isArray(targetDates) && targetDates.length > 0)
+    ? new Set(targetDates.map(String))
+    : null;
   const allowedUserIds = (Array.isArray(allEmployees) && allEmployees.length > 0)
     ? new Set(allEmployees.map(e => String(e.user_id)))
     : null;
@@ -809,6 +812,9 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
   // 1. Process all punched users on their respective dates
   Object.keys(userDateMap).forEach((key) => {
     const [dateStr, userId] = key.split('___');
+    if (targetDateSet && !targetDateSet.has(dateStr)) {
+      return;
+    }
     if (allowedUserIds && !allowedUserIds.has(String(userId))) {
       return; // Skip inactive or excluded users
     }
@@ -955,7 +961,8 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
 
   // 2. If allEmployees is provided, add absent employees for each target date
   if (Array.isArray(allEmployees) && allEmployees.length > 0) {
-    foundDates.forEach((dateStr) => {
+    const datesToProcess = targetDateSet ? Array.from(targetDateSet) : Array.from(foundDates);
+    datesToProcess.forEach((dateStr) => {
       allEmployees.forEach((emp) => {
         const userId = String(emp.user_id);
         const key = `${dateStr}___${userId}`;
@@ -1014,6 +1021,125 @@ function computeDailyAttendanceSummary(records, holidays = [], allEmployees = []
       return idA - idB;
     }
     return String(a.user_id).localeCompare(String(b.user_id));
+  });
+
+  // 4. Integrate Leave Requests into daily_status and remarks
+  const leaveMap = new Map();
+  if (Array.isArray(leaveRequests) && leaveRequests.length > 0) {
+    leaveRequests.forEach((lr) => {
+      const uId = String(lr.user_id);
+      const start = String(lr.start_date).slice(0, 10);
+      const end = String(lr.end_date).slice(0, 10);
+      const [sy, sm, sd] = start.split('-').map(Number);
+      const [ey, em, ed] = end.split('-').map(Number);
+      const curr = new Date(sy, sm - 1, sd);
+      const stop = new Date(ey, em - 1, ed);
+      while (curr <= stop) {
+        const yStr = curr.getFullYear();
+        const mStr = String(curr.getMonth() + 1).padStart(2, '0');
+        const dStr = String(curr.getDate()).padStart(2, '0');
+        const dKey = `${yStr}-${mStr}-${dStr}`;
+        leaveMap.set(`${dKey}___${uId}`, lr);
+        curr.setDate(curr.getDate() + 1);
+      }
+    });
+  }
+
+  dailyRows.forEach((row) => {
+    const key = `${row.date}___${row.user_id}`;
+    const lr = leaveMap.get(key);
+    if (lr) {
+      row.leave_id = lr.id;
+      row.leave_type_id = lr.leave_type_id;
+      row.leave_type_name = lr.leave_type_name || 'Leave';
+      row.leave_type_code = lr.leave_type_code || '';
+      row.leave_type_color = lr.leave_type_color || '#3b82f6';
+      const lStatus = String(lr.status || 'PENDING').toUpperCase();
+      row.leave_status = lStatus;
+      row.leave_day_type = lr.day_type || 'FULL_DAY';
+      row.leave_reason = lr.reason || '';
+      row.is_duty_leave = lr.is_duty_leave ? 1 : 0;
+      row.is_compensatory_leave = lr.is_compensatory_leave ? 1 : 0;
+      row.qualifying_date = lr.qualifying_date || null;
+      row.compensatory_source_type = lr.compensatory_source_type || null;
+
+      const isApproved = (lStatus === 'APPROVED');
+      const isPending = (lStatus === 'PENDING');
+      const isRejected = (lStatus === 'REJECTED');
+
+      if (isApproved) {
+        if (lr.is_duty_leave) {
+          if (row.punch_count > 0) {
+            row.daily_status = 'Present (Duty Leave Approved)';
+            row.remarks = `Official Duty Approved${lr.reason ? ': ' + lr.reason : ''}`;
+            row.daily_badge = 'badge-on-time';
+          } else {
+            row.daily_status = 'Duty Leave (Approved)';
+            row.remarks = `Official Duty: ${lr.reason || 'Approved Duty Leave'}`;
+            row.daily_badge = 'badge-worked-off';
+            row.check_in_label = 'Duty Leave';
+            row.check_in_badge = 'badge-worked-off';
+          }
+        } else if (lr.is_compensatory_leave) {
+          const isDutySource = lr.compensatory_source_type && lr.compensatory_source_type.startsWith('DUTY');
+          const qualText = lr.qualifying_date ? ` (${isDutySource ? 'Duty' : 'Worked'}: ${lr.qualifying_date})` : '';
+          row.daily_status = 'Compensatory Leave (Approved)';
+          row.remarks = `Compensatory Off${qualText}${lr.reason ? ' - ' + lr.reason : ''}`;
+          row.daily_badge = 'badge-worked-off';
+          if (row.punch_count === 0) {
+            row.check_in_label = 'Comp Leave';
+            row.check_in_badge = 'badge-worked-off';
+          }
+        } else if (lr.day_type === 'FIRST_HALF' || lr.day_type === 'SECOND_HALF') {
+          const halfName = lr.day_type === 'FIRST_HALF' ? '1st Half' : '2nd Half';
+          row.daily_status = `Half-Day Leave (${lr.leave_type_name} - Approved)`;
+          row.remarks = `Approved ${halfName} Leave${lr.reason ? ' - ' + lr.reason : ''}`;
+          row.daily_badge = 'badge-half-day';
+        } else {
+          row.daily_status = `Approved Leave (${lr.leave_type_name})`;
+          row.remarks = `Approved ${lr.leave_type_name}${lr.reason ? ' - ' + lr.reason : ''}`;
+          row.daily_badge = 'badge-holiday';
+          if (row.punch_count === 0) {
+            row.check_in_label = lr.leave_type_name;
+            row.check_in_badge = 'badge-holiday';
+          }
+        }
+      } else if (isPending) {
+        const isAbsent = (row.punch_count === 0);
+        row.daily_status = isAbsent 
+          ? `Absent - Leave Requested (${lr.leave_type_name} Pending)`
+          : `${row.daily_status} - Leave Requested (${lr.leave_type_name} Pending)`;
+        row.remarks = `Pending Approval: ${lr.leave_type_name}${lr.reason ? ' - ' + lr.reason : ''}`;
+        if (isAbsent) {
+          row.daily_badge = 'badge-late-in';
+          row.check_in_label = 'Leave Pending';
+          row.check_in_badge = 'badge-late-in';
+        }
+      } else if (isRejected) {
+        const isAbsent = (row.punch_count === 0);
+        row.daily_status = isAbsent 
+          ? `Absent - Leave Rejected (${lr.leave_type_name})`
+          : `${row.daily_status} (Leave Rejected)`;
+        row.remarks = `Leave Rejected: ${lr.leave_type_name}${lr.action_remarks ? ' (' + lr.action_remarks + ')' : ''}`;
+        if (isAbsent) {
+          row.daily_badge = 'badge-absent';
+        }
+      }
+    } else {
+      row.leave_id = null;
+      row.leave_status = null;
+      row.leave_type_name = null;
+      row.is_duty_leave = 0;
+      row.is_compensatory_leave = 0;
+      if (row.punch_count === 0 && row.day_type === 'WEEKDAY' && row.check_in_status === 'ABSENT') {
+        row.daily_status = 'Absent (No Leave Request)';
+        row.remarks = 'No punch recorded • No leave requested';
+      } else if (row.punch_count > 0) {
+        row.remarks = row.check_in_label ? `${row.check_in_label}${row.ot_hours > 0 ? ` (+${row.ot_hours}H OT)` : ''}` : (row.daily_status || '-');
+      } else {
+        row.remarks = row.daily_status || '-';
+      }
+    }
   });
 
   return dailyRows;

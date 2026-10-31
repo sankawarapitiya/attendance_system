@@ -22,7 +22,23 @@ const {
   upsertWorkingShiftFromCloud,
   upsertHolidayFromCloud,
   markShiftsCloudSynced,
-  markHolidaysCloudSynced
+  markHolidaysCloudSynced,
+  getLeaveCategories,
+  getLeaveCategoryById,
+  saveLeaveCategory,
+  deleteLeaveCategory,
+  getLeaveTypesByCategory,
+  saveLeaveType,
+  deleteLeaveType,
+  initializeEmployeeLeaveBalances,
+  assignLeaveCategoryToEmployees,
+  getEmployeeLeaveBalances,
+  saveEmployeeLeaveBalance,
+  getOrganizationLeaveBalances,
+  upsertLeaveCategoryFromCloud,
+  upsertLeaveBalancesFromCloud,
+  markLeaveCategoriesCloudSynced,
+  markEmployeeBalancesCloudSynced
 } = require('./db');
 
 const CREDENTIALS_DIR = path.join(process.cwd(), 'data', 'credentials');
@@ -1213,8 +1229,8 @@ class FirebaseService {
 
     try {
       const employees = forceAll
-        ? await dbAll(`SELECT * FROM employees ORDER BY user_id ASC`)
-        : await getUnsyncedEmployees(400);
+        ? await dbAll(`SELECT e.*, c.name as leave_category_name FROM employees e LEFT JOIN leave_categories c ON COALESCE(e.leave_category_id, 1) = c.id ORDER BY e.user_id ASC`)
+        : await dbAll(`SELECT e.*, c.name as leave_category_name FROM employees e LEFT JOIN leave_categories c ON COALESCE(e.leave_category_id, 1) = c.id WHERE e.synced_to_cloud = 0 OR e.synced_to_cloud IS NULL LIMIT 400`);
 
       if (!employees || employees.length === 0) {
         return { success: true, count: 0, message: 'No pending employees to sync' };
@@ -1257,6 +1273,8 @@ class FirebaseService {
             appointmentDate: emp.appointment_date || '',
             employmentStatus: emp.employment_status || 'Active',
             isActive: emp.is_active === 1,
+            leaveCategoryId: emp.leave_category_id || 1,
+            leaveCategoryName: emp.leave_category_name || 'Permanent',
             photoUrl: emp.photo || null,
             syncedAt: nowIso
           };
@@ -1822,6 +1840,396 @@ class FirebaseService {
       const auth = getAuth(this.app);
       const decoded = await auth.verifyIdToken(idToken);
       return { success: true, decoded };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+
+  /**
+   * Synchronize Leave Categories and their configured Leave Types for an organization partition.
+   * Firestore path: organizations/{orgId}/leave_categories/category_{id}
+   */
+  async syncLeaveManagement(options = {}) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const orgConfig = await this.getOrganizationConfig();
+    const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const direction = options.direction || 'two_way';
+    const projectId = this.keyData.project_id;
+    const nowIso = new Date().toISOString();
+
+    let downloadedCount = 0;
+    let uploadedCount = 0;
+
+    try {
+      // 1. Download from Cloud if 'two_way' or 'download'
+      if (direction === 'two_way' || direction === 'download') {
+        const snapshot = await this.firestore.collection(`organizations/${orgId}/leave_categories`).get();
+        if (!snapshot.empty) {
+          for (const doc of snapshot.docs) {
+            const data = doc.data();
+            await upsertLeaveCategoryFromCloud(data, orgId);
+            downloadedCount++;
+          }
+        }
+      }
+
+      // 2. Upload local leave categories & nested types to Cloud if 'two_way' or 'upload'
+      if (direction === 'two_way' || direction === 'upload') {
+        const localCats = await getLeaveCategories(orgId);
+        if (localCats && localCats.length > 0) {
+          const writes = [];
+          const syncedIds = [];
+
+          for (const c of localCats) {
+            const docId = `category_${c.id}`;
+            const payload = {
+              id: c.id,
+              name: c.name,
+              description: c.description || '',
+              color: c.color || '#2563eb',
+              isDefault: Boolean(c.is_default),
+              organizationId: orgId,
+              leaveTypes: (c.leave_types || []).map(t => ({
+                id: t.id,
+                name: t.name,
+                code: t.code,
+                daysAllowed: t.days_allowed,
+                carryForwardDays: t.carry_forward_days,
+                isPaid: Boolean(t.is_paid),
+                color: t.color,
+                description: t.description || ''
+              })),
+              syncedAt: nowIso
+            };
+
+            writes.push({
+              update: {
+                name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/leave_categories/${docId}`,
+                fields: toFirestoreFields(payload)
+              }
+            });
+            syncedIds.push(c.id);
+          }
+
+          if (writes.length > 0) {
+            await this._commitRestWrites(writes);
+            await markLeaveCategoriesCloudSynced(syncedIds);
+            uploadedCount = syncedIds.length;
+          }
+        }
+      }
+
+      return {
+        success: true,
+        orgId,
+        direction,
+        downloadedCount,
+        uploadedCount
+      };
+    } catch (err) {
+      console.warn(`[FIREBASE] Leave categories sync notice: ${err.message}`);
+      return { success: false, error: err.message, orgId };
+    }
+  }
+
+  /**
+   * Synchronize Employee Leave Balances for an organization partition.
+   * Firestore path: organizations/{orgId}/leave_balances/{cleanUserId}
+   * Also mirrors to root leave_balances/{cleanUserId} for mobile app direct query.
+   */
+  async syncEmployeeLeaves(options = {}) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const orgConfig = await this.getOrganizationConfig();
+    const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const year = parseInt(options.year, 10) || new Date().getFullYear();
+    const projectId = this.keyData.project_id;
+    const nowIso = new Date().toISOString();
+
+    let uploadedCount = 0;
+
+    try {
+      const empBalances = await getOrganizationLeaveBalances(orgId, year);
+      if (!empBalances || empBalances.length === 0) {
+        return { success: true, count: 0, message: 'No employee leave balances to sync' };
+      }
+
+      const batchSize = 50;
+      for (let i = 0; i < empBalances.length; i += batchSize) {
+        if (this.stopRequested) break;
+        const slice = empBalances.slice(i, i + batchSize);
+        const writes = [];
+        const balanceIds = [];
+
+        for (const eb of slice) {
+          const rawUserId = String(eb.user_id || '').trim();
+          const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F\/]/g, '_').trim() || 'USER';
+
+          const payload = {
+            userId: cleanUserId,
+            rawUserId: rawUserId,
+            name: eb.name || '',
+            department: eb.department || '',
+            organizationId: orgId,
+            year: eb.year,
+            leaveCategoryId: eb.leave_category_id,
+            leaveCategoryName: eb.leave_category_name,
+            leaveCategoryColor: eb.leave_category_color,
+            balances: (eb.balances || []).map(b => ({
+              leaveTypeId: b.leave_type_id,
+              leaveTypeName: b.leave_type_name,
+              code: b.leave_type_code,
+              allocatedDays: b.allocated_days,
+              carriedForwardDays: b.carried_forward_days || 0.0,
+              usedDays: b.used_days,
+              remainingDays: b.remaining_days,
+              notes: b.notes || '',
+              color: b.leave_type_color,
+              isPaid: Boolean(b.type_is_paid)
+            })),
+            updatedAt: nowIso
+          };
+
+          // 1. Organization Partition document
+          writes.push({
+            update: {
+              name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/leave_balances/${cleanUserId}`,
+              fields: toFirestoreFields(payload)
+            }
+          });
+
+          // 2. Root leave_balances document for mobile app compatibility
+          writes.push({
+            update: {
+              name: `projects/${projectId}/databases/(default)/documents/leave_balances/${cleanUserId}`,
+              fields: toFirestoreFields(payload)
+            }
+          });
+
+          (eb.balances || []).forEach(b => {
+            if (b.id) balanceIds.push(b.id);
+          });
+        }
+
+        if (writes.length > 0) {
+          await this._commitRestWrites(writes);
+          if (balanceIds.length > 0) {
+            await markEmployeeBalancesCloudSynced(balanceIds);
+          }
+          uploadedCount += slice.length;
+        }
+      }
+
+      return {
+        success: true,
+        orgId,
+        year,
+        uploadedCount
+      };
+    } catch (err) {
+      console.warn(`[FIREBASE] Employee leaves sync notice: ${err.message}`);
+      return { success: false, error: err.message, orgId };
+    }
+  }
+
+  /**
+   * Consolidated two-way sync for the full Leave Management System
+   * (Categories, Configured Types, and Employee Balances)
+   */
+  async twoWaySyncLeaveSystem(options = {}) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const orgConfig = await this.getOrganizationConfig();
+    const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const direction = options.direction || 'two_way';
+    const year = parseInt(options.year, 10) || new Date().getFullYear();
+
+    this.notify('LEAVE_SYNC_STATUS', {
+      isSyncing: true,
+      orgId,
+      direction,
+      message: `Starting ${direction === 'two_way' ? 'two-way' : direction} sync for leave management (${orgId})...`
+    });
+
+    const categoryRes = await this.syncLeaveManagement({ orgId, direction });
+    const balanceRes = await this.syncEmployeeLeaves({ orgId, year });
+
+    const totalDownloaded = categoryRes.downloadedCount || 0;
+    const totalUploaded = (categoryRes.uploadedCount || 0) + (balanceRes.uploadedCount || 0);
+
+    const message = `Leave cloud sync complete for ${orgId}: ${totalUploaded} items uploaded, ${totalDownloaded} items downloaded.`;
+
+    await dbRun(`
+      INSERT INTO sync_logs (sync_type, status, records_synced, total_records, message)
+      VALUES ('LEAVE_MANAGEMENT_SYNC', 'SUCCESS', ?, ?, ?)
+    `, [totalUploaded + totalDownloaded, totalUploaded + totalDownloaded, message]).catch(() => {});
+
+    this.notify('LEAVE_SYNC_STATUS', {
+      isSyncing: false,
+      orgId,
+      direction,
+      categories: categoryRes,
+      balances: balanceRes,
+      message
+    });
+
+    return {
+      success: true,
+      orgId,
+      direction,
+      categories: categoryRes,
+      balances: balanceRes,
+      message
+    };
+  }
+
+  /**
+   * Save or update an individual leave category in Firestore
+   */
+  async pushLeaveCategoryToCloud(category, orgId) {
+    if (!category || !category.id) return { success: false, error: 'Invalid category payload' };
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const targetOrg = (orgId || category.org_id || (await this.getOrganizationConfig()).orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const projectId = this.keyData.project_id;
+    const nowIso = new Date().toISOString();
+    const docId = `category_${category.id}`;
+
+    const types = await getLeaveTypesByCategory(category.id);
+
+    const payload = {
+      id: category.id,
+      name: category.name,
+      description: category.description || '',
+      color: category.color || '#2563eb',
+      isDefault: Boolean(category.is_default),
+      organizationId: targetOrg,
+      leaveTypes: (types || []).map(t => ({
+        id: t.id,
+        name: t.name,
+        code: t.code,
+        daysAllowed: t.days_allowed,
+        carryForwardDays: t.carry_forward_days,
+        isPaid: Boolean(t.is_paid),
+        color: t.color,
+        description: t.description || ''
+      })),
+      syncedAt: nowIso
+    };
+
+    const write = {
+      update: {
+        name: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/leave_categories/${docId}`,
+        fields: toFirestoreFields(payload)
+      }
+    };
+
+    try {
+      await this._commitRestWrites([write]);
+      await markLeaveCategoriesCloudSynced([category.id]);
+      return { success: true, docId, orgId: targetOrg };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Delete an individual leave category from Firestore
+   */
+  async deleteLeaveCategoryFromCloud(categoryId, orgId) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const targetOrg = (orgId || (await this.getOrganizationConfig()).orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const projectId = this.keyData.project_id;
+    const docId = `category_${categoryId}`;
+
+    const write = {
+      delete: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/leave_categories/${docId}`
+    };
+
+    try {
+      await this._commitRestWrites([write]);
+      return { success: true, docId, orgId: targetOrg };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Save / Sync Single Leave Request to Firestore
+   * Path: organizations/{orgId}/leave_requests/request_{id}
+   */
+  async saveLeaveRequestToCloud(request) {
+    if (!request || !request.id) return { success: false, error: 'Invalid leave request object' };
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+
+    const orgConfig = await this.getOrganizationConfig();
+    const targetOrg = (request.org_id || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const projectId = this.keyData.project_id;
+    const docId = `request_${request.id}`;
+    const nowIso = new Date().toISOString();
+
+    const payload = {
+      requestId: request.id,
+      userId: String(request.user_id),
+      employeeName: request.employee_name || '',
+      employeeServiceId: request.employee_service_id || '',
+      department: request.employee_department || '',
+      leaveTypeId: request.leave_type_id,
+      leaveTypeName: request.leave_type_name || '',
+      leaveTypeCode: request.leave_type_code || '',
+      leaveTypeColor: request.leave_type_color || '#2563eb',
+      startDate: request.start_date,
+      endDate: request.end_date,
+      daysRequested: parseFloat(request.days_requested) || 1.0,
+      dayType: request.day_type || 'FULL_DAY',
+      reason: request.reason || '',
+      emergencyContact: request.emergency_contact || '',
+      status: request.status || 'PENDING',
+      actionBy: request.action_by || '',
+      actionAt: request.action_at || null,
+      actionRemarks: request.action_remarks || '',
+      organizationId: targetOrg,
+      updatedAt: nowIso
+    };
+
+    const write = {
+      update: {
+        name: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/leave_requests/${docId}`,
+        fields: toFirestoreFields(payload)
+      }
+    };
+
+    try {
+      await this._commitRestWrites([write]);
+      await dbRun(`UPDATE leave_requests SET sync_status = 'SYNCED', cloud_synced_at = CURRENT_TIMESTAMP WHERE id = ?`, [request.id]);
+      return { success: true, docId, orgId: targetOrg };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Delete Leave Request from Firestore
+   */
+  async deleteLeaveRequestFromCloud(orgId, requestId) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+
+    const targetOrg = (orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const projectId = this.keyData.project_id;
+    const docId = `request_${requestId}`;
+
+    const write = {
+      delete: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/leave_requests/${docId}`
+    };
+
+    try {
+      await this._commitRestWrites([write]);
+      return { success: true, docId, orgId: targetOrg };
     } catch (err) {
       return { success: false, error: err.message };
     }

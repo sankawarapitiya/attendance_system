@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=2.7.2">
+  <link rel="stylesheet" href="css/style.css?v=3.2.0">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%231d4ed8'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/></svg>">
   <script>
     // Immediate global handlers to ensure zero ReferenceError on early clicks
@@ -183,6 +183,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
           Employees
         </button>
+        <button class="nav-item" data-tab="tab-leave">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          Leave Management
+        </button>
         <button class="nav-item" data-tab="tab-shifts">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
           Shifts & Holidays
@@ -210,7 +214,8 @@
       </nav>
 
       <div class="sidebar-footer">
-        <div class="device-mini-card">
+        <!-- 1. Device Connection Status Mini Card -->
+        <div class="device-mini-card" id="sidebarDeviceCard" title="SpeedFace Biometric Device Status">
           <div class="status-indicator online" id="miniDeviceStatusDot"></div>
           <div class="mini-info">
             <div class="mini-label">SpeedFace-V5L</div>
@@ -219,6 +224,63 @@
           <button class="btn-icon" id="quickSyncBtn" title="Sync Records Now">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="quickSyncIcon"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
           </button>
+        </div>
+
+        <!-- 2. System Status Indicators (Cloud Sync & Live WebSocket) -->
+        <div class="sidebar-status-pills">
+          <div class="sidebar-status-pill" id="sidebarCloudSyncPill" title="Firebase Firestore Cloud Sync - Click to manage">
+            <span class="status-dot-sm" id="sidebarCloudSyncDot" style="background:#94a3b8;"></span>
+            <span id="sidebarCloudSyncText">Cloud: Standby</span>
+          </div>
+          <div class="sidebar-status-pill" id="sidebarLiveSyncPill" title="Live WebSocket Connection">
+            <span class="status-dot-sm live-dot" id="sidebarLiveDot"></span>
+            <span id="sidebarLiveText">Live Sync</span>
+          </div>
+        </div>
+
+        <!-- 3. License Status Card -->
+        <div class="sidebar-license-card" id="sidebarLicenseCard" onclick="handleLicenseCardClick(event)" title="System License Status - Click to manage">
+          <div class="sidebar-license-left">
+            <span class="sidebar-license-icon">🔐</span>
+            <div class="sidebar-license-info">
+              <span class="sidebar-license-label">System License</span>
+              <span class="sidebar-license-days" id="sidebarLicenseDaysText">License: Active</span>
+            </div>
+          </div>
+          <span class="badge badge-success" id="sidebarLicenseBadge" style="font-size: 0.65rem; padding: 2px 6px;">ACTIVE</span>
+        </div>
+
+        <!-- 4. User Profile & Logout Section -->
+        <div class="sidebar-user-section" id="sidebarUserSection">
+          <!-- When Logged In -->
+          <div class="sidebar-user-box" id="sidebarLoggedInBox">
+            <div class="sidebar-user-info" id="sidebarUserProfileBtn" title="Signed in user profile - Click to switch user">
+              <div class="sidebar-avatar" id="sidebarUserAvatar">A</div>
+              <div class="sidebar-user-details">
+                <span class="sidebar-user-name" id="sidebarUserName">Admin User</span>
+                <span class="badge" id="sidebarUserRoleBadge" style="font-size:0.62rem; padding:1px 5px; width:fit-content; background:#0284c7; color:#fff;">ADMIN</span>
+              </div>
+            </div>
+            <button class="btn-sidebar-logout" id="btnSidebarLogout" title="Sign out of system">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+              <span>Logout</span>
+            </button>
+          </div>
+
+          <!-- When Logged Out / Locked -->
+          <div class="sidebar-user-box sidebar-logged-out" id="sidebarLoggedOutBox" style="display: none;">
+            <div class="sidebar-user-info">
+              <div class="sidebar-avatar" style="background:#94a3b8;">?</div>
+              <div class="sidebar-user-details">
+                <span class="sidebar-user-name" style="color:#64748b;">Guest</span>
+                <span style="font-size:0.65rem; color:#94a3b8;">Locked</span>
+              </div>
+            </div>
+            <button class="btn btn-sm btn-primary" id="btnSidebarLogin" style="padding: 3px 8px; font-size: 0.72rem; display:inline-flex; align-items:center; gap:3px;" title="Sign In to System">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
+              <span>Login</span>
+            </button>
+          </div>
         </div>
       </div>
     </aside>
@@ -262,47 +324,8 @@
           </div>
         </div>
         <div class="topbar-actions">
-          <!-- License Remaining Days Pill in Topbar -->
-          <div id="headerLicensePill" title="System License Status - Click to manage in System Settings" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:999px; font-size:0.8rem; font-weight:600; cursor:pointer; background:#f0fdf4; color:#166534; border:1px solid #bbf7d0; transition: all 0.2s ease;">
-            <span style="font-size:0.85rem;">🔐</span>
-            <span id="headerLicenseDaysText">License: Active</span>
-          </div>
-
-          <!-- Real-Time Cloud Sync Status Pill -->
-          <div id="headerCloudSyncPill" title="Firebase Firestore Cloud Sync - Click to view" style="display:inline-flex; align-items:center; gap:7px; padding:6px 14px; border-radius:999px; font-size:0.82rem; font-weight:600; cursor:pointer; background:#f8fafc; color:#475569; border:1px solid #cbd5e1; transition: all 0.2s ease;">
-            <span id="headerCloudSyncDot" style="width:8px; height:8px; border-radius:50%; background:#94a3b8; display:inline-block;"></span>
-            <span id="headerCloudSyncText">Cloud: Standby</span>
-          </div>
-
-          <!-- System Auth User Pill & Role Badge, Login / Logout Actions -->
-          <div id="headerUserAuthContainer" style="display:inline-flex; align-items:center; gap:8px;">
-            <!-- When Logged In -->
-            <div id="headerLoggedInBox" style="display:inline-flex; align-items:center; gap:8px;">
-              <div id="headerUserAuthPill" style="display:inline-flex; align-items:center; gap:7px; padding:4px 12px; border-radius:999px; font-size:0.82rem; font-weight:600; background:#f8fafc; border:1px solid #cbd5e1; cursor:pointer; transition: all 0.2s ease;" title="Click to view profile or switch user">
-                <span id="headerUserAvatar" style="width:24px; height:24px; border-radius:50%; background:#0284c7; color:#fff; display:flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:700;">A</span>
-                <span id="headerUserName">Admin User</span>
-                <span class="badge" id="headerUserRoleBadge" style="background:#0284c7; color:#fff; font-size:0.68rem; font-weight:700; padding:2px 7px; border-radius:999px;">ADMIN</span>
-              </div>
-              <button class="btn btn-sm btn-outline" id="btnHeaderLogout" style="font-size:0.76rem; padding:4px 10px; font-weight:600; display:inline-flex; align-items:center; gap:4px; color:#dc2626; border-color:#fca5a5; background:#fff;" title="Logout of System">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-                <span>Logout</span>
-              </button>
-            </div>
-
-            <!-- When Logged Out -->
-            <div id="headerLoggedOutBox" style="display:none; align-items:center; gap:8px;">
-              <span class="badge" style="background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1; font-size:0.75rem; padding:4px 10px; border-radius:999px; font-weight:600;">👤 Guest (Not signed in)</span>
-              <button class="btn btn-sm btn-primary" id="btnHeaderLogin" style="font-size:0.76rem; padding:4px 12px; font-weight:600; display:inline-flex; align-items:center; gap:4px;" title="Sign In to System">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path><polyline points="10 17 15 12 10 7"></polyline><line x1="15" y1="12" x2="3" y2="12"></line></svg>
-                <span>Login</span>
-              </button>
-            </div>
-          </div>
-
-          <span class="live-pill">
-            <span class="live-dot"></span> LIVE SYNC
-          </span>
-          <button class="btn btn-primary" id="btnSyncHeader">
+          <!-- Primary Machine Sync Controls -->
+          <button class="btn btn-primary" id="btnSyncHeader" title="Sync punches directly with biometric device">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
             <span class="sync-btn-text">Sync Machine</span>
           </button>
@@ -310,6 +333,20 @@
             <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
             <span id="btnStopSyncHeaderText">Stop Sync</span>
           </button>
+
+          <!-- Legacy Header Indicators (Kept hidden so existing JS element lookups stay 100% safe) -->
+          <div style="display:none;" aria-hidden="true">
+            <div id="headerLicensePill"><span id="headerLicenseDaysText">License: Active</span></div>
+            <div id="headerCloudSyncPill"><span id="headerCloudSyncDot"></span><span id="headerCloudSyncText">Cloud: Standby</span></div>
+            <div id="headerUserAuthContainer">
+              <div id="headerLoggedInBox">
+                <div id="headerUserAuthPill"><span id="headerUserAvatar">A</span><span id="headerUserName">Admin User</span><span id="headerUserRoleBadge">ADMIN</span></div>
+                <button id="btnHeaderLogout"></button>
+              </div>
+              <div id="headerLoggedOutBox"><button id="btnHeaderLogin"></button></div>
+            </div>
+            <span class="live-pill"><span class="live-dot"></span> LIVE SYNC</span>
+          </div>
         </div>
       </header>
 
@@ -698,41 +735,42 @@
           </div>
 
           <!-- Interactive Report Controls Bar -->
-          <div style="background: #f8fafc; border-bottom: 1px solid var(--border); padding: 14px 20px; display: flex; flex-direction: column; gap: 14px;">
-            <!-- Row 1: Period Type & Scope Selection -->
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
-              <!-- Period Type: Daily / Weekly / Monthly -->
+          <div class="report-controls-bar">
+            <!-- Row 1: Period & Report Type + Scope Selection -->
+            <div class="report-controls-row">
+              <!-- Period / Report Type: Daily / Daily with Leaves / Weekly / Monthly -->
               <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Period:</span>
+                <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Report Type:</span>
                 <div class="btn-group" role="group">
-                  <button class="btn btn-sm btn-primary" id="btnReportTypeDaily">☀️ Daily</button>
-                  <button class="btn btn-sm btn-outline" id="btnReportTypeWeekly">📅 Weekly</button>
-                  <button class="btn btn-sm btn-outline" id="btnReportTypeMonthly">📆 Monthly</button>
+                  <button class="btn btn-sm btn-primary" id="btnReportTypeDaily" title="Daily Attendance Overview">☀️ Daily</button>
+                  <button class="btn btn-sm btn-outline" id="btnReportTypeDailyLeaves" title="Daily Attendance enriched with Leave Requests & Status in Daily Status / Remarks">📋 Daily Status / Remarks</button>
+                  <button class="btn btn-sm btn-outline" id="btnReportTypeWeekly" title="Weekly Timesheet & Summaries">📅 Weekly</button>
+                  <button class="btn btn-sm btn-outline" id="btnReportTypeMonthly" title="Monthly Payroll & Attendance">📆 Monthly</button>
                 </div>
               </div>
 
               <!-- Scope: All Users vs Matrix vs Single Employee vs Monthly Book -->
-              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div id="reportScopeContainer" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                 <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Scope:</span>
-                <div class="btn-group" role="group">
+                <div class="btn-group" role="group" id="reportScopeGroup">
                   <button class="btn btn-sm btn-primary" id="btnReportScopeAll" title="1-row per employee overview table">🏢 All Users Summary</button>
-                  <button class="btn btn-sm btn-outline" id="btnReportScopeMatrix" title="All days horizontally across the top, employees vertically">📊 All Days Matrix (Days Horizontal)</button>
+                  <button class="btn btn-sm btn-outline" id="btnReportScopeMatrix" title="All days horizontally across the top, employees vertically">📊 All Days Matrix</button>
                   <button class="btn btn-sm btn-outline" id="btnReportScopeMonthlyBook" title="Complete calendar month day-by-day report: exactly 1 page per person">📑 1 Page Per User (Month Book)</button>
                   <button class="btn btn-sm btn-outline" id="btnReportScopeSingle" title="Detailed timesheet for single staff">👤 Individual Employee</button>
                 </div>
               </div>
             </div>
 
-            <!-- Row 2: Date / Period Selector & Employee Selector -->
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 10px; border-top: 1px dashed var(--border);">
+            <!-- Row 2: Date / Period Selector, Leave Filter, Employee Selector, Search -->
+            <div class="report-controls-row" style="padding-top: 10px; border-top: 1px dashed var(--border);">
               <!-- Dynamic Period Navigators -->
               <div id="reportPeriodNavigator" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                 <!-- Daily Period Controls -->
                 <div id="ctrlPeriodDaily" style="display: flex; align-items: center; gap: 6px;">
-                  <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-main);">Select Date:</span>
-                  <button class="btn btn-sm btn-outline" id="btnReportPrevDay">◀</button>
+                  <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-main);">Date:</span>
+                  <button class="btn btn-sm btn-outline" id="btnReportPrevDay" title="Previous Day">◀</button>
                   <input type="date" id="inputReportDate" style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-weight: 600; font-family: monospace; font-size: 0.88rem; background: #fff;">
-                  <button class="btn btn-sm btn-outline" id="btnReportNextDay">▶</button>
+                  <button class="btn btn-sm btn-outline" id="btnReportNextDay" title="Next Day">▶</button>
                   <button class="btn btn-sm btn-outline" id="btnReportToday">Today</button>
                 </div>
 
@@ -748,12 +786,28 @@
 
                 <!-- Monthly Period Controls -->
                 <div id="ctrlPeriodMonthly" style="display: none; align-items: center; gap: 6px;">
-                  <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-main);">Select Month:</span>
+                  <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-main);">Month:</span>
                   <button class="btn btn-sm btn-outline" id="btnReportPrevMonth">◀</button>
                   <input type="month" id="inputReportMonth" style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-weight: 600; font-family: monospace; font-size: 0.88rem; background: #fff;">
                   <button class="btn btn-sm btn-outline" id="btnReportNextMonth">▶</button>
                   <button class="btn btn-sm btn-outline" id="btnReportCurrentMonth">Current Month</button>
                 </div>
+              </div>
+
+              <!-- Leave Status Filter (Active for Daily & Daily Leaves) -->
+              <div id="ctrlLeaveFilter" style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-main);">Leave / Status:</span>
+                <select id="selectReportLeaveFilter" style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.84rem; font-weight: 600; background: #fff; color: var(--text-main); cursor: pointer;">
+                  <option value="all">All Attendance Records</option>
+                  <option value="on_leave">🟢 On Approved Leave (Any)</option>
+                  <option value="pending_leave">⏳ Pending Leave Requests</option>
+                  <option value="duty_leave">🏛️ Duty Leaves (Approved)</option>
+                  <option value="compensatory_leave">⭐ Compensatory Leaves (Approved)</option>
+                  <option value="absent_no_leave">🔴 Absent (No Leave Request)</option>
+                  <option value="present">🟢 Present Only</option>
+                  <option value="absent">🔴 Absent Only</option>
+                  <option value="late">🟡 Late / Grace Only</option>
+                </select>
               </div>
 
               <!-- Individual Employee Selector (Visible when Scope = Single) -->
@@ -766,8 +820,14 @@
 
               <!-- Search filter for All Users -->
               <div id="ctrlReportSearch" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                <input type="checkbox" id="checkReportActiveOnly" checked style="display: none;">
-                <input type="text" id="inputReportSearch" placeholder="Search by ID, name, dept..." style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; width: 190px;">
+                <label style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.8rem; font-weight: 600; color: var(--text-main); cursor: pointer; user-select: none;">
+                  <input type="checkbox" id="checkReportActiveOnly" checked style="accent-color: var(--primary); cursor: pointer;">
+                  Active Only
+                </label>
+                <div style="position: relative; display: inline-flex; align-items: center;">
+                  <input type="text" id="inputReportSearch" placeholder="Search ID, name, dept..." style="padding: 5px 10px 5px 28px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.84rem; width: 180px;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="position: absolute; left: 8px; width: 14px; height: 14px; color: #94a3b8; pointer-events: none;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                </div>
                 <button class="btn btn-sm btn-primary" id="btnReportSearchApply">Search</button>
               </div>
             </div>
@@ -819,31 +879,24 @@
                 <tr><td colspan="12" class="text-center py-4">Select report options to generate report...</td></tr>
               </tbody>
             </table>
+            <div id="reportTableScrollSentinel" class="report-scroll-sentinel" style="display: none;"></div>
           </div>
 
           <!-- Monthly All-Staff Book Viewport (1 Complete Page Per User) -->
           <div id="reportMonthlyBookWrap" style="display: none; padding: 0;">
             <!-- On-Screen Controls / Status bar for Book view -->
-            <div id="monthlyBookToolbar" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; background: #e0f2fe; border-bottom: 1px solid #bae6fd; flex-wrap: wrap; gap: 10px;">
+            <div id="monthlyBookToolbar" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 18px; background: #e0f2fe; border-bottom: 1px solid #bae6fd; flex-wrap: wrap; gap: 10px;">
               <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                <span style="font-weight: 800; color: #0369a1; font-size: 0.92rem;">📑 Complete Month Book:</span>
-                <span id="monthlyBookCountBadge" style="background: #0284c7; color: #fff; font-weight: 700; font-size: 0.8rem; padding: 2px 8px; border-radius: 9999px;">0 Staff Pages</span>
-                <span id="monthlyBookPeriodBadge" style="background: #0369a1; color: #fff; font-weight: 700; font-size: 0.8rem; padding: 2px 10px; border-radius: 6px;">Month</span>
-                <button class="btn btn-sm btn-outline" id="btnMonthlyBookPrevMonth" title="Switch to Previous Month" style="background: #fff; font-weight: 600;">◀ Prev Month</button>
-                <button class="btn btn-sm btn-outline" id="btnMonthlyBookNextMonth" title="Switch to Next Month" style="background: #fff; font-weight: 600;">Next Month ▶</button>
+                <span style="font-weight: 800; color: #0369a1; font-size: 0.9rem;">📑 Monthly Book:</span>
+                <span id="monthlyBookCountBadge" style="background: #0284c7; color: #fff; font-weight: 700; font-size: 0.78rem; padding: 2px 8px; border-radius: 9999px;">0 Staff Pages</span>
+                <span id="monthlyBookPeriodBadge" style="background: #0369a1; color: #fff; font-weight: 700; font-size: 0.78rem; padding: 2px 10px; border-radius: 6px;">Month</span>
               </div>
               <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                <label for="monthlyBookJumpSelect" style="font-size: 0.82rem; font-weight: 600; color: #0369a1;">Jump to Employee:</label>
-                <select id="monthlyBookJumpSelect" style="padding: 4px 10px; border-radius: 6px; border: 1px solid #7dd3fc; font-size: 0.82rem; background: #fff; max-width: 270px;">
-                  <option value="all">View All Employees</option>
+                <label for="monthlyBookJumpSelect" style="font-size: 0.82rem; font-weight: 600; color: #0369a1;">Jump to Staff:</label>
+                <select id="monthlyBookJumpSelect" style="padding: 4px 10px; border-radius: 6px; border: 1px solid #7dd3fc; font-size: 0.82rem; background: #fff; max-width: 280px; font-weight: 600;">
+                  <option value="all">View All Staff (All Pages)</option>
                 </select>
-                <button class="btn btn-sm btn-primary" id="btnMonthlyBookPrintAll" title="Print all pages or export PDF">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
-                  <span id="btnMonthlyBookPrintText">Print Book (All Pages)</span>
-                </button>
-                <button type="button" class="btn btn-sm btn-outline" id="btnMonthlyBookPrintOptions" onclick="openPrintOptionsModal()" title="Print Options for Monthly Book" style="background: #fff; font-weight: 600; cursor: pointer;">
-                  ⚙️ Options
-                </button>
+                <span id="btnMonthlyBookPrintText" style="display: none;">Print Book (All Pages)</span>
               </div>
             </div>
 
@@ -851,16 +904,17 @@
             <div id="monthlyBookPagesContainer" style="padding: 16px; display: flex; flex-direction: column; gap: 24px; background: #f1f5f9;">
               <!-- Dynamic .employee-monthly-page elements injected here -->
             </div>
+            <div id="monthlyBookScrollSentinel" class="report-scroll-sentinel" style="display: none;"></div>
           </div>
 
           <!-- Monthly All-Days Matrix Viewport (Users Vertical & Days Horizontal) -->
           <div id="reportMatrixWrap" class="table-responsive matrix-table-wrap" style="display: none; padding: 0;">
-            <!-- On-Screen Controls & Print Button for Matrix -->
+            <!-- On-Screen Controls for Matrix -->
             <div id="reportMatrixToolbar" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 18px; background: #f0fdf4; border-bottom: 1px solid #bbf7d0; flex-wrap: wrap; gap: 10px;">
               <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                <span style="font-weight: 800; color: #166534; font-size: 0.92rem;">📅 All Days Attendance Matrix:</span>
-                <span id="matrixStaffCountBadge" style="background: #16a34a; color: #fff; font-weight: 700; font-size: 0.8rem; padding: 2px 8px; border-radius: 9999px;">0 Active Staff</span>
-                <span style="font-size: 0.82rem; color: #15803d;">(All calendar days horizontally • Optimized for A4 / Legal Landscape Print & PDF)</span>
+                <span style="font-weight: 800; color: #166534; font-size: 0.9rem;">📅 Attendance Matrix:</span>
+                <span id="matrixStaffCountBadge" style="background: #16a34a; color: #fff; font-weight: 700; font-size: 0.78rem; padding: 2px 8px; border-radius: 9999px;">0 Active Staff</span>
+                <span style="font-size: 0.8rem; color: #15803d;">(All calendar days horizontally • Optimized for A4 / Legal Landscape)</span>
               </div>
               <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                 <!-- Layout Switcher: Standard (1-Row) vs Proposed Max-Time (2-Row) -->
@@ -870,22 +924,6 @@
                   </button>
                   <button type="button" class="btn btn-sm btn-outline" id="btnMatrixLayoutProposed" onclick="setMatrixLayout('proposed')" title="Two-row layout: Employee info in row 1, Maximum size attendance times in row 2" style="padding: 3px 9px; font-size: 0.76rem; font-weight: 700; border-radius: 4px; border: none; cursor: pointer; transition: all 0.15s; background: transparent; color: #475569;">
                     ⚡ Max Time (2-Row)
-                  </button>
-                </div>
-
-                <button class="btn btn-sm btn-primary" id="btnMatrixPrint" title="Print Matrix or Save as PDF">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
-                  Print Matrix / PDF
-                </button>
-                <button type="button" class="btn btn-sm btn-outline" id="btnMatrixPrintOptions" onclick="openPrintOptionsModal()" title="Print Options for Attendance Matrix" style="background: #fff; font-weight: 600; cursor: pointer;">
-                  ⚙️ Options
-                </button>
-                <div class="dropdown" id="matrixColDropdown" style="position: relative; display: inline-block;">
-                  <button type="button" class="btn btn-sm btn-outline" id="btnMatrixColumnsToggle" onclick="toggleReportColumnsMenu(event)" title="Select Visible Columns for Attendance Matrix &amp; Print" style="background: #fff; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; border-color: #cbd5e1; color: #1e293b; padding: 4px 10px;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:13px;height:13px;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line></svg>
-                    <span>Columns</span>
-                    <span id="matrixColumnsBadge" style="background: #e2e8f0; color: #1e293b; font-size: 0.72rem; padding: 1px 6px; border-radius: 9999px; font-weight: 700;">All</span>
-                    <span style="font-size: 0.65rem; color: #64748b;">▼</span>
                   </button>
                 </div>
               </div>
@@ -898,6 +936,7 @@
                 <tr><td colspan="45" class="text-center py-4 text-muted">Select Monthly &rarr; All Days Matrix to display attendance grid...</td></tr>
               </tbody>
             </table>
+            <div id="matrixScrollSentinel" class="report-scroll-sentinel" style="display: none;"></div>
           </div>
 
           <!-- Printable Sign-off Footer (Visible in Print or PDF) -->
@@ -972,6 +1011,10 @@
               <button class="btn btn-primary btn-sm" id="btnPushAllToDevice" title="Push all employee names and roles to the SpeedFace terminal">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 Sync with Device
+              </button>
+                            <button class="btn btn-outline btn-sm" id="btnOpenBulkLeaveModal" style="border-color: #4f46e5; color: #4f46e5; font-weight: 600;" title="Bulk assign leave category & quota to employees">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                Assign Leave
               </button>
               <button class="btn btn-outline btn-sm" id="btnOpenBulkShiftModal" title="Bulk assign shift to employees">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
@@ -1232,6 +1275,375 @@
                 <tr><td colspan="6" class="text-center py-4 text-muted">Loading holidays...</td></tr>
               </tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      
+      <!-- TAB: LEAVE MANAGEMENT -->
+      <section class="tab-content fit-screen" id="tab-leave">
+        <!-- Multi-Organization Partition & Cloud Two-Way Sync Bar -->
+        <div class="card" style="margin-bottom: 18px; background: linear-gradient(135deg, rgba(79, 70, 229, 0.05), rgba(14, 165, 233, 0.05)); border: 1px solid rgba(79, 70, 229, 0.25);">
+          <div class="card-body" style="padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 14px;">
+              <div style="background: linear-gradient(135deg, #4f46e5, #0284c7); color: white; border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(79, 70, 229, 0.25);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 24px; height: 24px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+              </div>
+              <div>
+                <div style="font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <span>Leave Multi-Organization Cloud Partition:</span>
+                  <span class="badge" id="leaveOrgPartitionBadge" style="background: #ede9fe; color: #4338ca; font-weight: 700; padding: 3px 10px; border-radius: 6px; font-family: monospace; font-size: 13px;">DSOFFICE_LUNUGAMWEHERA</span>
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">
+                  Synchronized two-way under <code style="background: rgba(0,0,0,0.04); padding: 1px 5px; border-radius: 4px; font-size: 11px;">organizations/<span id="leaveOrgPathSpan">DSOFFICE_LUNUGAMWEHERA</span>/leave_categories</code> &amp; <code style="background: rgba(0,0,0,0.04); padding: 1px 5px; border-radius: 4px; font-size: 11px;">leave_balances</code>
+                  <span id="leaveSyncStatusText" style="margin-left: 10px; font-weight: 500; color: #059669;"></span>
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-primary" id="btnTwoWaySyncLeave" type="button" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600; background: #4f46e5; border-color: #4f46e5;" title="Full two-way synchronization of leave categories, types, and employee balances with Firebase">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;" id="leaveSyncIcon"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <span>Sync to Cloud</span>
+              </button>
+              <button class="btn btn-outline" id="btnPullLeaveFromCloud" type="button" style="display: inline-flex; align-items: center; gap: 6px;" title="Download leave settings from Cloud Partition to local SQLite">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span>Pull from Cloud</span>
+              </button>
+              <button class="btn btn-outline" id="btnPushLeaveBalancesOnly" type="button" style="display: inline-flex; align-items: center; gap: 6px;" title="Push all active employee leave balances to Cloud">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/><polyline points="12 13 12 9 10 11"/></svg>
+                <span>Push Balances</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Leave Management Sub-Tabs Navigation -->
+        <div class="leave-nav-tabs" style="display: flex; gap: 8px; margin-bottom: 18px; border-bottom: 2px solid var(--border); padding-bottom: 10px; flex-wrap: wrap;">
+          <button type="button" class="btn btn-sm btn-primary leave-subtab-btn active" id="btnSubtabRequests" data-subtab="requests" style="font-weight: 600; padding: 7px 18px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;">
+            📝 Leave Requests &amp; Approvals
+            <span id="leavePendingBadge" class="badge" style="background: #ef4444; color: white; border-radius: 10px; font-size: 0.72rem; padding: 2px 7px; display: none;">0</span>
+          </button>
+          <button type="button" class="btn btn-sm btn-outline leave-subtab-btn" id="btnSubtabBalances" data-subtab="balances" style="font-weight: 600; padding: 7px 18px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;">
+            👥 Employee Leave Balances &amp; Yearly Calculation
+          </button>
+          <button type="button" class="btn btn-sm btn-outline leave-subtab-btn" id="btnSubtabPolicies" data-subtab="policies" style="font-weight: 600; padding: 7px 18px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;">
+            🏷️ Leave Categories &amp; Policies
+          </button>
+        </div>
+
+        <!-- SUBTAB 1: LEAVE REQUESTS & APPROVALS (DEFAULT) -->
+        <div id="leaveSectionRequests" class="leave-subtab-pane" style="display: block;">
+          <!-- KPI Summary Cards -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 18px;">
+            <div class="card" style="padding: 14px 16px; display: flex; align-items: center; gap: 14px; border-left: 4px solid #f59e0b;">
+              <div style="background: rgba(245, 158, 11, 0.12); color: #d97706; border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.35rem;">⏳</div>
+              <div>
+                <div style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Pending Approvals</div>
+                <div id="kpiReqPending" style="font-size: 1.55rem; font-weight: 700; color: #b45309;">0</div>
+              </div>
+            </div>
+            <div class="card" style="padding: 14px 16px; display: flex; align-items: center; gap: 14px; border-left: 4px solid #10b981;">
+              <div style="background: rgba(16, 185, 129, 0.12); color: #059669; border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.35rem;">✅</div>
+              <div>
+                <div style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Approved This Year</div>
+                <div id="kpiReqApproved" style="font-size: 1.55rem; font-weight: 700; color: #047857;">0 <span style="font-size: 0.82rem; font-weight: 500; color: #64748b;" id="kpiReqApprovedDays">(0 days)</span></div>
+              </div>
+            </div>
+            <div class="card" style="padding: 14px 16px; display: flex; align-items: center; gap: 14px; border-left: 4px solid #ef4444;">
+              <div style="background: rgba(239, 68, 68, 0.12); color: #dc2626; border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.35rem;">❌</div>
+              <div>
+                <div style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Rejected / Denied</div>
+                <div id="kpiReqRejected" style="font-size: 1.55rem; font-weight: 700; color: #b91c1c;">0</div>
+              </div>
+            </div>
+            <div class="card" style="padding: 14px 16px; display: flex; align-items: center; gap: 14px; border-left: 4px solid #3b82f6;">
+              <div style="background: rgba(59, 130, 246, 0.12); color: #2563eb; border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.35rem;">📅</div>
+              <div>
+                <div style="font-size: 0.78rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">On Leave Today</div>
+                <div id="kpiReqTodayOnLeave" style="font-size: 1.55rem; font-weight: 700; color: #1d4ed8;">0</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Filter Toolbar Card -->
+          <div class="card" style="margin-bottom: 16px;">
+            <div class="card-body" style="padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+              <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <label for="leaveReqStatusFilter" style="font-weight: 600; font-size: 0.82rem; margin: 0; white-space: nowrap;">Status:</label>
+                  <select id="leaveReqStatusFilter" class="form-control form-control-sm" style="width: 155px; font-weight: 600;">
+                    <option value="ALL">All Statuses</option>
+                    <option value="PENDING" selected>⏳ Pending Approval</option>
+                    <option value="APPROVED">✅ Approved</option>
+                    <option value="REJECTED">❌ Rejected</option>
+                    <option value="CANCELLED">🚫 Cancelled</option>
+                  </select>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <label for="leaveReqDeptFilter" style="font-weight: 600; font-size: 0.82rem; margin: 0; white-space: nowrap;">Dept:</label>
+                  <select id="leaveReqDeptFilter" class="form-control form-control-sm" style="width: 145px;">
+                    <option value="all">All Departments</option>
+                  </select>
+                </div>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <label for="leaveReqYearSelect" style="font-weight: 600; font-size: 0.82rem; margin: 0; white-space: nowrap;">Year:</label>
+                  <select id="leaveReqYearSelect" class="form-control form-control-sm" style="width: 95px; font-weight: 700; font-family: monospace;">
+                    <option value="2024">2024</option>
+                    <option value="2025">2025</option>
+                    <option value="2026" selected>2026</option>
+                    <option value="2027">2027</option>
+                    <option value="2028">2028</option>
+                  </select>
+                </div>
+                <div style="position: relative; width: 220px;">
+                  <input type="text" id="leaveReqSearchInput" class="form-control form-control-sm" placeholder="🔍 Search employee or reason..." style="font-size: 0.82rem;">
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <button type="button" class="btn btn-sm btn-outline" id="btnRefreshLeaveRequests" title="Reload leave requests">
+                  🔄 Refresh
+                </button>
+                <button type="button" class="btn btn-sm btn-primary" id="btnOpenNewLeaveRequestModal" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600; background: #4f46e5; border-color: #4f46e5;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span>Apply for Leave</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Leave Requests Table Card -->
+          <div class="card">
+            <div class="card-body" style="padding: 0;">
+              <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                <table class="data-table" id="tableLeaveRequests" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                  <thead>
+                    <tr style="background: #f8fafc; border-bottom: 2px solid var(--border); position: sticky; top: 0; z-index: 10;">
+                      <th style="width: 60px; text-align: center;">ID</th>
+                      <th style="width: 200px;">Employee</th>
+                      <th style="width: 130px;">Leave Type</th>
+                      <th style="width: 190px;">Dates &amp; Duration</th>
+                      <th>Reason / Justification</th>
+                      <th style="width: 140px; text-align: center;">Status</th>
+                      <th style="width: 180px;">Reviewed By</th>
+                      <th style="width: 180px; text-align: center;">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="leaveRequestsTableBody">
+                    <tr><td colspan="8" class="text-center py-4 text-muted">Loading leave requests...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SUBTAB 2: EMPLOYEE LEAVE BALANCES & YEARLY CALCULATION -->
+        <div id="leaveSectionBalances" class="leave-subtab-pane" style="display: none;">
+          <!-- Controls Toolbar Card -->
+          <div class="card" style="margin-bottom: 16px;">
+            <div class="card-body" style="padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+              <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label for="leaveBalanceYearSelect" style="font-weight: 600; font-size: 0.85rem; margin: 0; white-space: nowrap;">📅 Year:</label>
+                  <select id="leaveBalanceYearSelect" class="form-control" style="width: 105px; font-weight: 700; font-family: monospace;">
+                    <option value="2024">2024</option>
+                    <option value="2025">2025</option>
+                    <option value="2026" selected>2026</option>
+                    <option value="2027">2027</option>
+                    <option value="2028">2028</option>
+                  </select>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label for="leaveBalanceDeptFilter" style="font-weight: 600; font-size: 0.85rem; margin: 0; white-space: nowrap;">🏢 Dept:</label>
+                  <select id="leaveBalanceDeptFilter" class="form-control" style="width: 160px;">
+                    <option value="all">All Departments</option>
+                  </select>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label for="leaveBalanceCatFilter" style="font-weight: 600; font-size: 0.85rem; margin: 0; white-space: nowrap;">🏷️ Policy:</label>
+                  <select id="leaveBalanceCatFilter" class="form-control" style="width: 160px;">
+                    <option value="all">All Policies</option>
+                  </select>
+                </div>
+
+                <div style="position: relative;">
+                  <input type="text" id="leaveBalanceSearchInput" class="form-control" placeholder="Search employee..." style="width: 200px; padding-left: 28px;">
+                  <span style="position: absolute; left: 9px; top: 50%; transform: translateY(-50%); opacity: 0.4;">🔍</span>
+                </div>
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <button type="button" class="btn btn-primary" id="btnCalcYearlyBalances" style="display: inline-flex; align-items: center; gap: 6px;" title="Recalculate policy entitlement and carry forward remaining leaves from previous year">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                  <span>⚡ Calculate Yearly Leave</span>
+                </button>
+                <button type="button" class="btn btn-outline" id="btnOpenManualAdjModal" style="display: inline-flex; align-items: center; gap: 6px;" title="Manually enter previous year balance or adjust quota for an employee">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+                  <span>✏️ Manual Adjustment</span>
+                </button>
+                <button type="button" class="btn btn-outline" id="btnExportBalancesCsv" style="display: inline-flex; align-items: center; gap: 6px;" title="Download yearly leave ledger as CSV file">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  <span>Export CSV</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- KPI Summary Cards for Leave Balances -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px;">
+            <div class="card" style="padding: 12px 16px;">
+              <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Active Employees</div>
+              <div id="kpiBalTotalEmployees" style="font-size: 1.4rem; font-weight: 700; color: #4f46e5; margin-top: 4px;">0</div>
+            </div>
+            <div class="card" style="padding: 12px 16px;">
+              <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Annual Allocated</div>
+              <div id="kpiBalTotalAllocated" style="font-size: 1.4rem; font-weight: 700; color: #0284c7; margin-top: 4px;">0 days</div>
+            </div>
+            <div class="card" style="padding: 12px 16px;">
+              <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Previous Carried Fwd</div>
+              <div id="kpiBalTotalCarried" style="font-size: 1.4rem; font-weight: 700; color: #f59e0b; margin-top: 4px;">0 days</div>
+            </div>
+            <div class="card" style="padding: 12px 16px;">
+              <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Leaves Taken / Used</div>
+              <div id="kpiBalTotalUsed" style="font-size: 1.4rem; font-weight: 700; color: #ef4444; margin-top: 4px;">0 days</div>
+            </div>
+            <div class="card" style="padding: 12px 16px; background: #f0fdf4; border: 1px solid #bbf7d0;">
+              <div style="font-size: 0.75rem; color: #166534; font-weight: 700; text-transform: uppercase;">Total Net Available</div>
+              <div id="kpiBalTotalRemaining" style="font-size: 1.4rem; font-weight: 800; color: #15803d; margin-top: 4px;">0 days</div>
+            </div>
+          </div>
+
+          <!-- Employee Balances Ledger Table Card -->
+          <div class="card">
+            <div class="card-header" style="display: flex; align-items: center; justify-content: space-between; padding: 12px 18px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <h3 style="margin: 0; font-size: 1.05rem;">
+                  <span>Employee Annual Leave Ledger — Year </span>
+                  <span id="leaveBalancesYearTitle" style="color: #4f46e5; font-weight: 700;">2026</span>
+                </h3>
+              </div>
+              <div id="leaveBalancesCountBadge" class="badge" style="background: #e2e8f0; color: #334155; font-weight: 600;">0 Employees</div>
+            </div>
+            <div class="card-body" style="padding: 0;">
+              <div class="table-responsive">
+                <table class="data-table" id="yearlyLeaveBalancesTable" style="margin: 0;">
+                  <thead>
+                    <tr>
+                      <th style="width: 70px; text-align: center;">User ID</th>
+                      <th style="min-width: 170px;">Employee &amp; Service ID</th>
+                      <th style="min-width: 120px;">Department</th>
+                      <th style="min-width: 110px;">Policy Category</th>
+                      <th style="min-width: 320px;">Annual Leave Breakdown (Prev + Alloc - Used = Remaining)</th>
+                      <th style="text-align: center; width: 120px;">Net Available</th>
+                      <th style="text-align: center; width: 140px;">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="yearlyLeaveBalancesTableBody">
+                    <tr><td colspan="7" class="text-center py-4">Loading employee leave balances...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SUBTAB 3: LEAVE CATEGORIES & POLICIES -->
+        <div id="leaveSectionPolicies" class="leave-subtab-pane" style="display: none;">
+          <!-- KPI Metrics Grid -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
+            <div class="card" style="padding: 16px; display: flex; align-items: center; gap: 14px;">
+              <div style="background: rgba(79, 70, 229, 0.1); color: #4f46e5; border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">🏷️</div>
+              <div>
+                <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500; text-transform: uppercase;">Leave Categories</div>
+                <div id="kpiTotalCategories" style="font-size: 1.5rem; font-weight: 700; color: var(--text-color);">0</div>
+              </div>
+            </div>
+            <div class="card" style="padding: 16px; display: flex; align-items: center; gap: 14px;">
+              <div style="background: rgba(16, 185, 129, 0.1); color: #10b981; border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">📋</div>
+              <div>
+                <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500; text-transform: uppercase;">Configured Types</div>
+                <div id="kpiTotalLeaveTypes" style="font-size: 1.5rem; font-weight: 700; color: var(--text-color);">0</div>
+              </div>
+            </div>
+            <div class="card" style="padding: 16px; display: flex; align-items: center; gap: 14px;">
+              <div style="background: rgba(14, 165, 233, 0.1); color: #0284c7; border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">👥</div>
+              <div>
+                <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500; text-transform: uppercase;">Assigned Employees</div>
+                <div id="kpiAssignedEmployees" style="font-size: 1.5rem; font-weight: 700; color: var(--text-color);">0</div>
+              </div>
+            </div>
+            <div class="card" style="padding: 16px; display: flex; align-items: center; gap: 14px;">
+              <div style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem;">⭐</div>
+              <div>
+                <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500; text-transform: uppercase;">Default Category</div>
+                <div id="kpiDefaultCategory" style="font-size: 1.15rem; font-weight: 700; color: var(--text-color);">Permanent</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Master-Detail Leave Management Layout -->
+          <div style="display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start;">
+            <!-- Left Column: Categories List -->
+            <div class="card">
+              <div class="card-header" style="display: flex; align-items: center; justify-content: space-between; padding: 14px 18px;">
+                <div>
+                  <h3 style="margin: 0; font-size: 1.05rem;">Leave Categories</h3>
+                  <div style="font-size: 0.78rem; color: var(--text-muted);">Employment policy tiers</div>
+                </div>
+                <button class="btn btn-primary btn-sm" id="btnOpenAddCategoryModal" type="button" style="display: inline-flex; align-items: center; gap: 5px;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 13px; height: 13px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span>Add Category</span>
+                </button>
+              </div>
+              <div class="card-body" style="padding: 12px;" id="leaveCategoriesContainer">
+                <div class="text-center py-4 text-muted">Loading leave categories...</div>
+              </div>
+            </div>
+
+            <!-- Right Column: Leave Types for Selected Category -->
+            <div class="card">
+              <div class="card-header" style="display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span id="selectedCatColorDot" style="width: 14px; height: 14px; border-radius: 50%; background: #2563eb; display: inline-block;"></span>
+                  <div>
+                    <h3 style="margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                      <span id="selectedCategoryName">Permanent</span>
+                      <span id="selectedCategoryBadge" class="badge" style="background: #e0e7ff; color: #4338ca; font-size: 0.75rem;">Default</span>
+                    </h3>
+                    <div id="selectedCategoryDesc" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">Full-time permanent civil/public staff entitlements</div>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <button class="btn btn-primary btn-sm" id="btnOpenAddLeaveTypeModal" type="button" style="display: inline-flex; align-items: center; gap: 5px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 13px; height: 13px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    <span>Add Leave Type</span>
+                  </button>
+                </div>
+              </div>
+              <div class="card-body" style="padding: 0;">
+                <div class="table-responsive">
+                  <table class="data-table" id="leaveTypesTable" style="margin: 0;">
+                    <thead>
+                      <tr>
+                        <th style="width: 40px; text-align: center;">Tag</th>
+                        <th>Leave Type &amp; Code</th>
+                        <th style="text-align: center;">Auto-Deduct Priority</th>
+                        <th style="text-align: center;">Annual Quota</th>
+                        <th style="text-align: center;">Carry Forward</th>
+                        <th style="text-align: center;">Remuneration</th>
+                        <th>Description &amp; Rules</th>
+                        <th style="text-align: center; width: 110px;">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="leaveTypesTableBody">
+                      <tr><td colspan="8" class="text-center py-4 text-muted">Select a category on the left to view leave types</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -6772,9 +7184,15 @@ Loading application logs...
             </div>
           </div>
 
-          <div class="form-group">
-            <label>Assigned Working Shift</label>
-            <select id="modalShiftId" class="form-control"></select>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>Assigned Working Shift</label>
+              <select id="modalShiftId" class="form-control"></select>
+            </div>
+            <div class="form-group">
+              <label>Leave Category Scheme</label>
+              <select id="modalLeaveCategoryId" class="form-control"></select>
+            </div>
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -7270,6 +7688,554 @@ Loading application logs...
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" id="btnBulkShiftModalCancel">Cancel</button>
           <button type="submit" class="btn btn-primary" id="btnBulkShiftModalSave">Apply Shift Assignment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- Bulk Assign Leave Category Modal -->
+  <div class="modal" id="bulkLeaveModal">
+    <div class="modal-backdrop" id="bulkLeaveModalBackdrop"></div>
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="background: rgba(79, 70, 229, 0.1); color: #4f46e5; border-radius: 8px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 20px; height: 20px;"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          </div>
+          <h3 style="margin: 0; font-size: 1.15rem;">Assign Leave Category &amp; Quota</h3>
+        </div>
+        <button class="btn-close" id="btnBulkLeaveModalClose">&times;</button>
+      </div>
+      <form id="bulkLeaveForm">
+        <div class="modal-body">
+          <div class="form-group">
+            <label style="font-weight: 600;">Select Leave Category</label>
+            <select id="bulkLeaveCategorySelect" class="form-control" required style="font-weight: 600;"></select>
+            <div id="bulkLeaveCategoryPreview" style="margin-top: 6px; font-size: 0.8rem; color: var(--text-muted);"></div>
+          </div>
+          <div class="form-group">
+            <label style="font-weight: 600;">Assignment Scope</label>
+            <select id="bulkLeaveScope" class="form-control">
+              <option value="selected">Selected Employees in Table (0 selected)</option>
+              <option value="dept">By Department...</option>
+              <option value="all">All Registered Employees</option>
+            </select>
+          </div>
+          <div class="form-group" id="bulkLeaveDeptWrap" style="display: none;">
+            <label style="font-weight: 600;">Select Department</label>
+            <select id="bulkLeaveDeptSelect" class="form-control"></select>
+          </div>
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-top: 10px;">
+            <label style="display: flex; align-items: flex-start; gap: 8px; font-size: 0.86rem; cursor: pointer; user-select: none; margin: 0;">
+              <input type="checkbox" id="bulkLeaveReinit" checked style="margin-top: 3px;">
+              <span>
+                <strong>Initialize / Refresh Annual Leave Balances</strong><br>
+                <span class="text-muted" style="font-size: 0.78rem;">Generate or update current year balance quotas based on the selected category's leave types.</span>
+              </span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnBulkLeaveModalCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnBulkLeaveModalSave">Apply Leave Assignment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Leave Category Modal (Add / Edit) -->
+  <div class="modal" id="modalLeaveCategory">
+    <div class="modal-backdrop" id="modalLeaveCategoryBackdrop"></div>
+    <div class="modal-content" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3 id="modalLeaveCategoryTitle">Add Leave Category</h3>
+        <button class="btn-close" id="btnLeaveCategoryModalClose">&times;</button>
+      </div>
+      <form id="formLeaveCategory">
+        <input type="hidden" id="leaveCatId">
+        <div class="modal-body">
+          <div class="form-group">
+            <label style="font-weight: 600;">Category Name <span class="text-danger">*</span></label>
+            <input type="text" id="leaveCatName" class="form-control" placeholder="e.g. Permanent, Probation, Temporary, Contract" required>
+          </div>
+          <div class="form-group">
+            <label style="font-weight: 600;">Policy Description</label>
+            <textarea id="leaveCatDesc" class="form-control" rows="2" placeholder="Brief description of this leave category policy"></textarea>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label style="font-weight: 600;">Color Tag</label>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <input type="color" id="leaveCatColor" value="#2563eb" style="width: 42px; height: 38px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; padding: 2px;">
+                <input type="text" id="leaveCatColorHex" class="form-control font-mono" value="#2563eb" style="font-size: 0.85rem;">
+              </div>
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column; justify-content: flex-end;">
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 0.88rem; cursor: pointer; margin-bottom: 8px;">
+                <input type="checkbox" id="leaveCatIsDefault">
+                <span>Set as Default Category</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnLeaveCategoryModalCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnSaveLeaveCategory">Save Category</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Leave Type Modal (Add / Edit) -->
+  <div class="modal" id="modalLeaveType">
+    <div class="modal-backdrop" id="modalLeaveTypeBackdrop"></div>
+    <div class="modal-content" style="max-width: 520px;">
+      <div class="modal-header">
+        <h3 id="modalLeaveTypeTitle">Add Leave Type</h3>
+        <button class="btn-close" id="btnLeaveTypeModalClose">&times;</button>
+      </div>
+      <form id="formLeaveType">
+        <input type="hidden" id="leaveTypeId">
+        <div class="modal-body">
+          <div class="form-group">
+            <label style="font-weight: 600;">Parent Leave Category</label>
+            <select id="leaveTypeCategorySelect" class="form-control" required></select>
+          </div>
+          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label style="font-weight: 600;">Leave Type Name <span class="text-danger">*</span></label>
+              <input type="text" id="leaveTypeName" class="form-control" placeholder="e.g. Casual Leave, Medical Leave, Duty Leave" required>
+            </div>
+            <div class="form-group">
+              <label style="font-weight: 600;">Code / Abbr.</label>
+              <input type="text" id="leaveTypeCode" class="form-control font-mono" placeholder="CAS" maxlength="8" style="text-transform: uppercase;">
+            </div>
+          </div>
+
+          <!-- Leave Classification: Standard vs Duty Leave -->
+          <div class="form-group" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;">
+            <label style="font-weight: 700; font-size: 0.84rem; display: block; margin-bottom: 6px; color: #1e293b;">
+              Leave Classification &amp; Quota Policy
+            </label>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+              <label style="display: flex; align-items: center; gap: 6px; font-size: 0.84rem; cursor: pointer; font-weight: 600; color: #334155;">
+                <input type="radio" name="leaveTypeClassification" id="classificationStandard" value="standard" checked>
+                <span>Standard Quota Leave</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 6px; font-size: 0.84rem; cursor: pointer; font-weight: 600; color: #4338ca;">
+                <input type="radio" name="leaveTypeClassification" id="classificationDuty" value="duty">
+                <span>🏢 Duty Leave (Official Duty — No Quota)</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 6px; font-size: 0.84rem; cursor: pointer; font-weight: 600; color: #0284c7;">
+                <input type="radio" name="leaveTypeClassification" id="classificationCompensatory" value="compensatory">
+                <span>🔄 Compensatory Leave (Comp-Off — No Quota)</span>
+              </label>
+            </div>
+            <div id="dutyLeaveInfoAlert" style="display: none; margin-top: 8px; font-size: 0.76rem; color: #3730a3; background: #e0e7ff; border: 1px solid #c7d2fe; border-radius: 6px; padding: 6px 10px; line-height: 1.4;">
+              ℹ️ <strong>Duty Leave Policy:</strong> Has no quota limit. When requested and approved, it is recorded as an authorized duty day and <strong>not counted as a leave</strong> (0 days deducted). If unapproved and the employee is absent, absence will be deducted from prioritized leave types (Casual, Medical, etc.).
+            </div>
+            <div id="compensatoryLeaveInfoAlert" style="display: none; margin-top: 8px; font-size: 0.76rem; color: #0369a1; background: #e0f2fe; border: 1px solid #bae6fd; border-radius: 6px; padding: 6px 10px; line-height: 1.4;">
+              ℹ️ <strong>Compensatory Leave Policy:</strong> Has no fixed annual quota limit. Granted when an employee works on a scheduled off day/weekend/holiday or performs authorized Duty. When applying, the applicant must select an eligible worked date or approved Duty Leave date. If approved, <strong>0 days are deducted</strong> from annual quotas. If unapproved and the employee is absent, absence will be deducted from prioritized leave types (Casual, Medical, etc.).
+            </div>
+          </div>
+
+          <div id="leaveTypeQuotaFieldsRow" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label style="font-weight: 600;">Annual Quota (Days) <span class="text-danger">*</span></label>
+              <input type="number" id="leaveTypeDays" class="form-control" min="0" max="365" step="0.5" value="14" required>
+            </div>
+            <div class="form-group">
+              <label style="font-weight: 600;">Carry Forward Max (Days)</label>
+              <input type="number" id="leaveTypeCarryForward" class="form-control" min="0" max="365" step="0.5" value="0">
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label style="font-weight: 600;">Remuneration</label>
+              <select id="leaveTypeIsPaid" class="form-control">
+                <option value="1">Paid Leave (Full Pay)</option>
+                <option value="0">Unpaid Leave (No Pay)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label style="font-weight: 600;">Auto-Reduction Priority</label>
+              <select id="leaveTypePriority" class="form-control" style="font-weight: 600;">
+                <option value="1">Priority 1 (Reduce 1st - e.g. Casual)</option>
+                <option value="2">Priority 2 (Reduce 2nd - e.g. Medical)</option>
+                <option value="3">Priority 3 (Reduce 3rd - e.g. Annual)</option>
+                <option value="4">Priority 4</option>
+                <option value="5">Priority 5</option>
+                <option value="0">Disabled (Explicit Request Only)</option>
+              </select>
+              <div style="font-size: 0.72rem; color: #64748b; margin-top: 2px;">
+                Order to deduct unrequested absences before No-Pay
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label style="font-weight: 600;">Badge Color</label>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <input type="color" id="leaveTypeColor" value="#10b981" style="width: 42px; height: 38px; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; padding: 2px;">
+              <input type="text" id="leaveTypeColorHex" class="form-control font-mono" value="#10b981" style="font-size: 0.85rem;">
+            </div>
+          </div>
+          <div class="form-group">
+            <label style="font-weight: 600;">Description &amp; Rules</label>
+            <textarea id="leaveTypeDesc" class="form-control" rows="2" placeholder="e.g. Maximum 2 consecutive days, medical certificate required over 2 days."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" id="btnLeaveTypeModalCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnSaveLeaveType">Save Leave Type</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Manual Employee Leave Balance Adjustment Modal -->
+  <div class="modal" id="modalManualLeaveBalance">
+    <div class="modal-backdrop" id="modalManualLeaveBalanceBackdrop"></div>
+    <div class="modal-content" style="max-width: 680px;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="background: rgba(16, 185, 129, 0.1); color: #10b981; border-radius: 8px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
+            ✏️
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.1rem;" id="manualAdjModalTitle">Adjust Employee Leave Balances</h3>
+            <div style="font-size: 0.78rem; color: var(--text-muted);">Set annual allocated quota and previous year carried-forward balance</div>
+          </div>
+        </div>
+        <button class="btn-close" id="btnManualLeaveBalanceModalClose">&times;</button>
+      </div>
+      <form id="formManualLeaveBalance">
+        <input type="hidden" id="manualAdjUserId">
+        <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+          <!-- Employee selector & Year Row -->
+          <div style="display: grid; grid-template-columns: 1fr 140px; gap: 12px; margin-bottom: 12px;">
+            <div class="form-group" style="margin: 0;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0;">Employee Profile</label>
+                <span id="manualAdjEmpCountBadge" style="font-size: 0.72rem; color: var(--text-muted);">Loading employees...</span>
+              </div>
+              <div style="position: relative; margin-bottom: 6px;">
+                <input type="text" id="manualAdjEmpSearch" class="form-control form-control-sm" placeholder="🔍 Search employee by name, ID, or dept..." style="font-size: 0.82rem; padding-left: 28px;">
+                <span style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 0.8rem; color: #94a3b8; pointer-events: none;">🔍</span>
+              </div>
+              <select id="manualAdjEmployeeSelect" class="form-control" style="font-size: 0.85rem; font-weight: 600;"></select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label style="font-weight: 600; font-size: 0.85rem; margin-bottom: 4px;">Balance Year</label>
+              <select id="manualAdjYearSelect" class="form-control" style="font-family: monospace; font-weight: 700; height: 38px;">
+                <option value="2024">2024</option>
+                <option value="2025">2025</option>
+                <option value="2026" selected>2026</option>
+                <option value="2027">2027</option>
+                <option value="2028">2028</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Active Employee Profile Summary Banner -->
+          <div id="manualAdjEmpProfileCard" style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <div id="manualAdjEmpAvatar" style="width: 44px; height: 44px; border-radius: 50%; background: #2563eb; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.05rem; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.12); flex-shrink: 0; overflow: hidden;">
+                EMP
+              </div>
+              <div>
+                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                  <strong id="manualAdjEmpName" style="font-size: 0.96rem; color: #0f172a;">Loading...</strong>
+                  <span id="manualAdjEmpUserIdBadge" class="badge" style="background: #e2e8f0; color: #334155; font-family: monospace; font-size: 0.72rem;">User #--</span>
+                  <span id="manualAdjEmpServiceIdBadge" class="badge" style="background: #e0e7ff; color: #3730a3; font-family: monospace; font-size: 0.72rem;">--</span>
+                  <span id="manualAdjEmpStatusBadge" class="badge" style="background: #ecfdf5; color: #047857; font-size: 0.72rem;">Permanent</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; font-size: 0.76rem; color: #64748b; margin-top: 3px; flex-wrap: wrap;">
+                  <span>🏢 <strong id="manualAdjEmpDept" style="color: #334155;">General</strong></span>
+                  <span>•</span>
+                  <span>👤 <strong id="manualAdjEmpRole" style="color: #334155;">Staff</strong></span>
+                  <span>•</span>
+                  <span>📋 Policy: <strong id="manualAdjPolicyName" style="color: #2563eb;">Permanent</strong></span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <button type="button" class="btn btn-sm btn-outline" id="btnAutoFetchPrevYearBalance" style="font-size: 0.75rem; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px; background: #ffffff; border-color: #cbd5e1; font-weight: 600;">
+                <span>🔄 Auto-CF from <span id="manualAdjPrevYearLabel">2025</span></span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Baseline Till Date & Auto-Deduct Controls Bar -->
+          <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <label for="manualAdjCutoffDate" style="font-size: 0.82rem; font-weight: 600; color: #1e293b; margin: 0; white-space: nowrap;">
+                📅 Previous Balance Set Up To (Till Date):
+              </label>
+              <input type="date" id="manualAdjCutoffDate" class="form-control form-control-sm" style="width: 145px; height: 32px; font-size: 0.82rem; font-weight: 600;">
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <button type="button" class="btn btn-sm btn-primary" id="btnCalcAttendanceLeaves" style="font-size: 0.78rem; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px; background: #4f46e5; border-color: #4f46e5; font-weight: 600;" title="Scan attendance logs after the specified till date, verify requests, and auto-reduce leaves by priority order">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                <span>⚡ Auto-Deduct From Attendance</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Attendance Scan Result Summary Alert Box -->
+          <div id="manualAdjAttendanceSummaryBox" style="display: none; margin-bottom: 12px;"></div>
+
+          <!-- Dynamic Leave Type Adjustment Rows Container -->
+          <div id="manualAdjTypeRowsContainer">
+            <div class="text-center py-4 text-muted">Loading employee leave quotas...</div>
+          </div>
+
+          <!-- No-Pay Leaves Summary Strip -->
+          <div id="manualAdjNoPayRow" style="background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; padding: 8px 12px; margin-top: 10px; display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 1.15rem;">⚠️</span>
+              <div>
+                <strong style="color: #9f1239; font-size: 0.84rem;">No-Pay / Unpaid Absence Days:</strong>
+                <span style="font-size: 0.74rem; color: #be123c; margin-left: 4px;">Absences remaining after all paid leave quotas were exhausted</span>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <input type="number" step="0.5" min="0" max="365" id="manualAdjNoPayDaysInput" class="form-control form-control-sm" value="0" style="width: 80px; text-align: center; font-weight: 700; color: #9f1239; background: #ffffff;">
+              <span style="font-size: 0.8rem; font-weight: 600; color: #9f1239;">Days</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+          <button type="button" class="btn btn-outline" id="btnManualLeaveBalanceModalCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnSaveManualLeaveBalance" style="display: inline-flex; align-items: center; gap: 6px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+            <span>Save &amp; Apply Balances</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 1: Create / Apply for Leave Request -->
+  <div class="modal" id="modalCreateLeaveRequest" style="display: none; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(4px); z-index: 10001; position: fixed; inset: 0;">
+    <div class="modal-backdrop" id="modalCreateLeaveRequestBackdrop"></div>
+    <div class="modal-content" style="max-width: 620px; width: 94%; background: #ffffff; border-radius: 12px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); overflow: hidden; border: 1px solid #e2e8f0; animation: modalFadeIn 0.2s ease;">
+      <div class="modal-header" style="background: linear-gradient(135deg, #1e1b4b, #312e81); color: #ffffff; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="background: rgba(255, 255, 255, 0.15); border-radius: 8px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
+            📝
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.1rem; color: #ffffff;">Apply for Leave</h3>
+            <div style="font-size: 0.78rem; color: #c7d2fe;">Submit a leave request for Admin / Manager approval</div>
+          </div>
+        </div>
+        <button class="btn-close" id="btnCreateLeaveRequestClose" style="color: #ffffff; opacity: 0.8; font-size: 1.5rem; background: transparent; border: none; cursor: pointer;">&times;</button>
+      </div>
+      <form id="formCreateLeaveRequest">
+        <div class="modal-body" style="padding: 18px 20px; max-height: 72vh; overflow-y: auto;">
+          <!-- Employee Selector Row -->
+          <div class="form-group" style="margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <label style="font-weight: 600; font-size: 0.84rem; margin-bottom: 0;">Employee <span class="text-danger">*</span></label>
+              <span id="reqEmpCountBadge" style="font-size: 0.72rem; color: var(--text-muted);">Select employee</span>
+            </div>
+            <div style="position: relative; margin-bottom: 6px;">
+              <input type="text" id="reqEmpSearch" class="form-control form-control-sm" placeholder="🔍 Quick search employee by name, ID, or dept..." style="font-size: 0.82rem; padding-left: 28px;">
+              <span style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 0.8rem; color: #94a3b8; pointer-events: none;">🔍</span>
+            </div>
+            <select id="reqEmployeeSelect" class="form-control" required style="font-size: 0.88rem; font-weight: 600;"></select>
+          </div>
+
+          <!-- Employee Active Leave Balance Preview Strip -->
+          <div id="reqBalancePreviewBox" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; margin-bottom: 14px;">
+            <div style="font-size: 0.74rem; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 6px; display: flex; justify-content: space-between;">
+              <span>Available Leave Balances (Year <span id="reqBalanceYearLabel">2026</span>)</span>
+              <span id="reqPolicySchemeLabel" style="color: #4f46e5; text-transform: none; font-weight: 600;">Scheme: Permanent</span>
+            </div>
+            <div id="reqBalanceChipsContainer" style="display: flex; flex-wrap: wrap; gap: 6px;">
+              <span class="text-muted" style="font-size: 0.78rem;">Select an employee to check available quotas</span>
+            </div>
+          </div>
+
+          <!-- Leave Type & Day Type Row -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+            <div class="form-group" style="margin: 0;">
+              <label for="reqLeaveTypeSelect" style="font-weight: 600; font-size: 0.84rem;">Leave Type <span class="text-danger">*</span></label>
+              <select id="reqLeaveTypeSelect" class="form-control" required style="font-size: 0.88rem; font-weight: 600;">
+                <option value="">Loading types...</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label for="reqDayTypeSelect" style="font-weight: 600; font-size: 0.84rem;">Day Coverage <span class="text-danger">*</span></label>
+              <select id="reqDayTypeSelect" class="form-control" style="font-size: 0.88rem;">
+                <option value="FULL_DAY" selected>Full Day(s)</option>
+                <option value="FIRST_HALF">Half Day - Morning (0.5d)</option>
+                <option value="SECOND_HALF">Half Day - Afternoon (0.5d)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Compensatory Leave Qualifying Source Selector (Shown only when Compensatory Leave is selected) -->
+          <div id="reqCompensatorySection" style="display: none; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 14px; margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label style="font-weight: 700; font-size: 0.84rem; color: #166534; margin: 0;">
+                🔄 Qualifying Date (Worked Date or Approved Duty Date) <span class="text-danger">*</span>
+              </label>
+              <button type="button" id="btnToggleCompCustomDate" class="btn btn-sm btn-outline" style="font-size: 0.72rem; padding: 2px 8px; border-color: #86efac; color: #15803d; background: #ffffff;">
+                ✏️ Custom Date
+              </button>
+            </div>
+            <div id="reqCompDropdownWrap">
+              <select id="reqCompensatoryDateSelect" class="form-control" style="font-size: 0.84rem; font-weight: 600; border-color: #86efac;">
+                <option value="">Select an eligible worked date or approved duty date...</option>
+              </select>
+            </div>
+            <div id="reqCompCustomDateWrap" style="display: none; margin-top: 6px;">
+              <input type="date" id="reqCompensatoryCustomDate" class="form-control" style="font-size: 0.84rem; border-color: #86efac;">
+            </div>
+            <div id="reqCompensatoryHelperText" style="margin-top: 6px; font-size: 0.74rem; color: #15803d; line-height: 1.35;">
+              ℹ️ Select the weekend, holiday, or approved Duty Leave date you worked to earn this Compensatory Off.
+            </div>
+          </div>
+
+          <!-- Dates & Requested Days Row -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr 100px; gap: 10px; margin-bottom: 12px;">
+            <div class="form-group" style="margin: 0;">
+              <label for="reqStartDate" style="font-weight: 600; font-size: 0.84rem;">Start Date <span class="text-danger">*</span></label>
+              <input type="date" id="reqStartDate" class="form-control" required style="font-size: 0.88rem; height: 38px;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label for="reqEndDate" style="font-weight: 600; font-size: 0.84rem;">End Date <span class="text-danger">*</span></label>
+              <input type="date" id="reqEndDate" class="form-control" required style="font-size: 0.88rem; height: 38px;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label for="reqDaysRequested" style="font-weight: 600; font-size: 0.84rem;">Days <span class="text-danger">*</span></label>
+              <input type="number" step="0.5" min="0.5" max="365" id="reqDaysRequested" class="form-control" value="1.0" required style="font-weight: 700; text-align: center; height: 38px;">
+            </div>
+          </div>
+
+          <!-- Over-quota Warning Alert (dynamically toggled) -->
+          <div id="reqQuotaWarning" style="display: none; background: #fffbeb; border: 1px solid #fef08a; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; color: #854d0e; font-size: 0.78rem;">
+            ⚠️ <strong>Notice:</strong> Requested days (<span id="reqWarnDays">1</span>) exceeds remaining balance (<span id="reqWarnRem">0</span>). Approval will create a negative balance or count as unpaid leave.
+          </div>
+
+          <!-- Reason / Justification -->
+          <div class="form-group" style="margin-bottom: 12px;">
+            <label for="reqReason" style="font-weight: 600; font-size: 0.84rem;">Reason / Justification <span class="text-danger">*</span></label>
+            <textarea id="reqReason" class="form-control" rows="2" placeholder="e.g. Attending family function, medical appointment, personal urgent matter..." required style="font-size: 0.84rem;"></textarea>
+          </div>
+
+          <!-- Emergency Contact / Phone -->
+          <div class="form-group" style="margin-bottom: 4px;">
+            <label for="reqEmergencyContact" style="font-weight: 600; font-size: 0.84rem;">Emergency Contact / Remarks (Optional)</label>
+            <input type="text" id="reqEmergencyContact" class="form-control" placeholder="e.g. Phone: 077 123 4567, Covering duties: Kamal Perera" style="font-size: 0.84rem;">
+          </div>
+        </div>
+        <div class="modal-footer" style="padding: 12px 20px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+          <button type="button" class="btn btn-outline" id="btnCreateLeaveRequestCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnSubmitLeaveRequest" style="display: inline-flex; align-items: center; gap: 6px; background: #4f46e5; border-color: #4f46e5; font-weight: 600;">
+            <span>Submit Leave Request</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 2: Review / Action Leave Request (Admin & Manager Can Approve/Reject) -->
+  <div class="modal" id="modalActionLeaveRequest" style="display: none; align-items: center; justify-content: center; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(4px); z-index: 10002; position: fixed; inset: 0;">
+    <div class="modal-backdrop" id="modalActionLeaveRequestBackdrop"></div>
+    <div class="modal-content" style="max-width: 580px; width: 94%; background: #ffffff; border-radius: 12px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); overflow: hidden; border: 1px solid #e2e8f0; animation: modalFadeIn 0.2s ease;">
+      <div class="modal-header" style="background: linear-gradient(135deg, #0f172a, #1e293b); color: #ffffff; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="background: rgba(255, 255, 255, 0.15); border-radius: 8px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
+            ⚖️
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.1rem; color: #ffffff;" id="actionModalTitle">Review Leave Request</h3>
+            <div style="font-size: 0.78rem; color: #94a3b8;">Authorized Admin &amp; Manager Review Decision</div>
+          </div>
+        </div>
+        <button class="btn-close" id="btnActionLeaveRequestClose" style="color: #ffffff; opacity: 0.8; font-size: 1.5rem; background: transparent; border: none; cursor: pointer;">&times;</button>
+      </div>
+      <form id="formActionLeaveRequest">
+        <input type="hidden" id="actionRequestId">
+        <input type="hidden" id="actionTargetDecision">
+        <div class="modal-body" style="padding: 18px 20px; max-height: 72vh; overflow-y: auto;">
+          <!-- Request Summary Dossier Card -->
+          <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px;">
+              <div>
+                <span id="actionEmpName" style="font-size: 1rem; font-weight: 700; color: #0f172a;">Employee Name</span>
+                <span id="actionEmpIdBadge" class="badge" style="background: #e2e8f0; color: #334155; font-family: monospace; font-size: 0.72rem; margin-left: 6px;">User #2</span>
+                <span id="actionEmpDeptBadge" class="badge" style="background: #f1f5f9; color: #475569; font-size: 0.72rem; margin-left: 4px;">General</span>
+              </div>
+              <span id="actionCurrentStatusBadge" class="badge" style="background: #fef3c7; color: #b45309; font-weight: 700; font-size: 0.78rem;">⏳ PENDING</span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.82rem; margin-bottom: 8px;">
+              <div>
+                <span style="color: #64748b;">Leave Type:</span>
+                <strong id="actionLeaveType" style="color: #2563eb; margin-left: 4px;">Casual Leave (CAS)</strong>
+              </div>
+              <div>
+                <span style="color: #64748b;">Requested Days:</span>
+                <strong id="actionDays" style="color: #0f172a; margin-left: 4px;">1.0 Day(s)</strong>
+              </div>
+              <div>
+                <span style="color: #64748b;">Start Date:</span>
+                <strong id="actionStartDate" style="color: #0f172a; margin-left: 4px;">2026-10-26</strong>
+              </div>
+              <div>
+                <span style="color: #64748b;">End Date:</span>
+                <strong id="actionEndDate" style="color: #0f172a; margin-left: 4px;">2026-10-26</strong>
+              </div>
+            </div>
+
+            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #e2e8f0; font-size: 0.82rem;">
+              <span style="color: #64748b; font-weight: 600;">Reason / Purpose:</span>
+              <div id="actionReason" style="margin-top: 3px; color: #1e293b; background: #ffffff; padding: 6px 10px; border-radius: 4px; border: 1px solid #e2e8f0; font-style: italic;">
+                -
+              </div>
+            </div>
+
+            <div id="actionQualifyingDateRow" style="display: none; margin-top: 6px; font-size: 0.8rem; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 6px 10px; color: #166534;">
+              🔄 <strong>Compensatory Reference:</strong> <span id="actionQualifyingDateText">-</span>
+            </div>
+
+            <div id="actionEmergencyRow" style="margin-top: 6px; font-size: 0.78rem; color: #64748b;">
+              Emergency Remarks: <span id="actionEmergencyContact" style="color: #1e293b;">None provided</span>
+            </div>
+          </div>
+
+          <!-- Balance Impact Notice -->
+          <div id="actionBalanceImpactNotice" style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; font-size: 0.82rem; color: #065f46; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+              <span>💡 Approval will deduct <strong><span id="actionDeductDays">1</span> day(s)</strong> from employee balance.</span>
+            </div>
+            <div style="font-weight: 700; font-family: monospace;">
+              Auto-Calculated
+            </div>
+          </div>
+
+          <!-- Reviewer Remarks / Justification -->
+          <div class="form-group" style="margin-bottom: 6px;">
+            <label for="actionRemarksInput" style="font-weight: 600; font-size: 0.84rem;">
+              Review Remarks / Conditions <span style="font-size: 0.75rem; color: #64748b; font-weight: normal;">(Optional for approval, recommended for rejection)</span>
+            </label>
+            <textarea id="actionRemarksInput" class="form-control" rows="2" placeholder="e.g. Approved per medical certificate; or State reason for rejection..." style="font-size: 0.84rem;"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer" style="padding: 12px 20px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+          <button type="button" class="btn btn-outline" id="btnActionLeaveRequestCancel">Cancel</button>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-danger" id="btnRejectLeaveRequest" style="display: inline-flex; align-items: center; gap: 5px; font-weight: 600;">
+              <span>❌ Reject</span>
+            </button>
+            <button type="button" class="btn btn-success" id="btnApproveLeaveRequest" style="display: inline-flex; align-items: center; gap: 5px; font-weight: 600; background: #059669; border-color: #059669;">
+              <span>✅ Approve Leave</span>
+            </button>
+          </div>
         </div>
       </form>
     </div>
@@ -7974,7 +8940,7 @@ Loading application logs...
   <!-- Toast Notification Container -->
   <div class="toast-container" id="toastContainer"></div>
 
-  <script src="js/cloudAdapter.js?v=2.7.2"></script>
-  <script src="js/app.js?v=2.7.2"></script>
+  <script src="js/cloudAdapter.js?v=2.9.8"></script>
+  <script src="js/app.js?v=3.2.1"></script>
 </body>
 </html>

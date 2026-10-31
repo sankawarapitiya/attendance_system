@@ -34,6 +34,7 @@ const EMPLOYEE_COLUMNS_DEF = [
   { key: 'email', label: 'Email Address', default: false },
   { key: 'card_no', label: 'RFID / Card No', default: false },
   { key: 'shift', label: 'Assigned Shift', default: true },
+  { key: 'leave_category', label: 'Leave Category', default: true },
   { key: 'punches', label: 'Punches & Last Seen', default: true },
   { key: 'status', label: 'Active Status', default: true },
   { key: 'actions', label: 'Actions', default: true, required: true }
@@ -64,6 +65,21 @@ function saveEmpColumns(cols) {
 
 // Default Report Table Columns Definition (Top Level Constant)
 const REPORT_COLUMNS_DEF = {
+  daily_leaves: [
+    { key: 'col-idx', label: '# (Row Number)', default: true },
+    { key: 'col-date', label: 'Date', default: true },
+    { key: 'col-uid', label: 'User ID', default: true },
+    { key: 'col-emp', label: 'Employee Name', default: true },
+    { key: 'col-dept', label: 'Department', default: true },
+    { key: 'col-shift', label: 'Shift Name', default: true },
+    { key: 'col-checkin', label: 'Check-In', default: true },
+    { key: 'col-checkout', label: 'Check-Out', default: true },
+    { key: 'col-worked', label: 'Worked Time', default: true },
+    { key: 'col-ot', label: 'Overtime (Hours)', default: true },
+    { key: 'col-leave-req', label: 'Leave Requested', default: true },
+    { key: 'col-leave-stat', label: 'Leave Status', default: true },
+    { key: 'col-status', label: 'Daily Status / Remarks', default: true }
+  ],
   daily: [
     { key: 'col-idx', label: '# (Row Number)', default: true },
     { key: 'col-date', label: 'Date', default: true },
@@ -343,7 +359,7 @@ function switchTab(tabId) {
   const user = state.currentUser;
   const role = user ? (user.role || 'staff').toLowerCase() : 'guest';
 
-  if (!user && ['tab-device', 'tab-api', 'tab-shifts', 'tab-employees', 'tab-settings'].includes(tabId)) {
+  if (!user && ['tab-device', 'tab-api', 'tab-shifts', 'tab-leave', 'tab-employees', 'tab-settings'].includes(tabId)) {
     showToast('🔑 Please sign in to access this section.', 'warning');
     const modalLogin = document.getElementById('modalSystemLogin');
     if (modalLogin) modalLogin.style.display = 'flex';
@@ -356,7 +372,7 @@ function switchTab(tabId) {
     return;
   }
 
-  if (role === 'staff' && ['tab-device', 'tab-api', 'tab-shifts', 'tab-employees', 'tab-settings'].includes(tabId)) {
+  if (role === 'staff' && ['tab-device', 'tab-api', 'tab-shifts', 'tab-leave', 'tab-employees', 'tab-settings'].includes(tabId)) {
     showToast('👤 Staff accounts have access to Dashboard, Logs, and Timesheets only.', 'warning');
     return;
   }
@@ -380,6 +396,7 @@ function switchTab(tabId) {
     'tab-records': ['Attendance Records Explorer', 'Search, filter, and export biometric attendance logs'],
     'tab-reports': ['Attendance & Timesheet Reports', 'Daily, Weekly, and Monthly reports for all enrolled users or individual employee timesheets'],
     'tab-employees': ['Employee Registry', 'Assign names, departments, and working shifts to User IDs'],
+    'tab-leave': ['Leave Management & Policies', 'Configure leave categories, quotas, carry-forward policies, and employee leave allocations'],
     'tab-shifts': ['Working Shifts & Holidays Schedule', 'Define shifts, work schedules, grace periods, and official company holidays'],
     'tab-device': ['SpeedFace Device Control', 'Hardware status, clock sync, and background scheduler'],
     'tab-guide': ['SpeedFace Setup Assistant', 'Step-by-step terminal network and ADMS push setup'],
@@ -397,6 +414,18 @@ function switchTab(tabId) {
   if (tabId === 'tab-records') loadRecords();
   if (tabId === 'tab-reports') loadReportData();
   if (tabId === 'tab-employees') loadEmployees();
+  if (tabId === 'tab-leave') {
+    const isRequestsSubtab = document.getElementById('btnSubtabRequests')?.classList.contains('active');
+    const isBalancesSubtab = document.getElementById('btnSubtabBalances')?.classList.contains('active');
+    if (isRequestsSubtab) {
+      loadLeaveRequests();
+    } else if (isBalancesSubtab) {
+      loadYearlyLeaveBalances();
+    } else {
+      loadLeaveManagement();
+    }
+    loadLeaveRequestStats();
+  }
   if (tabId === 'tab-shifts') loadShiftsAndHolidays();
   if (tabId === 'tab-device') loadDeviceControlData();
   if (tabId === 'tab-guide') loadGuideIps();
@@ -1353,7 +1382,14 @@ window.applyMonthlyBookPrintScope = applyMonthlyBookPrintScope;
 
 function triggerPrintDialog() {
   if (state.report.scope === 'monthly_book') {
+    renderAllRemainingBookPages();
     applyMonthlyBookPrintScope();
+  } else if (state.report.scope === 'matrix') {
+    if (typeof renderAllRemainingMatrixRows === 'function') {
+      renderAllRemainingMatrixRows();
+    }
+  } else {
+    renderAllRemainingTableRows();
   }
   prepareReportForPrint();
   applyAllPrintOptions();
@@ -1654,26 +1690,41 @@ async function initReports() {
   const monthInput = document.getElementById('inputReportMonth');
   if (monthInput) monthInput.value = state.report.month;
 
-  // Period Type Switchers
+  // Period / Report Type Switchers
   const btnDaily = document.getElementById('btnReportTypeDaily');
+  const btnDailyLeaves = document.getElementById('btnReportTypeDailyLeaves');
   const btnWeekly = document.getElementById('btnReportTypeWeekly');
   const btnMonthly = document.getElementById('btnReportTypeMonthly');
 
   function updateTypeUI(activeType) {
     state.report.type = activeType;
-    [btnDaily, btnWeekly, btnMonthly].forEach(b => {
+    [btnDaily, btnDailyLeaves, btnWeekly, btnMonthly].forEach(b => {
       if (b) b.className = 'btn btn-sm btn-outline';
     });
     if (activeType === 'daily' && btnDaily) btnDaily.className = 'btn btn-sm btn-primary';
+    if (activeType === 'daily_leaves' && btnDailyLeaves) btnDailyLeaves.className = 'btn btn-sm btn-primary';
     if (activeType === 'weekly' && btnWeekly) btnWeekly.className = 'btn btn-sm btn-primary';
     if (activeType === 'monthly' && btnMonthly) btnMonthly.className = 'btn btn-sm btn-primary';
 
     const pDaily = document.getElementById('ctrlPeriodDaily');
     const pWeekly = document.getElementById('ctrlPeriodWeekly');
     const pMonthly = document.getElementById('ctrlPeriodMonthly');
-    if (pDaily) pDaily.style.display = activeType === 'daily' ? 'flex' : 'none';
+    const pLeaves = document.getElementById('ctrlLeaveFilter');
+
+    const isDailyMode = (activeType === 'daily' || activeType === 'daily_leaves');
+    if (pDaily) pDaily.style.display = isDailyMode ? 'flex' : 'none';
     if (pWeekly) pWeekly.style.display = activeType === 'weekly' ? 'flex' : 'none';
     if (pMonthly) pMonthly.style.display = activeType === 'monthly' ? 'flex' : 'none';
+    if (pLeaves) pLeaves.style.display = isDailyMode ? 'flex' : 'none';
+
+    const btnScopeMatrix = document.getElementById('btnReportScopeMatrix');
+    const btnScopeMonthlyBook = document.getElementById('btnReportScopeMonthlyBook');
+    if (btnScopeMatrix) btnScopeMatrix.style.display = isDailyMode ? 'none' : 'inline-block';
+    if (btnScopeMonthlyBook) btnScopeMonthlyBook.style.display = (activeType === 'monthly') ? 'inline-block' : 'none';
+
+    if (isDailyMode && (state.report.scope === 'monthly_matrix' || state.report.scope === 'monthly_book')) {
+      updateScopeUI('all');
+    }
 
     applyReportColumnStyles();
     renderReportColumnSelector();
@@ -1683,12 +1734,21 @@ async function initReports() {
     updateTypeUI('daily');
     loadReportData();
   });
+  btnDailyLeaves?.addEventListener('click', () => {
+    updateTypeUI('daily_leaves');
+    loadReportData();
+  });
   btnWeekly?.addEventListener('click', () => {
     updateTypeUI('weekly');
     loadReportData();
   });
   btnMonthly?.addEventListener('click', () => {
     updateTypeUI('monthly');
+    loadReportData();
+  });
+
+  document.getElementById('selectReportLeaveFilter')?.addEventListener('change', (e) => {
+    state.report.leaveFilter = e.target.value;
     loadReportData();
   });
 
@@ -1966,10 +2026,32 @@ async function initReports() {
 
 
 
+  function renderAllRemainingTableRows() {
+    const rows = state.report.activeRows || [];
+    const tbody = document.getElementById('reportTableBody');
+    if (!tbody || state.report.renderedCount >= rows.length || !state.report.rowRenderer) return;
+    const remaining = rows.slice(state.report.renderedCount);
+    const frag = document.createElement('tbody');
+    frag.innerHTML = remaining.map((r, i) => state.report.rowRenderer(r, state.report.renderedCount + i)).join('');
+    while (frag.firstChild) {
+      tbody.appendChild(frag.firstChild);
+    }
+    state.report.renderedCount = rows.length;
+    const sentinel = document.getElementById('reportTableScrollSentinel');
+    if (sentinel) sentinel.style.display = 'none';
+  }
+
   // Ensure print layout and classes are active even if user hits Ctrl+P natively
   window.addEventListener('beforeprint', () => {
     if (state.report.scope === 'monthly_book') {
+      renderAllRemainingBookPages();
       applyMonthlyBookPrintScope();
+    } else if (state.report.scope === 'matrix') {
+      if (typeof renderAllRemainingMatrixRows === 'function') {
+        renderAllRemainingMatrixRows();
+      }
+    } else {
+      renderAllRemainingTableRows();
     }
     if (state.currentTab === 'tab-records') {
       prepareRecordsForPrint();
@@ -2080,8 +2162,11 @@ async function loadReportData() {
     q.set('type', state.report.type);
     q.set('scope', state.report.scope);
 
-    if (state.report.type === 'daily') {
+    if (state.report.type === 'daily' || state.report.type === 'daily_leaves') {
       q.set('date', state.report.date);
+      if (state.report.leaveFilter && state.report.leaveFilter !== 'all') {
+        q.set('statusFilter', state.report.leaveFilter);
+      }
     } else if (state.report.type === 'weekly') {
       q.set('startDate', state.report.weekDate);
     } else if (state.report.type === 'monthly') {
@@ -2123,7 +2208,36 @@ function renderReportKPIBanner(data) {
   const banner = document.getElementById('reportSummaryCardsBanner');
   if (!banner) return;
 
-  if (state.report.type === 'daily') {
+  if (state.report.type === 'daily_leaves') {
+    const stats = data.stats || {};
+    banner.innerHTML = `
+      <div class="report-kpi-card">
+        <span class="report-kpi-label">Total Enrolled</span>
+        <span class="report-kpi-val">${stats.totalEnrolled || 0}</span>
+        <span class="report-kpi-sub">Employees in roster</span>
+      </div>
+      <div class="report-kpi-card" style="border-left: 4px solid #16a34a;">
+        <span class="report-kpi-label" style="color: #16a34a;">🟢 Present</span>
+        <span class="report-kpi-val" style="color: #16a34a;">${stats.present || 0}</span>
+        <span class="report-kpi-sub">Punched in today</span>
+      </div>
+      <div class="report-kpi-card" style="border-left: 4px solid #0284c7;">
+        <span class="report-kpi-label" style="color: #0284c7;">📋 Approved Leaves</span>
+        <span class="report-kpi-val" style="color: #0284c7;">${stats.totalOnLeave || 0}</span>
+        <span class="report-kpi-sub">${stats.dutyLeaves || 0} Duty &bull; ${stats.compensatoryLeaves || 0} Comp</span>
+      </div>
+      <div class="report-kpi-card" style="border-left: 4px solid #d97706;">
+        <span class="report-kpi-label" style="color: #d97706;">⏳ Pending Requests</span>
+        <span class="report-kpi-val" style="color: #d97706;">${stats.pendingLeaves || 0}</span>
+        <span class="report-kpi-sub">Awaiting approval</span>
+      </div>
+      <div class="report-kpi-card" style="border-left: 4px solid #dc2626;">
+        <span class="report-kpi-label" style="color: #dc2626;">🔴 Absent (No Leave)</span>
+        <span class="report-kpi-val" style="color: #dc2626;">${stats.absentNoLeave || 0}</span>
+        <span class="report-kpi-sub">Unexcused absence</span>
+      </div>
+    `;
+  } else if (state.report.type === 'daily') {
     const stats = data.stats || {};
     banner.innerHTML = `
       <div class="report-kpi-card">
@@ -2317,14 +2431,234 @@ function renderReportProfileBanner(data) {
     `;
   }
 
+function renderSingleEmployeePageHtml(u, i, data) {
+  const org = state.org || {};
+  const monthTitle = data.periodLabel || data.month;
+  const genTimestamp = new Date().toLocaleString();
+  const emp = u.employee || {};
+  const totals = u.totals || {};
+  const timesheet = u.timesheet || [];
+  const fullName = [emp.title, emp.employee_name].filter(Boolean).join(' ') || 'Unassigned';
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  let totalPunches = 0;
+  const tableRowsHtml = timesheet.map((r, rowIdx) => {
+    totalPunches += (r.punch_count || 0);
+    const isFuture = r.date > todayStr;
+    const isAbsent = (r.punch_count === 0 || r.check_in_status === 'ABSENT');
+    const isWorkingDay = (r.day_type === 'WEEKDAY');
+
+    // 1. Shift Hours column
+    let shiftHoursHtml = '';
+    if (isWorkingDay) {
+      shiftHoursHtml = `<span class="font-mono" style="color: #0369a1; font-weight: 700; font-size: 0.76rem;">${r.shift_start || '08:30'} &ndash; ${r.shift_end || '16:15'}</span>`;
+    } else if (r.day_type === 'WEEKEND') {
+      shiftHoursHtml = `<span class="badge-weekend emp-book-badge">Weekend Off</span>`;
+    } else {
+      shiftHoursHtml = `<span class="badge-holiday emp-book-badge">${escapeHtml(r.day_name || 'Holiday')}</span>`;
+    }
+
+    // 2. Actual Check-In
+    let inHtml = '<span class="text-muted" style="color: #94a3b8;">&mdash;</span>';
+    if (r.punch_count > 0 && r.check_in_time && r.check_in_time !== '-') {
+      inHtml = `<strong class="font-mono" style="color: #15803d; font-size: 0.8rem;">${r.check_in_time}</strong>`;
+    }
+
+    // 3. Actual Check-Out
+    let outHtml = '<span class="text-muted" style="color: #94a3b8;">&mdash;</span>';
+    if (r.punch_count > 1 && r.check_out_time && r.check_out_time !== '-') {
+      outHtml = `<strong class="font-mono" style="color: #15803d; font-size: 0.8rem;">${r.check_out_time}</strong>`;
+    } else if (r.punch_count === 1) {
+      outHtml = `<span class="badge-tag emp-book-badge" style="background: #fef3c7; color: #92400e; font-size: 0.68rem; font-weight: 700;">Pending Out</span>`;
+    }
+
+    // 4. Worked Time
+    let workedHtml = '<span class="text-muted" style="color: #94a3b8;">&mdash;</span>';
+    if (r.worked_formatted && r.worked_formatted !== '-') {
+      workedHtml = `<strong class="font-mono" style="color: #1e3a8a; font-size: 0.8rem;">${r.worked_formatted}</strong>`;
+    }
+
+    // 5. Overtime
+    let otHtml = '<span class="text-muted" style="color: #94a3b8;">&mdash;</span>';
+    if (r.ot_hours > 0) {
+      otHtml = `<span class="font-mono" style="color: #7e22ce; font-weight: 700;">+${r.ot_hours}H</span>`;
+    }
+
+    // 6. Day badge
+    const dayBadge = r.day_type === 'WEEKEND' ? 'badge-weekend' : (r.day_type === 'HOLIDAY' ? 'badge-holiday' : 'badge-weekday');
+
+    // 7. Status & Remarks badge (integrated with Leaves)
+    let statusBadge = isAbsent ? (r.leave_status ? 'badge-holiday' : 'badge-absent') : (r.daily_badge || 'badge-on-time');
+    let statusText = r.daily_status || (isAbsent ? 'Absent' : 'Present');
+    if (isFuture) {
+      statusBadge = 'badge-tag';
+      statusText = 'Scheduled / Future';
+    } else if (r.leave_status === 'APPROVED') {
+      statusBadge = r.is_duty_leave || r.is_compensatory_leave ? 'badge-worked-off' : 'badge-holiday';
+      statusText = r.daily_status;
+    } else if (r.leave_status === 'PENDING') {
+      statusBadge = 'badge-late-in';
+      statusText = r.daily_status;
+    } else if (isAbsent && isWorkingDay) {
+      statusBadge = 'badge-absent';
+      statusText = '🔴 Absent (No Punch)';
+    }
+
+    return `
+      <tr>
+        <td class="text-muted font-mono" style="text-align: center;">${rowIdx + 1}</td>
+        <td class="font-mono" style="text-align: center; font-weight: 700; white-space: nowrap;">${r.date}</td>
+        <td style="text-align: center;"><span class="${dayBadge} emp-book-badge">${escapeHtml(r.day_name || '')}</span></td>
+        <td style="text-align: center; white-space: nowrap;">${shiftHoursHtml}</td>
+        <td style="text-align: center; white-space: nowrap;">${inHtml}</td>
+        <td style="text-align: center; white-space: nowrap;">${outHtml}</td>
+        <td class="font-mono" style="text-align: center;">${r.punch_count || 0}</td>
+        <td style="text-align: center; white-space: nowrap;">${workedHtml}</td>
+        <td style="text-align: center; white-space: nowrap;">${otHtml}</td>
+        <td style="text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          <span class="${statusBadge} emp-book-badge">${escapeHtml(statusText)}</span>
+          ${r.remarks && r.remarks !== r.daily_status ? `<small class="text-muted" style="margin-left:4px; font-size:0.72rem;">${escapeHtml(r.remarks)}</small>` : ''}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="employee-monthly-page" id="emp-page-${emp.user_id}" data-user-id="${emp.user_id}">
+      <!-- 1. Compact Organization Header -->
+      <div class="emp-page-header">
+        <div class="emp-page-org">
+          <div class="emp-page-org-name">${escapeHtml(org.org_name || 'Organization Attendance Report')}</div>
+          <div class="emp-page-org-sub">${escapeHtml(org.org_subtitle || 'Attendance & Human Resources Division')}</div>
+          <div class="emp-page-org-contact">
+            ${escapeHtml(org.org_address || '')} 
+            ${org.org_phone ? `&bull; Tel: ${escapeHtml(org.org_phone)}` : ''} 
+            ${org.org_email ? `&bull; Email: ${escapeHtml(org.org_email)}` : ''}
+            ${org.org_website ? `&bull; ${escapeHtml(org.org_website)}` : ''}
+          </div>
+        </div>
+        <div class="emp-page-meta">
+          <div class="emp-page-badge">Monthly Timesheet</div>
+          <div class="emp-page-month">${escapeHtml(monthTitle)}</div>
+          <div class="emp-page-gen-time">Gen: ${genTimestamp}</div>
+        </div>
+      </div>
+
+      <!-- 2. Employee Profile Strip & Mini Totals -->
+      <div class="emp-page-profile-strip">
+        <div class="emp-info-col">
+          <div class="emp-name-title">
+            <strong>${escapeHtml(fullName)}</strong>
+            <span class="emp-name-id-meta">(FingerPrint ID: ${emp.user_id}${emp.employee_service_id ? ` &bull; ${escapeHtml(emp.employee_service_id)}` : ''})</span>
+          </div>
+          <div class="emp-meta-small">
+            ${emp.nic ? `<span>NIC: <strong class="font-mono">${escapeHtml(emp.nic)}</strong> &bull; </span>` : ''}
+            <span>Dept: <strong>${escapeHtml(emp.department || 'General')}</strong> &bull; </span>
+            <span>Role: ${escapeHtml(emp.role || 'Staff')} &bull; </span>
+            <span>Shift: <strong>${escapeHtml(emp.shift_name || 'General Shift')}</strong> &bull; </span>
+            <span style="color: #0369a1;">Set Shift Hours: <strong class="font-mono">${escapeHtml(emp.shift_start || '08:30')} &ndash; ${escapeHtml(emp.shift_end || '16:15')}</strong> &bull; </span>
+            <span style="color: #15803d;">Set In: <strong class="font-mono">${escapeHtml(emp.shift_start || '08:30')}</strong> &bull; </span>
+            <span style="color: #b45309;">Set Out: <strong class="font-mono">${escapeHtml(emp.shift_end || '16:15')}</strong></span>
+          </div>
+        </div>
+        <div class="emp-kpi-col">
+          <div class="kpi-mini-item"><span class="kpi-label">Work Days</span><span class="kpi-val">${totals.scheduledWorkDays || 0}</span></div>
+          <div class="kpi-mini-item"><span class="kpi-label">Present</span><span class="kpi-val" style="color: #15803d;">${totals.daysPresent || 0}</span></div>
+          <div class="kpi-mini-item"><span class="kpi-label">Absent</span><span class="kpi-val" style="color: #b91c1c;">${totals.daysAbsent || 0}</span></div>
+          <div class="kpi-mini-item"><span class="kpi-label">Half Day</span><span class="kpi-val" style="color: #c2410c;">${totals.halfDays || 0}</span></div>
+          <div class="kpi-mini-item"><span class="kpi-label">Grace (X/2)</span><span class="kpi-val">${totals.graceUsed || 0}</span></div>
+          <div class="kpi-mini-item"><span class="kpi-label">S-Leave</span><span class="kpi-val">${totals.shortLeaveUsed || 0}</span></div>
+          <div class="kpi-mini-item"><span class="kpi-label">Worked</span><span class="kpi-val">${totals.totalWorkedFormatted || '0h 0m'}</span></div>
+          <div class="kpi-mini-item"><span class="kpi-label">OT</span><span class="kpi-val" style="color: #7e22ce;">${totals.totalOtHours || 0}H</span></div>
+          <div class="kpi-mini-item"><span class="kpi-label">Rate</span><span class="kpi-val" style="color: #0369a1;">${totals.attendance_pct || '0%'}</span></div>
+        </div>
+      </div>
+
+      <!-- 3. Calendar Month Timesheet Table -->
+      <table class="data-table emp-book-table">
+        <colgroup>
+          <col style="width: 3.5%;">
+          <col style="width: 8.5%;">
+          <col style="width: 7.5%;">
+          <col style="width: 12.0%;">
+          <col style="width: 10.5%;">
+          <col style="width: 10.5%;">
+          <col style="width: 5.0%;">
+          <col style="width: 9.0%;">
+          <col style="width: 6.5%;">
+          <col style="width: 27.0%;">
+        </colgroup>
+        <thead>
+          <tr>
+            <th style="text-align: center;">#</th>
+            <th style="text-align: center;">Date</th>
+            <th style="text-align: center;">Day</th>
+            <th style="text-align: center;">Set Shift Hours</th>
+            <th style="text-align: center;">Actual Check-In</th>
+            <th style="text-align: center;">Actual Check-Out</th>
+            <th style="text-align: center;">Punches</th>
+            <th style="text-align: center;">Worked Time</th>
+            <th style="text-align: center;">OT (Hours)</th>
+            <th style="text-align: left;">Daily Status / Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRowsHtml}
+        </tbody>
+        <tfoot>
+          <tr class="emp-book-totals-row">
+            <td colspan="6" style="text-align: right; font-weight: 800; padding-right: 8px;">CALENDAR MONTH TOTALS:</td>
+            <td class="font-mono" style="text-align: center; font-weight: 800;">${totalPunches}</td>
+            <td class="font-mono" style="text-align: center; font-weight: 800; color: #1e3a8a;">${totals.totalWorkedFormatted || '0h 0m'}</td>
+            <td class="font-mono" style="text-align: center; font-weight: 800; color: #7e22ce;">${totals.totalOtHours > 0 ? `+${totals.totalOtHours}H` : '0H'}</td>
+            <td style="font-weight: 700; text-align: left; padding-left: 6px;">
+              Present: ${totals.daysPresent || 0}d &bull; Absent: ${totals.daysAbsent || 0}d &bull; Rate: ${totals.attendance_pct || '0%'}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <!-- 4. Three Sign-off Signature Blocks -->
+      <div class="emp-page-footer">
+        <div class="print-signatures emp-book-signatures">
+          <div class="print-sig-block">
+            <div class="print-sig-line"></div>
+            <div class="print-sig-title">${escapeHtml(state.printOptions?.sig1Title || 'Prepared By')}</div>
+            <div class="print-sig-sub" style="font-size: 6.5pt; color: #64748b;">${escapeHtml(state.printOptions?.sig1Sub || 'HR / Attendance Officer')}</div>
+          </div>
+          <div class="print-sig-block">
+            <div class="print-sig-line"></div>
+            <div class="print-sig-title">${escapeHtml(state.printOptions?.sig2Title || 'Checked & Verified By')}</div>
+            <div class="print-sig-sub" style="font-size: 6.5pt; color: #64748b;">${escapeHtml(state.printOptions?.sig2Sub || 'Head of Department')}</div>
+          </div>
+          <div class="print-sig-block">
+            <div class="print-sig-line"></div>
+            <div class="print-sig-title">${escapeHtml(state.printOptions?.sig3Title || 'Authorized Approval')}</div>
+            <div class="print-sig-sub" style="font-size: 6.5pt; color: #64748b;">${escapeHtml(state.printOptions?.sig3Sub || 'Director / General Manager')}</div>
+          </div>
+        </div>
+        <div class="emp-page-footer-note">
+          <span>${escapeHtml(org.org_footer || 'SpeedFace-V5L Automated Biometric Attendance & Payroll System')}</span>
+          <span>SpeedFace Terminal &bull; Staff Page ${i + 1} of ${data.users?.length || 0}</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderMonthlyBookReport(data) {
   const container = document.getElementById('monthlyBookPagesContainer');
   const countBadge = document.getElementById('monthlyBookCountBadge');
   const periodBadge = document.getElementById('monthlyBookPeriodBadge');
   const jumpSelect = document.getElementById('monthlyBookJumpSelect');
+  const sentinel = document.getElementById('monthlyBookScrollSentinel');
   if (!container) return;
 
   const users = data.users || [];
+  state.report.bookUsers = users;
+  state.report.bookData = data;
+  state.report.bookRenderedCount = 0;
+
   if (countBadge) countBadge.textContent = `${users.length} Staff Pages`;
   if (periodBadge) periodBadge.textContent = data.periodLabel || data.month || 'Month';
 
@@ -2340,25 +2674,28 @@ function renderMonthlyBookReport(data) {
           </option>
         `;
       }).join('');
+
     jumpSelect.onchange = (e) => {
       const val = e.target.value;
-      const printBtnText = document.getElementById('btnMonthlyBookPrintText');
-      const pages = document.querySelectorAll('.employee-monthly-page');
-
       if (val === 'all') {
         document.body.classList.remove('print-single-emp-active');
+        const pages = document.querySelectorAll('.employee-monthly-page');
         pages.forEach(p => {
           p.classList.remove('print-selected-page');
           p.classList.remove('print-hidden');
           p.style.display = '';
         });
-        if (printBtnText) printBtnText.textContent = 'Print Book (All Pages)';
-        if (state.printOptions) state.printOptions.bookScope = 'all';
       } else {
+        const targetUserId = val.replace('emp-page-', '');
+        const targetIndex = state.report.bookUsers.findIndex(u => String(u.employee?.user_id) === String(targetUserId));
+        if (targetIndex >= 0 && targetIndex >= state.report.bookRenderedCount) {
+          renderBookPagesUpTo(targetIndex + 1);
+        }
+
         document.body.classList.add('print-single-emp-active');
+        const pages = document.querySelectorAll('.employee-monthly-page');
         pages.forEach(p => {
-          const match = (p.id === val) ||
-                        (p.dataset.userId && (`emp-page-${p.dataset.userId}` === val || p.dataset.userId === val));
+          const match = (p.id === val) || (p.dataset.userId && (`emp-page-${p.dataset.userId}` === val || p.dataset.userId === val));
           if (match) {
             p.classList.add('print-selected-page');
             p.classList.remove('print-hidden');
@@ -2369,17 +2706,6 @@ function renderMonthlyBookReport(data) {
             p.style.display = 'none';
           }
         });
-        const selectedOption = jumpSelect.options[jumpSelect.selectedIndex];
-        let rawName = 'Selected Staff';
-        if (selectedOption) {
-          const text = selectedOption.text;
-          const parts = text.split(' - ');
-          if (parts.length > 1) {
-            rawName = parts[1].split(' •')[0].trim();
-          }
-        }
-        if (printBtnText) printBtnText.textContent = `Print Page (${rawName})`;
-        if (state.printOptions) state.printOptions.bookScope = 'selected';
         const target = document.getElementById(val);
         if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
@@ -2392,220 +2718,106 @@ function renderMonthlyBookReport(data) {
         No active employees found matching the criteria for ${escapeHtml(data.periodLabel || data.month)}.
       </div>
     `;
+    if (sentinel) sentinel.style.display = 'none';
     return;
   }
 
-  const org = state.org || {};
-  const monthTitle = data.periodLabel || data.month;
-  const genTimestamp = new Date().toLocaleString();
+  container.innerHTML = '';
+  // Progressive render: First 2 pages initially for instant loading
+  const INITIAL_BOOK_PAGES = 2;
+  const initialBatch = users.slice(0, INITIAL_BOOK_PAGES);
+  container.innerHTML = initialBatch.map((u, i) => renderSingleEmployeePageHtml(u, i, data)).join('');
+  state.report.bookRenderedCount = initialBatch.length;
 
-  container.innerHTML = users.map((u, i) => {
-    const emp = u.employee || {};
-    const totals = u.totals || {};
-    const timesheet = u.timesheet || [];
-    const fullName = [emp.title, emp.employee_name].filter(Boolean).join(' ') || 'Unassigned';
+  if (sentinel) {
+    if (state.report.bookRenderedCount < users.length) {
+      sentinel.style.display = 'flex';
+      sentinel.innerHTML = `<span class="spinner-sm" style="display:inline-block;width:12px;height:12px;border:2px solid #cbd5e1;border-top-color:#2563eb;border-radius:50%;animation:spin 0.6s linear infinite;margin-right:6px;"></span> Showing <strong>${state.report.bookRenderedCount}</strong> of ${users.length} staff pages (Scroll down to load more pages)`;
+    } else {
+      sentinel.style.display = 'none';
+    }
+  }
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    let totalPunches = 0;
-    const tableRowsHtml = timesheet.map((r, rowIdx) => {
-      totalPunches += (r.punch_count || 0);
-      const isFuture = r.date > todayStr;
-      const isAbsent = (r.punch_count === 0 || r.check_in_status === 'ABSENT');
-      const isWorkingDay = (r.day_type === 'WEEKDAY');
+  setupBookInfiniteScroll(container, sentinel);
+}
 
-      // 1. Set Shift Hours column (Shift Check-In & Check-Out target schedule)
-      let shiftHoursHtml = '';
-      if (isWorkingDay) {
-        shiftHoursHtml = `<span class="font-mono" style="color: #0369a1; font-weight: 700; font-size: 0.76rem;">${r.shift_start || '08:30'} &ndash; ${r.shift_end || '16:15'}</span>`;
-      } else if (r.day_type === 'WEEKEND') {
-        shiftHoursHtml = `<span class="badge-weekend emp-book-badge">Weekend Off</span>`;
-      } else {
-        shiftHoursHtml = `<span class="badge-holiday emp-book-badge">${escapeHtml(r.day_name || 'Holiday')}</span>`;
+function setupBookInfiniteScroll(container, sentinel) {
+  const loadNextBookPages = () => {
+    const users = state.report.bookUsers || [];
+    if (state.report.bookRenderedCount >= users.length || state.report.isRenderingBook) return;
+    state.report.isRenderingBook = true;
+
+    requestAnimationFrame(() => {
+      const BATCH = 2;
+      const nextBatch = users.slice(state.report.bookRenderedCount, state.report.bookRenderedCount + BATCH);
+      if (nextBatch.length > 0) {
+        const frag = document.createElement('div');
+        frag.innerHTML = nextBatch.map((u, idx) => renderSingleEmployeePageHtml(u, state.report.bookRenderedCount + idx, state.report.bookData)).join('');
+        while (frag.firstChild) {
+          container.appendChild(frag.firstChild);
+        }
+        state.report.bookRenderedCount += nextBatch.length;
       }
 
-      // 2. Actual Punched Check-In column
-      let inHtml = '<span class="text-muted" style="color: #94a3b8;">&mdash;</span>';
-      if (r.punch_count > 0 && r.check_in_time && r.check_in_time !== '-') {
-        inHtml = `<strong class="font-mono" style="color: #15803d; font-size: 0.8rem;">${r.check_in_time}</strong>`;
+      if (sentinel) {
+        if (state.report.bookRenderedCount < users.length) {
+          sentinel.style.display = 'flex';
+          sentinel.innerHTML = `<span class="spinner-sm" style="display:inline-block;width:12px;height:12px;border:2px solid #cbd5e1;border-top-color:#2563eb;border-radius:50%;animation:spin 0.6s linear infinite;margin-right:6px;"></span> Showing <strong>${state.report.bookRenderedCount}</strong> of ${users.length} staff pages (Scroll down to load more pages)`;
+        } else {
+          sentinel.style.display = 'flex';
+          sentinel.innerHTML = `<span style="color:#16a34a;font-weight:700;">✓ All ${users.length} staff pages loaded</span>`;
+          setTimeout(() => { if (sentinel) sentinel.style.display = 'none'; }, 2500);
+        }
       }
+      state.report.isRenderingBook = false;
+    });
+  };
 
-      // 3. Actual Punched Check-Out column
-      let outHtml = '<span class="text-muted" style="color: #94a3b8;">&mdash;</span>';
-      if (r.punch_count > 1 && r.check_out_time && r.check_out_time !== '-') {
-        outHtml = `<strong class="font-mono" style="color: #15803d; font-size: 0.8rem;">${r.check_out_time}</strong>`;
-      } else if (r.punch_count === 1) {
-        outHtml = `<span class="badge-tag emp-book-badge" style="background: #fef3c7; color: #92400e; font-size: 0.68rem; font-weight: 700;">Pending Out</span>`;
+  const mainContent = document.querySelector('.main-content');
+  if (mainContent) {
+    mainContent.onscroll = () => {
+      if (state.report.scope === 'monthly_book' && mainContent.scrollTop + mainContent.clientHeight >= mainContent.scrollHeight - 350) {
+        loadNextBookPages();
       }
+    };
+  }
 
-      // 4. Worked Time
-      let workedHtml = '<span class="text-muted" style="color: #94a3b8;">&mdash;</span>';
-      if (r.worked_formatted && r.worked_formatted !== '-') {
-        workedHtml = `<strong class="font-mono" style="color: #1e3a8a; font-size: 0.8rem;">${r.worked_formatted}</strong>`;
+  window.onscroll = () => {
+    if (state.report.scope === 'monthly_book' && window.innerHeight + window.scrollY >= document.body.offsetHeight - 400) {
+      loadNextBookPages();
+    }
+  };
+
+  if (window.IntersectionObserver && sentinel) {
+    if (state.report.bookObserver) state.report.bookObserver.disconnect();
+    state.report.bookObserver = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && state.report.scope === 'monthly_book') {
+        loadNextBookPages();
       }
+    }, { rootMargin: '400px' });
+    state.report.bookObserver.observe(sentinel);
+  }
+}
 
-      // 5. Overtime
-      let otHtml = '<span class="text-muted" style="color: #94a3b8;">&mdash;</span>';
-      if (r.ot_hours > 0) {
-        otHtml = `<span class="font-mono" style="color: #7e22ce; font-weight: 700;">+${r.ot_hours}H</span>`;
-      }
+function renderBookPagesUpTo(targetCount) {
+  const users = state.report.bookUsers || [];
+  const container = document.getElementById('monthlyBookPagesContainer');
+  if (!container || state.report.bookRenderedCount >= targetCount) return;
 
-      // 6. Day badge
-      const dayBadge = r.day_type === 'WEEKEND' ? 'badge-weekend' : (r.day_type === 'HOLIDAY' ? 'badge-holiday' : 'badge-weekday');
+  const toRender = users.slice(state.report.bookRenderedCount, Math.min(targetCount, users.length));
+  if (toRender.length > 0) {
+    const frag = document.createElement('div');
+    frag.innerHTML = toRender.map((u, idx) => renderSingleEmployeePageHtml(u, state.report.bookRenderedCount + idx, state.report.bookData)).join('');
+    while (frag.firstChild) {
+      container.appendChild(frag.firstChild);
+    }
+    state.report.bookRenderedCount += toRender.length;
+  }
+}
 
-      // 7. Status & Remarks badge
-      let statusBadge = isAbsent ? 'badge-absent' : (r.daily_badge || 'badge-on-time');
-      let statusText = r.daily_status || (isAbsent ? 'Absent' : 'Present');
-      if (isFuture) {
-        statusBadge = 'badge-tag';
-        statusText = 'Scheduled / Future';
-      } else if (isAbsent && isWorkingDay) {
-        statusBadge = 'badge-absent';
-        statusText = '🔴 Absent (No Punch)';
-      } else if (r.punch_count === 1) {
-        statusBadge = 'badge-tag';
-        statusText = `Single Punch (${r.check_in_label || 'Check-In'})`;
-      } else if (r.punch_count > 1 && r.check_in_label && !statusText.includes(r.check_in_label)) {
-        statusText = `${statusText} (${r.check_in_label})`;
-      }
-
-      return `
-        <tr>
-          <td class="text-muted font-mono" style="text-align: center;">${rowIdx + 1}</td>
-          <td class="font-mono" style="text-align: center; font-weight: 700; white-space: nowrap;">${r.date}</td>
-          <td style="text-align: center;"><span class="${dayBadge} emp-book-badge">${escapeHtml(r.day_name || '')}</span></td>
-          <td style="text-align: center; white-space: nowrap;">${shiftHoursHtml}</td>
-          <td style="text-align: center; white-space: nowrap;">${inHtml}</td>
-          <td style="text-align: center; white-space: nowrap;">${outHtml}</td>
-          <td class="font-mono" style="text-align: center;">${r.punch_count || 0}</td>
-          <td style="text-align: center; white-space: nowrap;">${workedHtml}</td>
-          <td style="text-align: center; white-space: nowrap;">${otHtml}</td>
-          <td style="text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><span class="${statusBadge} emp-book-badge">${escapeHtml(statusText)}</span></td>
-        </tr>
-      `;
-    }).join('');
-
-    return `
-      <div class="employee-monthly-page" id="emp-page-${emp.user_id}" data-user-id="${emp.user_id}">
-        <!-- 1. Compact Organization Header -->
-        <div class="emp-page-header">
-          <div class="emp-page-org">
-            <div class="emp-page-org-name">${escapeHtml(org.org_name || 'Organization Attendance Report')}</div>
-            <div class="emp-page-org-sub">${escapeHtml(org.org_subtitle || 'Attendance & Human Resources Division')}</div>
-            <div class="emp-page-org-contact">
-              ${escapeHtml(org.org_address || '')} 
-              ${org.org_phone ? `&bull; Tel: ${escapeHtml(org.org_phone)}` : ''} 
-              ${org.org_email ? `&bull; Email: ${escapeHtml(org.org_email)}` : ''}
-              ${org.org_website ? `&bull; ${escapeHtml(org.org_website)}` : ''}
-            </div>
-          </div>
-          <div class="emp-page-meta">
-            <div class="emp-page-badge">Monthly Timesheet</div>
-            <div class="emp-page-month">${escapeHtml(monthTitle)}</div>
-            <div class="emp-page-gen-time">Gen: ${genTimestamp}</div>
-          </div>
-        </div>
-
-        <!-- 2. Employee Profile Strip & Mini Totals -->
-        <div class="emp-page-profile-strip">
-          <div class="emp-info-col">
-            <div class="emp-name-title">
-              <strong>${escapeHtml(fullName)}</strong>
-              <span class="emp-name-id-meta">(FingerPrint ID: ${emp.user_id}${emp.employee_service_id ? ` &bull; ${escapeHtml(emp.employee_service_id)}` : ''})</span>
-            </div>
-            <div class="emp-meta-small">
-              ${emp.nic ? `<span>NIC: <strong class="font-mono">${escapeHtml(emp.nic)}</strong> &bull; </span>` : ''}
-              <span>Dept: <strong>${escapeHtml(emp.department || 'General')}</strong> &bull; </span>
-              <span>Role: ${escapeHtml(emp.role || 'Staff')} &bull; </span>
-              <span>Shift: <strong>${escapeHtml(emp.shift_name || 'General Shift')}</strong> &bull; </span>
-              <span style="color: #0369a1;">Set Shift Hours: <strong class="font-mono">${escapeHtml(emp.shift_start || '08:30')} &ndash; ${escapeHtml(emp.shift_end || '16:15')}</strong> &bull; </span>
-              <span style="color: #15803d;">Set In: <strong class="font-mono">${escapeHtml(emp.shift_start || '08:30')}</strong> &bull; </span>
-              <span style="color: #b45309;">Set Out: <strong class="font-mono">${escapeHtml(emp.shift_end || '16:15')}</strong></span>
-            </div>
-          </div>
-          <div class="emp-kpi-col">
-            <div class="kpi-mini-item"><span class="kpi-label">Work Days</span><span class="kpi-val">${totals.scheduledWorkDays || 0}</span></div>
-            <div class="kpi-mini-item"><span class="kpi-label">Present</span><span class="kpi-val" style="color: #15803d;">${totals.daysPresent || 0}</span></div>
-            <div class="kpi-mini-item"><span class="kpi-label">Absent</span><span class="kpi-val" style="color: #b91c1c;">${totals.daysAbsent || 0}</span></div>
-            <div class="kpi-mini-item"><span class="kpi-label">Half Day</span><span class="kpi-val" style="color: #c2410c;">${totals.halfDays || 0}</span></div>
-            <div class="kpi-mini-item"><span class="kpi-label">Grace (X/2)</span><span class="kpi-val">${totals.graceUsed || 0}</span></div>
-            <div class="kpi-mini-item"><span class="kpi-label">S-Leave</span><span class="kpi-val">${totals.shortLeaveUsed || 0}</span></div>
-            <div class="kpi-mini-item"><span class="kpi-label">Worked</span><span class="kpi-val">${totals.totalWorkedFormatted || '0h 0m'}</span></div>
-            <div class="kpi-mini-item"><span class="kpi-label">OT</span><span class="kpi-val" style="color: #7e22ce;">${totals.totalOtHours || 0}H</span></div>
-            <div class="kpi-mini-item"><span class="kpi-label">Rate</span><span class="kpi-val" style="color: #0369a1;">${totals.attendance_pct || '0%'}</span></div>
-          </div>
-        </div>
-
-        <!-- 3. Calendar Month Timesheet Table (Aligned to Landscape Page Area) -->
-        <table class="data-table emp-book-table">
-          <colgroup>
-            <col style="width: 3.5%;">
-            <col style="width: 8.5%;">
-            <col style="width: 7.5%;">
-            <col style="width: 12.0%;">
-            <col style="width: 10.5%;">
-            <col style="width: 10.5%;">
-            <col style="width: 5.0%;">
-            <col style="width: 9.0%;">
-            <col style="width: 6.5%;">
-            <col style="width: 27.0%;">
-          </colgroup>
-          <thead>
-            <tr>
-              <th style="text-align: center;">#</th>
-              <th style="text-align: center;">Date</th>
-              <th style="text-align: center;">Day</th>
-              <th style="text-align: center;">Set Shift Hours</th>
-              <th style="text-align: center;">Actual Check-In</th>
-              <th style="text-align: center;">Actual Check-Out</th>
-              <th style="text-align: center;">Punches</th>
-              <th style="text-align: center;">Worked Time</th>
-              <th style="text-align: center;">OT (Hours)</th>
-              <th style="text-align: left;">Daily Status / Remarks</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRowsHtml}
-          </tbody>
-          <tfoot>
-            <tr class="emp-book-totals-row">
-              <td colspan="6" style="text-align: right; font-weight: 800; padding-right: 8px;">CALENDAR MONTH TOTALS:</td>
-              <td class="font-mono" style="text-align: center; font-weight: 800;">${totalPunches}</td>
-              <td class="font-mono" style="text-align: center; font-weight: 800; color: #1e3a8a;">${totals.totalWorkedFormatted || '0h 0m'}</td>
-              <td class="font-mono" style="text-align: center; font-weight: 800; color: #7e22ce;">${totals.totalOtHours > 0 ? `+${totals.totalOtHours}H` : '0H'}</td>
-              <td style="font-weight: 700; text-align: left; padding-left: 6px;">
-                Present: ${totals.daysPresent || 0}d &bull; Absent: ${totals.daysAbsent || 0}d &bull; Rate: ${totals.attendance_pct || '0%'}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-
-        <!-- 4. Three Sign-off Signature Blocks -->
-        <div class="emp-page-footer">
-          <div class="print-signatures emp-book-signatures">
-            <div class="print-sig-block">
-              <div class="print-sig-line"></div>
-              <div class="print-sig-title">${escapeHtml(state.printOptions?.sig1Title || 'Prepared By')}</div>
-              <div class="print-sig-sub" style="font-size: 6.5pt; color: #64748b;">${escapeHtml(state.printOptions?.sig1Sub || 'HR / Attendance Officer')}</div>
-            </div>
-            <div class="print-sig-block">
-              <div class="print-sig-line"></div>
-              <div class="print-sig-title">${escapeHtml(state.printOptions?.sig2Title || 'Checked & Verified By')}</div>
-              <div class="print-sig-sub" style="font-size: 6.5pt; color: #64748b;">${escapeHtml(state.printOptions?.sig2Sub || 'Head of Department')}</div>
-            </div>
-            <div class="print-sig-block">
-              <div class="print-sig-line"></div>
-              <div class="print-sig-title">${escapeHtml(state.printOptions?.sig3Title || 'Authorized Approval')}</div>
-              <div class="print-sig-sub" style="font-size: 6.5pt; color: #64748b;">${escapeHtml(state.printOptions?.sig3Sub || 'Director / General Manager')}</div>
-            </div>
-          </div>
-          <div class="emp-page-footer-note">
-            <span>${escapeHtml(org.org_footer || 'SpeedFace-V5L Automated Biometric Attendance & Payroll System')}</span>
-            <span>SpeedFace Terminal &bull; Staff Page ${i + 1} of ${users.length}</span>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
+function renderAllRemainingBookPages() {
+  const users = state.report.bookUsers || [];
+  renderBookPagesUpTo(users.length);
 }
 
 // State tracking for Matrix Layout (Standard 1-Row vs Proposed Max-Time 2-Row)
@@ -2655,6 +2867,428 @@ function setMatrixLayout(layout) {
 window.setMatrixLayout = setMatrixLayout;
 window.executeSetMatrixLayout = setMatrixLayout;
 
+// ==========================================
+// Monthly All-Days Attendance Matrix Progressive Rendering
+// ==========================================
+const MATRIX_CHUNK_SIZE = 25;
+let matrixInfiniteObserver = null;
+let matrixScrollHandler = null;
+
+function renderMatrixProposedEmployeeRows(rec, i, dateList) {
+  const emp = rec.employee || {};
+  const tot = rec.totals || {};
+  const days = rec.days || {};
+
+  // Row 1: Employee Header Banner
+  const bannerHtml = `
+    <tr class="matrix-row-emp-banner">
+      <td colspan="${dateList.length}" class="matrix-cell-emp-banner">
+        <div class="matrix-emp-banner-inner">
+          <div class="matrix-emp-banner-left">
+            <span class="matrix-banner-idx" data-col="col-idx">#${i + 1}</span>
+            <span class="matrix-banner-uid" data-col="col-uid"><strong>User ID:</strong> <span class="font-mono font-bold" style="color:#0f172a; font-size:0.92rem;">${emp.user_id}</span></span>
+            <span class="matrix-banner-name" data-col="col-emp"><strong>Name:</strong> ${escapeHtml(emp.employee_name || 'Unassigned')}</span>
+            <span class="matrix-banner-dept" data-col="col-dept"><strong>Dept:</strong> ${escapeHtml(emp.department || 'General')}</span>
+            <span class="matrix-banner-shift" data-col="col-shift"><strong>Shift:</strong> ${escapeHtml(emp.shift_name || 'General')}</span>
+          </div>
+          <div class="matrix-emp-banner-right" data-col="col-totals">
+            <span class="matrix-banner-pill" style="background:#e0f2fe; color:#0369a1;" title="Scheduled Work Days">Work: <strong>${tot.scheduledWorkDays || 0}d</strong></span>
+            <span class="matrix-banner-pill" style="background:#dcfce7; color:#15803d;" title="Days Present">Pres: <strong>${tot.daysPresent || 0}d</strong></span>
+            <span class="matrix-banner-pill" style="background:#fee2e2; color:#b91c1c;" title="Days Absent">Abs: <strong>${tot.daysAbsent || 0}d</strong></span>
+            <span class="matrix-banner-pill" style="background:#ffedd5; color:#c2410c;" title="Half Days">HD: <strong>${tot.halfDays || 0}</strong></span>
+            <span class="matrix-banner-pill" style="background:#fef9c3; color:#854d0e;" title="Morning Grace Used">Grace: <strong>${tot.graceUsed || 0}</strong></span>
+            <span class="matrix-banner-pill" style="background:#f0f9ff; color:#0284c7;" title="Short Leaves Used">SL: <strong>${tot.shortLeaveUsed || 0}</strong></span>
+            <span class="matrix-banner-pill" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;" title="Total Worked Hours">Worked: <strong>${tot.totalWorkedFormatted || '0h'}</strong></span>
+            <span class="matrix-banner-pill" style="background:#f3e8ff; color:#7e22ce;" title="Total Overtime Hours">OT: <strong>${tot.totalOtHours > 0 ? `+${tot.totalOtHours}H` : '0H'}</strong></span>
+            <span class="matrix-banner-pill" style="background:#ccfbf1; color:#0f766e;" title="Attendance Rate">Att: <strong>${tot.attendance_pct || '0%'}</strong></span>
+          </div>
+        </div>
+      </td>
+    </tr>
+  `;
+
+  // Row 2: Calendar Days with Maximum Attendance Time Layout
+  const daysCellsHtml = dateList.map(dStr => {
+    const d = days[dStr];
+    const dObj = new Date(dStr + 'T00:00:00');
+    const isWeekend = (dObj.getDay() === 0 || dObj.getDay() === 6);
+    const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const dName = dayNames[dObj.getDay()] || '';
+    const dayNum = dStr.slice(8);
+    const dayTagClass = isWeekend ? 'matrix-max-day-weekend' : (d && d.day_type === 'HOLIDAY' ? 'matrix-max-day-holiday' : '');
+
+    if (!d) {
+      return `
+        <td class="matrix-cell-max ${isWeekend ? 'matrix-day-weekend' : ''}">
+          <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
+          <span class="text-muted" style="font-size:1.1rem; line-height:2.2;">-</span>
+        </td>
+      `;
+    }
+
+    if (d.punch_count > 0) {
+      let badgeClass = 'matrix-badge-p';
+      let badgeText = 'P';
+
+      if (d.daily_status && d.daily_status.includes('Half Day')) {
+        badgeClass = 'matrix-badge-hd';
+        badgeText = 'HD';
+      } else if (d.daily_status && (d.daily_status.includes('Duty') || d.daily_status.includes('Official Duty'))) {
+        badgeClass = 'matrix-badge-p';
+        badgeText = 'DL';
+      } else if (d.daily_status && d.daily_status.includes('Compensatory')) {
+        badgeClass = 'matrix-badge-p';
+        badgeText = 'CL';
+      } else if (d.daily_status && d.daily_status.includes('Leave')) {
+        badgeClass = 'matrix-badge-sl';
+        badgeText = 'LV';
+      } else if (d.daily_status && d.daily_status.includes('Grace')) {
+        badgeClass = 'matrix-badge-grace';
+        badgeText = 'G';
+      } else if (d.daily_status && d.daily_status.includes('Short Leave')) {
+        badgeClass = 'matrix-badge-sl';
+        badgeText = 'SL';
+      } else if (d.daily_status && d.daily_status.includes('Late')) {
+        badgeClass = 'matrix-badge-grace';
+        badgeText = 'L';
+      } else if (d.day_type === 'WEEKEND') {
+        badgeClass = 'matrix-badge-p';
+        badgeText = 'W-WRK';
+      } else if (d.day_type === 'HOLIDAY') {
+        badgeClass = 'matrix-badge-hol';
+        badgeText = 'H-WRK';
+      }
+
+      const inTime = d.check_in_time !== '-' ? d.check_in_time.slice(0, 5) : '--:--';
+      const outTime = d.check_out_time !== '-' ? d.check_out_time.slice(0, 5) : '--:--';
+      const otDisplay = d.ot_hours > 0 ? `<span class="matrix-ot-badge" style="font-size:0.68rem; font-weight:800;">+${d.ot_hours}H</span>` : '';
+      const durDisplay = d.worked_formatted && d.worked_formatted !== '-' ? d.worked_formatted : (d.punch_count > 1 ? '0h 0m' : '-');
+
+      return `
+        <td class="matrix-cell-max ${isWeekend ? 'matrix-day-weekend' : ''}" title="${dStr} (${dName}): In ${d.check_in_time}, Out ${d.check_out_time} • ${escapeHtml(d.daily_status)} • Worked: ${durDisplay}${d.ot_hours > 0 ? ` • OT: +${d.ot_hours}H` : ''}">
+          <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
+          <div class="matrix-max-time-box">
+            <div class="matrix-time-in-max" title="Check-In Punch Time">
+              <small>IN</small> ${inTime}
+            </div>
+            <div class="matrix-time-out-max" title="Check-Out Punch Time">
+              <small>OUT</small> ${outTime}
+            </div>
+          </div>
+          <div class="matrix-max-badge-row">
+            <span class="matrix-badge ${badgeClass}">${badgeText}</span>
+            <span class="matrix-max-dur" title="Worked Duration">${durDisplay}</span>
+            ${otDisplay}
+          </div>
+        </td>
+      `;
+    } else if (d.daily_status && (d.daily_status.includes('Duty') || d.daily_status.includes('Official Duty'))) {
+      return `
+        <td class="matrix-cell-max" style="background: #eff6ff;" title="${dStr} (${dName}): ${escapeHtml(d.daily_status)}">
+          <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
+          <div class="matrix-time-off-max">
+            <span class="matrix-badge matrix-badge-p" style="font-size:0.75rem; padding: 2px 6px; background:#0284c7; color:#fff;">DUTY LV</span>
+          </div>
+          <div class="matrix-max-badge-row"><span class="text-muted" style="font-size:0.72rem;">Approved</span></div>
+        </td>
+      `;
+    } else if (d.daily_status && d.daily_status.includes('Compensatory')) {
+      return `
+        <td class="matrix-cell-max" style="background: #f0fdf4;" title="${dStr} (${dName}): ${escapeHtml(d.daily_status)}">
+          <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
+          <div class="matrix-time-off-max">
+            <span class="matrix-badge matrix-badge-p" style="font-size:0.75rem; padding: 2px 6px; background:#16a34a; color:#fff;">COMP LV</span>
+          </div>
+          <div class="matrix-max-badge-row"><span class="text-muted" style="font-size:0.72rem;">Approved</span></div>
+        </td>
+      `;
+    } else if (d.daily_status && d.daily_status.includes('Leave (Approved)')) {
+      return `
+        <td class="matrix-cell-max" style="background: #faf5ff;" title="${dStr} (${dName}): ${escapeHtml(d.daily_status)}">
+          <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
+          <div class="matrix-time-off-max">
+            <span class="matrix-badge matrix-badge-sl" style="font-size:0.75rem; padding: 2px 6px;">LEAVE</span>
+          </div>
+          <div class="matrix-max-badge-row"><span class="text-muted" style="font-size:0.72rem;">Approved</span></div>
+        </td>
+      `;
+    } else if (d.daily_status && d.daily_status.includes('Pending Leave')) {
+      return `
+        <td class="matrix-cell-max" style="background: #fffbeb;" title="${dStr} (${dName}): ${escapeHtml(d.daily_status)}">
+          <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
+          <div class="matrix-time-off-max">
+            <span class="matrix-badge matrix-badge-grace" style="font-size:0.75rem; padding: 2px 6px;">PEND LV</span>
+          </div>
+          <div class="matrix-max-badge-row"><span class="text-muted" style="font-size:0.72rem;">Pending</span></div>
+        </td>
+      `;
+    } else if (d.day_type === 'WEEKEND') {
+      return `
+        <td class="matrix-cell-max matrix-day-weekend" title="${dStr} (${dName}): Weekend Off">
+          <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
+          <div class="matrix-time-off-max">
+            <span class="matrix-badge matrix-badge-off" style="font-size:0.75rem; padding: 2px 6px;">OFF</span>
+          </div>
+          <div class="matrix-max-badge-row"><span class="text-muted">-</span></div>
+        </td>
+      `;
+    } else if (d.day_type === 'HOLIDAY') {
+      return `
+        <td class="matrix-cell-max" style="background: #faf5ff;" title="${dStr} (${dName}): ${escapeHtml(d.day_name || 'Holiday')}">
+          <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
+          <div class="matrix-time-hol-max">
+            <span class="matrix-badge matrix-badge-hol" style="font-size:0.75rem; padding: 2px 6px;">HOL</span>
+          </div>
+          <div class="matrix-max-badge-row"><span class="text-muted">-</span></div>
+        </td>
+      `;
+    } else {
+      return `
+        <td class="matrix-cell-max" style="background: #fff5f5;" title="${dStr} (${dName}): Absent (No Punch)">
+          <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
+          <div class="matrix-time-absent-max">
+            <span class="matrix-badge matrix-badge-a" style="font-size:0.75rem; padding: 2px 6px;">ABSENT</span>
+          </div>
+          <div class="matrix-max-badge-row"><span class="text-muted">-</span></div>
+        </td>
+      `;
+    }
+  }).join('');
+
+  return bannerHtml + `<tr class="matrix-row-max-times">${daysCellsHtml}</tr>`;
+}
+
+function renderMatrixStandardEmployeeRow(rec, i, dateList) {
+  const emp = rec.employee || {};
+  const tot = rec.totals || {};
+  const days = rec.days || {};
+
+  const dayCellsHtml = dateList.map(dStr => {
+    const d = days[dStr];
+    const dObj = new Date(dStr + 'T00:00:00');
+    const isWeekend = (dObj.getDay() === 0 || dObj.getDay() === 6);
+
+    if (!d) {
+      return `<td class="matrix-cell ${isWeekend ? 'matrix-day-weekend' : ''}"><span class="text-muted">-</span></td>`;
+    }
+
+    if (d.punch_count > 0) {
+      let badgeClass = 'matrix-badge-p';
+      let badgeText = 'P';
+
+      if (d.daily_status && d.daily_status.includes('Half Day')) {
+        badgeClass = 'matrix-badge-hd';
+        badgeText = 'HD';
+      } else if (d.daily_status && (d.daily_status.includes('Duty') || d.daily_status.includes('Official Duty'))) {
+        badgeClass = 'matrix-badge-p';
+        badgeText = 'DL';
+      } else if (d.daily_status && d.daily_status.includes('Compensatory')) {
+        badgeClass = 'matrix-badge-p';
+        badgeText = 'CL';
+      } else if (d.daily_status && d.daily_status.includes('Leave')) {
+        badgeClass = 'matrix-badge-sl';
+        badgeText = 'LV';
+      } else if (d.daily_status && d.daily_status.includes('Grace')) {
+        badgeClass = 'matrix-badge-grace';
+        badgeText = 'G';
+      } else if (d.daily_status && d.daily_status.includes('Short Leave')) {
+        badgeClass = 'matrix-badge-sl';
+        badgeText = 'SL';
+      } else if (d.daily_status && d.daily_status.includes('Late')) {
+        badgeClass = 'matrix-badge-grace';
+        badgeText = 'L';
+      } else if (d.day_type === 'WEEKEND') {
+        badgeClass = 'matrix-badge-p';
+        badgeText = 'W-WRK';
+      } else if (d.day_type === 'HOLIDAY') {
+        badgeClass = 'matrix-badge-hol';
+        badgeText = 'H-WRK';
+      }
+
+      const inTime = d.check_in_time !== '-' ? d.check_in_time.slice(0, 5) : '--:--';
+      const outTime = d.check_out_time !== '-' ? d.check_out_time.slice(0, 5) : '--:--';
+      const timeDisplay = `<span class="matrix-time-in">${inTime}</span><span class="matrix-time-sep">-</span><span class="matrix-time-out">${outTime}</span>`;
+      const otDisplay = d.ot_hours > 0 ? `<span class="matrix-ot-badge">+${d.ot_hours}H</span>` : '';
+      const durDisplay = d.worked_formatted && d.worked_formatted !== '-' ? d.worked_formatted : (d.punch_count > 1 ? '0h 0m' : '-');
+
+      return `
+        <td class="matrix-cell ${isWeekend ? 'matrix-day-weekend' : ''}" title="${dStr}: In ${d.check_in_time}, Out ${d.check_out_time} • ${escapeHtml(d.daily_status)} • Worked: ${durDisplay}${d.ot_hours > 0 ? ` • OT: +${d.ot_hours}H` : ''}">
+          <div class="matrix-cell-sub">
+            <span class="matrix-badge ${badgeClass}">${badgeText}</span>
+            ${otDisplay}
+          </div>
+          <div class="matrix-cell-times">${timeDisplay}</div>
+          <div class="matrix-cell-dur" title="Worked: ${durDisplay}">${durDisplay}</div>
+        </td>
+      `;
+    } else if (d.daily_status && (d.daily_status.includes('Duty') || d.daily_status.includes('Official Duty'))) {
+      return `
+        <td class="matrix-cell" style="background: #eff6ff;" title="${dStr}: ${escapeHtml(d.daily_status)}">
+          <span class="matrix-badge" style="background:#0284c7; color:#fff; font-size:0.7rem; padding:1px 4px; border-radius:3px;">DL</span>
+          <div class="matrix-cell-empty-line" style="font-size:0.68rem; color:#0284c7;">Duty</div>
+        </td>
+      `;
+    } else if (d.daily_status && d.daily_status.includes('Compensatory')) {
+      return `
+        <td class="matrix-cell" style="background: #f0fdf4;" title="${dStr}: ${escapeHtml(d.daily_status)}">
+          <span class="matrix-badge" style="background:#16a34a; color:#fff; font-size:0.7rem; padding:1px 4px; border-radius:3px;">CL</span>
+          <div class="matrix-cell-empty-line" style="font-size:0.68rem; color:#16a34a;">Comp</div>
+        </td>
+      `;
+    } else if (d.daily_status && d.daily_status.includes('Leave (Approved)')) {
+      return `
+        <td class="matrix-cell" style="background: #faf5ff;" title="${dStr}: ${escapeHtml(d.daily_status)}">
+          <span class="matrix-badge matrix-badge-sl" style="font-size:0.7rem; padding:1px 4px;">LV</span>
+          <div class="matrix-cell-empty-line" style="font-size:0.68rem; color:#7e22ce;">Leave</div>
+        </td>
+      `;
+    } else if (d.daily_status && d.daily_status.includes('Pending Leave')) {
+      return `
+        <td class="matrix-cell" style="background: #fffbeb;" title="${dStr}: ${escapeHtml(d.daily_status)}">
+          <span class="matrix-badge matrix-badge-grace" style="font-size:0.7rem; padding:1px 4px;">PL</span>
+          <div class="matrix-cell-empty-line" style="font-size:0.68rem; color:#a16207;">Pending</div>
+        </td>
+      `;
+    } else if (d.day_type === 'WEEKEND') {
+      return `
+        <td class="matrix-cell matrix-day-weekend" title="${dStr}: Weekend Off">
+          <span class="matrix-badge matrix-badge-off">OFF</span>
+          <div class="matrix-cell-empty-line">-</div>
+        </td>
+      `;
+    } else if (d.day_type === 'HOLIDAY') {
+      return `
+        <td class="matrix-cell" style="background: #faf5ff;" title="${dStr}: ${escapeHtml(d.day_name || 'Holiday')}">
+          <span class="matrix-badge matrix-badge-hol">HOL</span>
+          <div class="matrix-cell-empty-line">-</div>
+        </td>
+      `;
+    } else {
+      return `
+        <td class="matrix-cell" style="background: #fff5f5;" title="${dStr}: Absent (No Punch)">
+          <span class="matrix-badge matrix-badge-a">A</span>
+          <div class="matrix-cell-empty-line">-</div>
+        </td>
+      `;
+    }
+  }).join('');
+
+  return `
+    <tr>
+      <td class="matrix-col-idx text-muted font-mono" data-col="col-idx">${i + 1}</td>
+      <td class="matrix-col-uid font-mono" data-col="col-uid">${emp.user_id}</td>
+      <td class="matrix-col-name" data-col="col-emp" title="${escapeHtml(emp.employee_name || 'Unassigned')}">
+        ${escapeHtml(emp.employee_name || 'Unassigned')}
+      </td>
+      <td class="matrix-col-dept" data-col="col-dept" style="white-space: nowrap; font-size: 0.73rem;">${escapeHtml(emp.department || 'General')}</td>
+      <td class="matrix-col-shift" data-col="col-shift" style="white-space: nowrap; font-size: 0.73rem;">${escapeHtml(emp.shift_name || 'General')}</td>
+      ${dayCellsHtml}
+      <td class="matrix-tot-td matrix-tot-workdays" data-col="col-totals">${tot.scheduledWorkDays || 0}</td>
+      <td class="matrix-tot-td matrix-tot-pres" data-col="col-totals" style="color: #15803d;">${tot.daysPresent || 0}</td>
+      <td class="matrix-tot-td matrix-tot-abs" data-col="col-totals" style="color: ${tot.daysAbsent > 0 ? '#b91c1c' : 'var(--text-muted)'};">${tot.daysAbsent || 0}</td>
+      <td class="matrix-tot-td matrix-tot-hd" data-col="col-totals">${tot.halfDays || 0}</td>
+      <td class="matrix-tot-td matrix-tot-grace" data-col="col-totals">${tot.graceUsed || 0}</td>
+      <td class="matrix-tot-td matrix-tot-sl" data-col="col-totals">${tot.shortLeaveUsed || 0}</td>
+      <td class="matrix-tot-td matrix-tot-worked" data-col="col-totals" style="color: #1d4ed8; font-weight: 800;">${tot.totalWorkedFormatted || '0h 0m'}</td>
+      <td class="matrix-tot-td matrix-tot-ot" data-col="col-totals" style="color: ${tot.totalOtHours > 0 ? '#7e22ce' : 'var(--text-muted)'}; font-weight: 800;">
+        ${tot.totalOtHours > 0 ? `+${tot.totalOtHours}H` : '0H'}
+      </td>
+      <td class="matrix-tot-td matrix-tot-att" data-col="col-totals" style="color: #0284c7; font-weight: 800;">${tot.attendance_pct || '0%'}</td>
+    </tr>
+  `;
+}
+
+function renderMatrixBatch(startIndex, count) {
+  if (!window.matrixRenderState) return;
+  const { records, dateList, layout } = window.matrixRenderState;
+  const tbody = document.getElementById('reportMatrixBody');
+  if (!tbody) return;
+
+  const slice = records.slice(startIndex, startIndex + count);
+  if (slice.length === 0) return;
+
+  const html = slice.map((rec, idx) => {
+    const globalIdx = startIndex + idx;
+    if (layout === 'proposed') {
+      return renderMatrixProposedEmployeeRows(rec, globalIdx, dateList);
+    } else {
+      return renderMatrixStandardEmployeeRow(rec, globalIdx, dateList);
+    }
+  }).join('');
+
+  tbody.insertAdjacentHTML('beforeend', html);
+  window.matrixRenderState.renderedCount = startIndex + slice.length;
+
+  applyReportColumnStyles();
+
+  const sentinel = document.getElementById('matrixScrollSentinel');
+  if (sentinel) {
+    if (window.matrixRenderState.renderedCount >= records.length) {
+      sentinel.style.display = 'none';
+    } else {
+      sentinel.style.display = 'block';
+    }
+  }
+}
+
+function appendNextMatrixChunk() {
+  if (!window.matrixRenderState || window.matrixRenderState.loading) return;
+  const { renderedCount, records } = window.matrixRenderState;
+  if (renderedCount >= records.length) return;
+
+  window.matrixRenderState.loading = true;
+  requestAnimationFrame(() => {
+    if (window.matrixRenderState) {
+      renderMatrixBatch(window.matrixRenderState.renderedCount, MATRIX_CHUNK_SIZE);
+      window.matrixRenderState.loading = false;
+    }
+  });
+}
+
+function renderAllRemainingMatrixRows() {
+  if (!window.matrixRenderState) return;
+  const { renderedCount, records } = window.matrixRenderState;
+  if (renderedCount < records.length) {
+    renderMatrixBatch(renderedCount, records.length - renderedCount);
+  }
+  const sentinel = document.getElementById('matrixScrollSentinel');
+  if (sentinel) sentinel.style.display = 'none';
+}
+window.renderAllRemainingMatrixRows = renderAllRemainingMatrixRows;
+
+function setupMatrixInfiniteScroll() {
+  const sentinel = document.getElementById('matrixScrollSentinel');
+  const scrollWrap = document.getElementById('reportMatrixWrap');
+  if (!sentinel || !scrollWrap) return;
+
+  if (matrixInfiniteObserver) {
+    matrixInfiniteObserver.disconnect();
+    matrixInfiniteObserver = null;
+  }
+  if (matrixScrollHandler) {
+    scrollWrap.removeEventListener('scroll', matrixScrollHandler);
+    matrixScrollHandler = null;
+  }
+
+  if ('IntersectionObserver' in window) {
+    matrixInfiniteObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          appendNextMatrixChunk();
+        }
+      });
+    }, { root: scrollWrap, rootMargin: '300px 0px', threshold: 0.01 });
+    matrixInfiniteObserver.observe(sentinel);
+  }
+
+  matrixScrollHandler = () => {
+    if (scrollWrap.scrollHeight - scrollWrap.scrollTop - scrollWrap.clientHeight < 400) {
+      appendNextMatrixChunk();
+    }
+  };
+  scrollWrap.addEventListener('scroll', matrixScrollHandler, { passive: true });
+}
+
 function renderMonthlyMatrixTable(data) {
   window.lastMatrixReportData = data;
   const thead = document.getElementById('reportMatrixHead');
@@ -2697,6 +3331,8 @@ function renderMonthlyMatrixTable(data) {
   if (records.length === 0) {
     thead.innerHTML = '';
     tbody.innerHTML = `<tr><td colspan="45" class="text-center py-4 text-muted">No attendance records found for this period.</td></tr>`;
+    const sentinel = document.getElementById('matrixScrollSentinel');
+    if (sentinel) sentinel.style.display = 'none';
     applyReportColumnStyles();
     renderReportColumnSelector();
     return;
@@ -2719,156 +3355,8 @@ function renderMonthlyMatrixTable(data) {
   }).join('');
 
   if (layout === 'proposed') {
-    // ==========================================
-    // PROPOSED LAYOUT: Two Rows per Employee
-    // Row 1: Employee Identity & Month Summary
-    // Row 2: 31 Calendar Days with Maximum Size Times
-    // ==========================================
-    thead.innerHTML = `
-      <tr>
-        ${dayHeadersHtml}
-      </tr>
-    `;
-
-    tbody.innerHTML = records.map((rec, i) => {
-      const emp = rec.employee || {};
-      const tot = rec.totals || {};
-      const days = rec.days || {};
-
-      // Row 1: Employee Header Banner
-      const bannerHtml = `
-        <tr class="matrix-row-emp-banner">
-          <td colspan="${dateList.length}" class="matrix-cell-emp-banner">
-            <div class="matrix-emp-banner-inner">
-              <div class="matrix-emp-banner-left">
-                <span class="matrix-banner-idx" data-col="col-idx">#${i + 1}</span>
-                <span class="matrix-banner-uid" data-col="col-uid"><strong>User ID:</strong> <span class="font-mono font-bold" style="color:#0f172a; font-size:0.92rem;">${emp.user_id}</span></span>
-                <span class="matrix-banner-name" data-col="col-emp"><strong>Name:</strong> ${escapeHtml(emp.employee_name || 'Unassigned')}</span>
-                <span class="matrix-banner-dept" data-col="col-dept"><strong>Dept:</strong> ${escapeHtml(emp.department || 'General')}</span>
-                <span class="matrix-banner-shift" data-col="col-shift"><strong>Shift:</strong> ${escapeHtml(emp.shift_name || 'General')}</span>
-              </div>
-              <div class="matrix-emp-banner-right" data-col="col-totals">
-                <span class="matrix-banner-pill" style="background:#e0f2fe; color:#0369a1;" title="Scheduled Work Days">Work: <strong>${tot.scheduledWorkDays || 0}d</strong></span>
-                <span class="matrix-banner-pill" style="background:#dcfce7; color:#15803d;" title="Days Present">Pres: <strong>${tot.daysPresent || 0}d</strong></span>
-                <span class="matrix-banner-pill" style="background:#fee2e2; color:#b91c1c;" title="Days Absent">Abs: <strong>${tot.daysAbsent || 0}d</strong></span>
-                <span class="matrix-banner-pill" style="background:#ffedd5; color:#c2410c;" title="Half Days">HD: <strong>${tot.halfDays || 0}</strong></span>
-                <span class="matrix-banner-pill" style="background:#fef9c3; color:#854d0e;" title="Morning Grace Used">Grace: <strong>${tot.graceUsed || 0}</strong></span>
-                <span class="matrix-banner-pill" style="background:#f0f9ff; color:#0284c7;" title="Short Leaves Used">SL: <strong>${tot.shortLeaveUsed || 0}</strong></span>
-                <span class="matrix-banner-pill" style="background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe;" title="Total Worked Hours">Worked: <strong>${tot.totalWorkedFormatted || '0h'}</strong></span>
-                <span class="matrix-banner-pill" style="background:#f3e8ff; color:#7e22ce;" title="Total Overtime Hours">OT: <strong>${tot.totalOtHours > 0 ? `+${tot.totalOtHours}H` : '0H'}</strong></span>
-                <span class="matrix-banner-pill" style="background:#ccfbf1; color:#0f766e;" title="Attendance Rate">Att: <strong>${tot.attendance_pct || '0%'}</strong></span>
-              </div>
-            </div>
-          </td>
-        </tr>
-      `;
-
-      // Row 2: 31 Calendar Days with Maximum Attendance Time Layout
-      const daysCellsHtml = dateList.map(dStr => {
-        const d = days[dStr];
-        const dObj = new Date(dStr + 'T00:00:00');
-        const isWeekend = (dObj.getDay() === 0 || dObj.getDay() === 6);
-        const dayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-        const dName = dayNames[dObj.getDay()] || '';
-        const dayNum = dStr.slice(8);
-        const dayTagClass = isWeekend ? 'matrix-max-day-weekend' : (d && d.day_type === 'HOLIDAY' ? 'matrix-max-day-holiday' : '');
-
-        if (!d) {
-          return `
-            <td class="matrix-cell-max ${isWeekend ? 'matrix-day-weekend' : ''}">
-              <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
-              <span class="text-muted" style="font-size:1.1rem; line-height:2.2;">-</span>
-            </td>
-          `;
-        }
-
-        if (d.punch_count > 0) {
-          let badgeClass = 'matrix-badge-p';
-          let badgeText = 'P';
-
-          if (d.daily_status && d.daily_status.includes('Half Day')) {
-            badgeClass = 'matrix-badge-hd';
-            badgeText = 'HD';
-          } else if (d.daily_status && d.daily_status.includes('Grace')) {
-            badgeClass = 'matrix-badge-grace';
-            badgeText = 'G';
-          } else if (d.daily_status && d.daily_status.includes('Short Leave')) {
-            badgeClass = 'matrix-badge-sl';
-            badgeText = 'SL';
-          } else if (d.daily_status && d.daily_status.includes('Late')) {
-            badgeClass = 'matrix-badge-grace';
-            badgeText = 'L';
-          } else if (d.day_type === 'WEEKEND') {
-            badgeClass = 'matrix-badge-p';
-            badgeText = 'W-WRK';
-          } else if (d.day_type === 'HOLIDAY') {
-            badgeClass = 'matrix-badge-hol';
-            badgeText = 'H-WRK';
-          }
-
-          const inTime = d.check_in_time !== '-' ? d.check_in_time.slice(0, 5) : '--:--';
-          const outTime = d.check_out_time !== '-' ? d.check_out_time.slice(0, 5) : '--:--';
-          const otDisplay = d.ot_hours > 0 ? `<span class="matrix-ot-badge" style="font-size:0.68rem; font-weight:800;">+${d.ot_hours}H</span>` : '';
-          const durDisplay = d.worked_formatted && d.worked_formatted !== '-' ? d.worked_formatted : (d.punch_count > 1 ? '0h 0m' : '-');
-
-          return `
-            <td class="matrix-cell-max ${isWeekend ? 'matrix-day-weekend' : ''}" title="${dStr} (${dName}): In ${d.check_in_time}, Out ${d.check_out_time} • ${escapeHtml(d.daily_status)} • Worked: ${durDisplay}${d.ot_hours > 0 ? ` • OT: +${d.ot_hours}H` : ''}">
-              <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
-              <div class="matrix-max-time-box">
-                <div class="matrix-time-in-max" title="Check-In Punch Time">
-                  <small>IN</small> ${inTime}
-                </div>
-                <div class="matrix-time-out-max" title="Check-Out Punch Time">
-                  <small>OUT</small> ${outTime}
-                </div>
-              </div>
-              <div class="matrix-max-badge-row">
-                <span class="matrix-badge ${badgeClass}">${badgeText}</span>
-                <span class="matrix-max-dur" title="Worked Duration">${durDisplay}</span>
-                ${otDisplay}
-              </div>
-            </td>
-          `;
-        } else if (d.day_type === 'WEEKEND') {
-          return `
-            <td class="matrix-cell-max matrix-day-weekend" title="${dStr} (${dName}): Weekend Off">
-              <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
-              <div class="matrix-time-off-max">
-                <span class="matrix-badge matrix-badge-off" style="font-size:0.75rem; padding: 2px 6px;">OFF</span>
-              </div>
-              <div class="matrix-max-badge-row"><span class="text-muted">-</span></div>
-            </td>
-          `;
-        } else if (d.day_type === 'HOLIDAY') {
-          return `
-            <td class="matrix-cell-max" style="background: #faf5ff;" title="${dStr} (${dName}): ${escapeHtml(d.day_name || 'Holiday')}">
-              <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
-              <div class="matrix-time-hol-max">
-                <span class="matrix-badge matrix-badge-hol" style="font-size:0.75rem; padding: 2px 6px;">HOL</span>
-              </div>
-              <div class="matrix-max-badge-row"><span class="text-muted">-</span></div>
-            </td>
-          `;
-        } else {
-          return `
-            <td class="matrix-cell-max" style="background: #fff5f5;" title="${dStr} (${dName}): Absent (No Punch)">
-              <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
-              <div class="matrix-time-absent-max">
-                <span class="matrix-badge matrix-badge-a" style="font-size:0.75rem; padding: 2px 6px;">ABSENT</span>
-              </div>
-              <div class="matrix-max-badge-row"><span class="text-muted">-</span></div>
-            </td>
-          `;
-        }
-      }).join('');
-
-      return bannerHtml + `<tr class="matrix-row-max-times">${daysCellsHtml}</tr>`;
-    }).join('');
-
+    thead.innerHTML = `<tr>${dayHeadersHtml}</tr>`;
   } else {
-    // ==========================================
-    // STANDARD LAYOUT: Single Row per Employee
-    // ==========================================
     thead.innerHTML = `
       <tr>
         <th class="matrix-col-idx" data-col="col-idx">#</th>
@@ -2888,112 +3376,20 @@ function renderMonthlyMatrixTable(data) {
         <th class="matrix-tot-th matrix-tot-att" data-col="col-totals" style="color: #0284c7; min-width: 48px;" title="Attendance Percentage">Att %</th>
       </tr>
     `;
-
-    tbody.innerHTML = records.map((rec, i) => {
-      const emp = rec.employee || {};
-      const tot = rec.totals || {};
-      const days = rec.days || {};
-
-      const dayCellsHtml = dateList.map(dStr => {
-        const d = days[dStr];
-        const dObj = new Date(dStr + 'T00:00:00');
-        const isWeekend = (dObj.getDay() === 0 || dObj.getDay() === 6);
-
-        if (!d) {
-          return `<td class="matrix-cell ${isWeekend ? 'matrix-day-weekend' : ''}"><span class="text-muted">-</span></td>`;
-        }
-
-        if (d.punch_count > 0) {
-          let badgeClass = 'matrix-badge-p';
-          let badgeText = 'P';
-
-          if (d.daily_status && d.daily_status.includes('Half Day')) {
-            badgeClass = 'matrix-badge-hd';
-            badgeText = 'HD';
-          } else if (d.daily_status && d.daily_status.includes('Grace')) {
-            badgeClass = 'matrix-badge-grace';
-            badgeText = 'G';
-          } else if (d.daily_status && d.daily_status.includes('Short Leave')) {
-            badgeClass = 'matrix-badge-sl';
-            badgeText = 'SL';
-          } else if (d.daily_status && d.daily_status.includes('Late')) {
-            badgeClass = 'matrix-badge-grace';
-            badgeText = 'L';
-          } else if (d.day_type === 'WEEKEND') {
-            badgeClass = 'matrix-badge-p';
-            badgeText = 'W-WRK';
-          } else if (d.day_type === 'HOLIDAY') {
-            badgeClass = 'matrix-badge-hol';
-            badgeText = 'H-WRK';
-          }
-
-          const inTime = d.check_in_time !== '-' ? d.check_in_time.slice(0, 5) : '--:--';
-          const outTime = d.check_out_time !== '-' ? d.check_out_time.slice(0, 5) : '--:--';
-          const timeDisplay = `<span class="matrix-time-in">${inTime}</span><span class="matrix-time-sep">-</span><span class="matrix-time-out">${outTime}</span>`;
-          const otDisplay = d.ot_hours > 0 ? `<span class="matrix-ot-badge">+${d.ot_hours}H</span>` : '';
-          const durDisplay = d.worked_formatted && d.worked_formatted !== '-' ? d.worked_formatted : (d.punch_count > 1 ? '0h 0m' : '-');
-
-          return `
-            <td class="matrix-cell ${isWeekend ? 'matrix-day-weekend' : ''}" title="${dStr}: In ${d.check_in_time}, Out ${d.check_out_time} • ${escapeHtml(d.daily_status)} • Worked: ${durDisplay}${d.ot_hours > 0 ? ` • OT: +${d.ot_hours}H` : ''}">
-              <div class="matrix-cell-sub">
-                <span class="matrix-badge ${badgeClass}">${badgeText}</span>
-                ${otDisplay}
-              </div>
-              <div class="matrix-cell-times">${timeDisplay}</div>
-              <div class="matrix-cell-dur" title="Worked: ${durDisplay}">${durDisplay}</div>
-            </td>
-          `;
-        } else if (d.day_type === 'WEEKEND') {
-          return `
-            <td class="matrix-cell matrix-day-weekend" title="${dStr}: Weekend Off">
-              <span class="matrix-badge matrix-badge-off">OFF</span>
-              <div class="matrix-cell-empty-line">-</div>
-            </td>
-          `;
-        } else if (d.day_type === 'HOLIDAY') {
-          return `
-            <td class="matrix-cell" style="background: #faf5ff;" title="${dStr}: ${escapeHtml(d.day_name || 'Holiday')}">
-              <span class="matrix-badge matrix-badge-hol">HOL</span>
-              <div class="matrix-cell-empty-line">-</div>
-            </td>
-          `;
-        } else {
-          return `
-            <td class="matrix-cell" style="background: #fff5f5;" title="${dStr}: Absent (No Punch)">
-              <span class="matrix-badge matrix-badge-a">A</span>
-              <div class="matrix-cell-empty-line">-</div>
-            </td>
-          `;
-        }
-      }).join('');
-
-      return `
-        <tr>
-          <td class="matrix-col-idx text-muted font-mono" data-col="col-idx">${i + 1}</td>
-          <td class="matrix-col-uid font-mono" data-col="col-uid">${emp.user_id}</td>
-          <td class="matrix-col-name" data-col="col-emp" title="${escapeHtml(emp.employee_name || 'Unassigned')}">
-            ${escapeHtml(emp.employee_name || 'Unassigned')}
-          </td>
-          <td class="matrix-col-dept" data-col="col-dept" style="white-space: nowrap; font-size: 0.73rem;">${escapeHtml(emp.department || 'General')}</td>
-          <td class="matrix-col-shift" data-col="col-shift" style="white-space: nowrap; font-size: 0.73rem;">${escapeHtml(emp.shift_name || 'General')}</td>
-          ${dayCellsHtml}
-          <td class="matrix-tot-td matrix-tot-workdays" data-col="col-totals">${tot.scheduledWorkDays || 0}</td>
-          <td class="matrix-tot-td matrix-tot-pres" data-col="col-totals" style="color: #15803d;">${tot.daysPresent || 0}</td>
-          <td class="matrix-tot-td matrix-tot-abs" data-col="col-totals" style="color: ${tot.daysAbsent > 0 ? '#b91c1c' : 'var(--text-muted)'};">${tot.daysAbsent || 0}</td>
-          <td class="matrix-tot-td matrix-tot-hd" data-col="col-totals">${tot.halfDays || 0}</td>
-          <td class="matrix-tot-td matrix-tot-grace" data-col="col-totals">${tot.graceUsed || 0}</td>
-          <td class="matrix-tot-td matrix-tot-sl" data-col="col-totals">${tot.shortLeaveUsed || 0}</td>
-          <td class="matrix-tot-td matrix-tot-worked" data-col="col-totals" style="color: #1d4ed8; font-weight: 800;">${tot.totalWorkedFormatted || '0h 0m'}</td>
-          <td class="matrix-tot-td matrix-tot-ot" data-col="col-totals" style="color: ${tot.totalOtHours > 0 ? '#7e22ce' : 'var(--text-muted)'}; font-weight: 800;">
-            ${tot.totalOtHours > 0 ? `+${tot.totalOtHours}H` : '0H'}
-          </td>
-          <td class="matrix-tot-td matrix-tot-att" data-col="col-totals" style="color: #0284c7; font-weight: 800;">${tot.attendance_pct || '0%'}</td>
-        </tr>
-      `;
-    }).join('');
   }
 
-  applyReportColumnStyles();
+  tbody.innerHTML = '';
+  window.matrixRenderState = {
+    records,
+    dateList,
+    layout,
+    renderedCount: 0,
+    loading: false
+  };
+
+  // Render initial batch (25 employees)
+  renderMatrixBatch(0, MATRIX_CHUNK_SIZE);
+  setupMatrixInfiniteScroll();
   renderReportColumnSelector();
 }
 
@@ -3006,6 +3402,7 @@ function renderMonthlyMatrixTable(data) {
 function getCurrentReportViewMode() {
   if (state.report.scope === 'monthly_matrix') return 'monthly_matrix';
   if (state.report.scope === 'single') return 'timesheet';
+  if (state.report.type === 'daily_leaves') return 'daily_leaves';
   if (state.report.type === 'daily') return 'daily';
   if (state.report.type === 'weekly') return 'weekly_all';
   if (state.report.type === 'monthly') return 'monthly_all';
@@ -3246,9 +3643,297 @@ window.closeReportColumnsMenu = closeReportColumnsMenu;
 window.selectAllReportColumns = selectAllReportColumns;
 window.resetReportColumns = resetReportColumns;
 
+// ==========================================
+// INDIVIDUAL ROW RENDERERS FOR PROGRESSIVE LOADING
+// ==========================================
+function renderDailyLeaveRow(r, i) {
+  const isAbsent = (r.punch_count === 0 || r.check_in_status === 'ABSENT');
+  const checkInPill = isAbsent
+    ? `<span class="badge-absent" style="font-size:0.75rem;">🔴 Absent</span>`
+    : (r.check_in_time && r.check_in_time !== '-')
+      ? `<strong class="font-mono" style="font-size:0.86rem; color: #15803d;">${r.check_in_time}</strong>`
+      : `<span class="text-muted">-</span>`;
+
+  const checkOutPill = isAbsent
+    ? `<span class="text-muted">-</span>`
+    : (r.check_out_time && r.check_out_time !== '-')
+      ? `<strong class="font-mono" style="font-size:0.86rem; color: #15803d;">${r.check_out_time}</strong>`
+      : `<span class="badge-tag" style="background:#f1f5f9;color:#64748b;font-size:0.72rem;">Pending</span>`;
+
+  let leaveReqPill = '<span class="text-muted" style="color:#94a3b8;">&mdash;</span>';
+  if (r.leave_type_name) {
+    const icon = r.is_duty_leave ? '🏛️ ' : (r.is_compensatory_leave ? '⭐ ' : '📋 ');
+    leaveReqPill = `<span class="badge-tag" style="background:${r.leave_type_color || '#3b82f6'}20; color:${r.leave_type_color || '#1d4ed8'}; border:1px solid ${r.leave_type_color || '#93c5fd'}; font-weight:700; font-size:0.75rem;">${icon}${escapeHtml(r.leave_type_name)}</span>`;
+  }
+
+  let leaveStatusPill = '<span class="text-muted" style="color:#94a3b8;">&mdash;</span>';
+  if (r.leave_status === 'APPROVED') {
+    leaveStatusPill = `<span class="badge-on-time" style="font-size:0.75rem; background:#dcfce7; color:#15803d; border:1px solid #bbf7d0;">🟢 Approved</span>`;
+  } else if (r.leave_status === 'PENDING') {
+    leaveStatusPill = `<span class="badge-late-in" style="font-size:0.75rem; background:#fef3c7; color:#b45309; border:1px solid #fde68a;">⏳ Pending</span>`;
+  } else if (r.leave_status === 'REJECTED') {
+    leaveStatusPill = `<span class="badge-absent" style="font-size:0.75rem; background:#fee2e2; color:#b91c1c; border:1px solid #fecaca;">❌ Rejected</span>`;
+  }
+
+  let statusBadgeClass = isAbsent ? (r.leave_status ? 'badge-holiday' : 'badge-absent') : (r.daily_badge || 'badge-on-time');
+  if (r.leave_status === 'APPROVED') {
+    statusBadgeClass = (r.is_duty_leave || r.is_compensatory_leave) ? 'badge-worked-off' : 'badge-holiday';
+  } else if (r.leave_status === 'PENDING') {
+    statusBadgeClass = 'badge-late-in';
+  }
+
+  return `
+    <tr>
+      <td data-col="col-idx" class="text-muted font-mono">${i + 1}</td>
+      <td data-col="col-date" class="font-mono"><strong>${r.date}</strong></td>
+      <td data-col="col-uid" class="font-mono"><strong>${r.user_id}</strong></td>
+      <td data-col="col-emp"><strong>${escapeHtml(r.employee_name || 'Unassigned')}</strong></td>
+      <td data-col="col-dept">${escapeHtml(r.department || 'General')}</td>
+      <td data-col="col-shift">${escapeHtml(r.shift_name || 'General')}</td>
+      <td data-col="col-checkin">${checkInPill}</td>
+      <td data-col="col-checkout">${checkOutPill}</td>
+      <td data-col="col-worked" class="font-mono">${r.worked_formatted !== '-' ? `<strong>${r.worked_formatted}</strong>` : '-'}</td>
+      <td data-col="col-ot">${r.ot_hours > 0 ? `<span class="badge-tag" style="background:#f3e8ff;color:#7e22ce;font-weight:700;">+${r.ot_hours}H</span>` : '<span class="text-muted">0 H</span>'}</td>
+      <td data-col="col-leave-req">${leaveReqPill}</td>
+      <td data-col="col-leave-stat">${leaveStatusPill}</td>
+      <td data-col="col-status">
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <span class="${statusBadgeClass}" style="width:fit-content; font-size:0.76rem;">${escapeHtml(r.daily_status || (isAbsent ? 'Absent' : 'Present'))}</span>
+          ${r.remarks ? `<span class="text-muted" style="font-size:0.72rem; line-height:1.2;">${escapeHtml(r.remarks)}</span>` : ''}
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function renderDailyStandardRow(r, i) {
+  const isAbsent = (r.punch_count === 0 || r.check_in_status === 'ABSENT');
+  const checkInPill = isAbsent
+    ? `<span class="badge-absent">🔴 Absent (No Punch)</span>`
+    : (r.check_in_time && r.check_in_time !== '-')
+      ? `<div style="display:flex; flex-direction:column; gap:2px;">
+           <span class="font-mono font-bold" style="color:var(--text-main); font-size:0.88rem;">${r.check_in_time}</span>
+           <span class="${r.check_in_badge || 'badge-on-time'}" style="width:fit-content; font-size:0.75rem;">${escapeHtml(r.check_in_label || 'On Time')}</span>
+         </div>`
+      : `<span class="text-muted">-</span>`;
+
+  const checkOutPill = isAbsent
+    ? `<span class="text-muted">-</span>`
+    : (r.check_out_time && r.check_out_time !== '-')
+      ? `<div style="display:flex; flex-direction:column; gap:2px;">
+           <span class="font-mono font-bold" style="color:var(--text-main); font-size:0.88rem;">${r.check_out_time}</span>
+           <span class="${r.check_out_badge || 'badge-on-time'}" style="width:fit-content; font-size:0.75rem;">${escapeHtml(r.check_out_label || 'Full Day')}</span>
+         </div>`
+      : `<span class="badge-tag" style="background:#f1f5f9;color:#64748b;font-size:0.75rem;">Pending / Missing</span>`;
+
+  const dayBadgeClass = r.day_type === 'WEEKEND' ? 'badge-weekend' : (r.day_type === 'HOLIDAY' ? 'badge-holiday' : 'badge-weekday');
+  const statusBadgeClass = isAbsent ? (r.leave_status ? 'badge-holiday' : 'badge-absent') : (r.daily_badge || 'badge-on-time');
+
+  return `
+    <tr>
+      <td data-col="col-idx" class="text-muted font-mono">${i + 1}</td>
+      <td data-col="col-date" class="font-mono"><strong>${r.date}</strong></td>
+      <td data-col="col-day"><span class="${dayBadgeClass}">${escapeHtml(r.day_name || '')}</span></td>
+      <td data-col="col-uid" class="font-mono"><strong>${r.user_id}</strong></td>
+      <td data-col="col-emp"><strong>${escapeHtml(r.employee_name || 'Unassigned')}</strong></td>
+      <td data-col="col-dept">${escapeHtml(r.department || 'General')}</td>
+      <td data-col="col-shift">${escapeHtml(r.shift_name || 'General')}</td>
+      <td data-col="col-checkin">${checkInPill}</td>
+      <td data-col="col-checkout">${checkOutPill}</td>
+      <td data-col="col-worked" class="font-mono">${r.worked_formatted !== '-' ? `<strong>${r.worked_formatted}</strong>` : '-'}</td>
+      <td data-col="col-ot">${r.ot_hours > 0 ? `<span class="badge-tag" style="background:#f3e8ff;color:#7e22ce;font-weight:700;">⚡ +${r.ot_hours}H OT</span>` : '<span class="text-muted">0 H</span>'}</td>
+      <td data-col="col-status">
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <span class="${statusBadgeClass}" style="width:fit-content; font-size:0.76rem;">${escapeHtml(r.daily_status || (isAbsent ? 'Absent' : 'Present'))}</span>
+          ${r.remarks && r.remarks !== r.daily_status ? `<span class="text-muted" style="font-size:0.72rem; line-height:1.2;">${escapeHtml(r.remarks)}</span>` : ''}
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function renderWeeklySingleRow(r, i) {
+  const isAbsent = (r.punch_count === 0 || r.check_in_status === 'ABSENT');
+  const checkInPill = isAbsent
+    ? `<span class="badge-absent">🔴 Absent (No Punch)</span>`
+    : (r.check_in_time && r.check_in_time !== '-')
+      ? `<strong>${r.check_in_time}</strong> <span class="${r.check_in_badge || 'badge-on-time'}" style="font-size:0.75rem;">${escapeHtml(r.check_in_label || 'In')}</span>`
+      : `<span class="text-muted">-</span>`;
+
+  const checkOutPill = isAbsent
+    ? `<span class="text-muted">-</span>`
+    : (r.check_out_time && r.check_out_time !== '-')
+      ? `<strong>${r.check_out_time}</strong> <span class="${r.check_out_badge || 'badge-on-time'}" style="font-size:0.75rem;">${escapeHtml(r.check_out_label || 'Out')}</span>`
+      : `<span class="badge-tag" style="background:#f1f5f9;color:#64748b;font-size:0.75rem;">Pending / Missing</span>`;
+
+  const dayBadgeClass = r.day_type === 'WEEKEND' ? 'badge-weekend' : (r.day_type === 'HOLIDAY' ? 'badge-holiday' : 'badge-weekday');
+  const statusBadgeClass = isAbsent ? (r.leave_status ? 'badge-holiday' : 'badge-absent') : (r.daily_badge || 'badge-on-time');
+
+  return `
+    <tr>
+      <td data-col="col-idx" class="text-muted font-mono">${i + 1}</td>
+      <td data-col="col-date" class="font-mono"><strong>${r.date}</strong></td>
+      <td data-col="col-day"><span class="${dayBadgeClass}">${escapeHtml(r.day_name || '')}</span></td>
+      <td data-col="col-shift">${escapeHtml(r.shift_name || 'General')}</td>
+      <td data-col="col-checkin">${checkInPill}</td>
+      <td data-col="col-checkout">${checkOutPill}</td>
+      <td data-col="col-punches" class="font-mono text-center">${r.punch_count || 0}</td>
+      <td data-col="col-worked" class="font-mono">${r.worked_formatted !== '-' ? `<strong>${r.worked_formatted}</strong>` : '-'}</td>
+      <td data-col="col-ot">${r.ot_hours > 0 ? `<span class="badge-tag" style="background:#f3e8ff;color:#7e22ce;font-weight:700;">⚡ +${r.ot_hours}H OT</span>` : '<span class="text-muted">0 H</span>'}</td>
+      <td data-col="col-status">
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <span class="${statusBadgeClass}" style="width:fit-content; font-size:0.76rem;">${escapeHtml(r.daily_status || (isAbsent ? 'Absent' : 'Present'))}</span>
+          ${r.remarks && r.remarks !== r.daily_status ? `<span class="text-muted" style="font-size:0.72rem; line-height:1.2;">${escapeHtml(r.remarks)}</span>` : ''}
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function renderWeeklyAllUsersRow(r, i) {
+  return `
+    <tr>
+      <td data-col="col-idx" class="text-muted font-mono">${i + 1}</td>
+      <td data-col="col-uid" class="font-mono"><strong>${r.user_id}</strong></td>
+      <td data-col="col-emp"><strong>${escapeHtml(r.employee_name || 'Unassigned')}</strong></td>
+      <td data-col="col-dept">${escapeHtml(r.department || 'General')}</td>
+      <td data-col="col-shift">${escapeHtml(r.shift_name || 'General')}</td>
+      <td data-col="col-sched" class="font-mono text-center">${r.scheduled_days}</td>
+      <td data-col="col-present" class="font-mono text-center" style="color: #16a34a; font-weight: 700;">${r.days_present}</td>
+      <td data-col="col-absent" class="font-mono text-center" style="color: ${r.days_absent > 0 ? '#dc2626' : 'var(--text-muted)'}; font-weight: 700;">${r.days_absent}</td>
+      <td data-col="col-half" class="font-mono text-center">${r.half_days}</td>
+      <td data-col="col-late" class="font-mono text-center">${r.late_or_grace}</td>
+      <td data-col="col-worked" class="font-mono"><strong>${r.total_worked_formatted}</strong></td>
+      <td data-col="col-ot">${r.total_ot_hours > 0 ? `<span class="badge-tag" style="background:#f3e8ff;color:#7e22ce;font-weight:700;">⚡ +${r.total_ot_hours}H OT</span>` : '<span class="text-muted">0 H</span>'}</td>
+      <td data-col="col-rate"><span class="badge-tag" style="background:#e0f2fe;color:#0369a1;font-weight:700;">${r.attendance_pct}</span></td>
+    </tr>
+  `;
+}
+
+function renderMonthlySingleRow(r, i) {
+  return renderWeeklySingleRow(r, i);
+}
+
+function renderMonthlyAllUsersRow(r, i) {
+  return `
+    <tr>
+      <td data-col="col-idx" class="text-muted font-mono">${i + 1}</td>
+      <td data-col="col-uid" class="font-mono"><strong>${r.user_id}</strong></td>
+      <td data-col="col-emp"><strong>${escapeHtml(r.employee_name || 'Unassigned')}</strong></td>
+      <td data-col="col-dept">${escapeHtml(r.department || 'General')}</td>
+      <td data-col="col-shift">${escapeHtml(r.shift_name || 'General')}</td>
+      <td data-col="col-workdays" class="font-mono text-center">${r.month_working_days}</td>
+      <td data-col="col-present" class="font-mono text-center" style="color: #16a34a; font-weight: 700;">${r.days_present}</td>
+      <td data-col="col-absent" class="font-mono text-center" style="color: ${r.days_absent > 0 ? '#dc2626' : 'var(--text-muted)'}; font-weight: 700;">${r.days_absent}</td>
+      <td data-col="col-half" class="font-mono text-center">${r.half_days}</td>
+      <td data-col="col-grace" class="font-mono text-center">${r.grace_used}</td>
+      <td data-col="col-shortleave" class="font-mono text-center">${r.short_leave_used}</td>
+      <td data-col="col-worked" class="font-mono"><strong>${r.total_worked_formatted}</strong></td>
+      <td data-col="col-ot">${r.total_ot_hours > 0 ? `<span class="badge-tag" style="background:#f3e8ff;color:#7e22ce;font-weight:700;">⚡ +${r.total_ot_hours}H OT</span>` : '<span class="text-muted">0 H</span>'}</td>
+      <td data-col="col-rate"><span class="badge-tag" style="background:#e0f2fe;color:#0369a1;font-weight:700;">${r.attendance_pct}</span></td>
+    </tr>
+  `;
+}
+
+function initProgressiveTableRender(tbody, sentinel, rowRenderer) {
+  const rows = state.report.activeRows || [];
+  if (rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="15" class="text-center py-4 text-muted">No attendance records found for this period.</td></tr>`;
+    if (sentinel) sentinel.style.display = 'none';
+    applyReportColumnStyles();
+    renderReportColumnSelector();
+    return;
+  }
+
+  state.report.renderedCount = 0;
+  state.report.rowRenderer = rowRenderer;
+  tbody.innerHTML = '';
+
+  const CHUNK_SIZE = 40;
+  const initialChunk = rows.slice(0, CHUNK_SIZE);
+  tbody.innerHTML = initialChunk.map((r, i) => rowRenderer(r, i)).join('');
+  state.report.renderedCount = initialChunk.length;
+
+  if (sentinel) {
+    if (state.report.renderedCount < rows.length) {
+      sentinel.style.display = 'flex';
+      sentinel.innerHTML = `<span class="spinner-sm" style="display:inline-block;width:12px;height:12px;border:2px solid #cbd5e1;border-top-color:#2563eb;border-radius:50%;animation:spin 0.6s linear infinite;margin-right:6px;"></span> Showing <strong>${state.report.renderedCount}</strong> of ${rows.length} rows (Scroll for more)`;
+    } else {
+      sentinel.style.display = 'none';
+    }
+  }
+
+  applyReportColumnStyles();
+  renderReportColumnSelector();
+  setupTableInfiniteScroll(tbody, sentinel);
+}
+
+function setupTableInfiniteScroll(tbody, sentinel) {
+  const tableWrap = document.getElementById('reportTableWrap');
+  if (!tableWrap) return;
+
+  const loadNextChunk = () => {
+    const rows = state.report.activeRows || [];
+    if (state.report.renderedCount >= rows.length || state.report.isRendering) return;
+    state.report.isRendering = true;
+
+    requestAnimationFrame(() => {
+      const CHUNK_SIZE = 40;
+      const nextBatch = rows.slice(state.report.renderedCount, state.report.renderedCount + CHUNK_SIZE);
+      if (nextBatch.length > 0 && state.report.rowRenderer) {
+        const frag = document.createElement('tbody');
+        frag.innerHTML = nextBatch.map((r, i) => state.report.rowRenderer(r, state.report.renderedCount + i)).join('');
+        while (frag.firstChild) {
+          tbody.appendChild(frag.firstChild);
+        }
+        state.report.renderedCount += nextBatch.length;
+        applyReportColumnStyles();
+      }
+
+      if (sentinel) {
+        if (state.report.renderedCount < rows.length) {
+          sentinel.style.display = 'flex';
+          sentinel.innerHTML = `<span class="spinner-sm" style="display:inline-block;width:12px;height:12px;border:2px solid #cbd5e1;border-top-color:#2563eb;border-radius:50%;animation:spin 0.6s linear infinite;margin-right:6px;"></span> Showing <strong>${state.report.renderedCount}</strong> of ${rows.length} rows (Scroll for more)`;
+        } else {
+          sentinel.style.display = 'flex';
+          sentinel.innerHTML = `<span style="color:#16a34a;font-weight:700;">✓ All ${rows.length} records loaded</span>`;
+          setTimeout(() => { if (sentinel) sentinel.style.display = 'none'; }, 2500);
+        }
+      }
+      state.report.isRendering = false;
+    });
+  };
+
+  tableWrap.onscroll = () => {
+    if (tableWrap.scrollTop + tableWrap.clientHeight >= tableWrap.scrollHeight - 160) {
+      loadNextChunk();
+    }
+  };
+
+  const mainContent = document.querySelector('.main-content');
+  if (mainContent) {
+    mainContent.onscroll = () => {
+      if (mainContent.scrollTop + mainContent.clientHeight >= mainContent.scrollHeight - 200) {
+        loadNextChunk();
+      }
+    };
+  }
+
+  if (window.IntersectionObserver && sentinel) {
+    if (state.report.tableObserver) state.report.tableObserver.disconnect();
+    state.report.tableObserver = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        loadNextChunk();
+      }
+    }, { rootMargin: '350px' });
+    state.report.tableObserver.observe(sentinel);
+  }
+}
+
 function renderReportTable(data) {
   const thead = document.getElementById('reportTableHead');
   const tbody = document.getElementById('reportTableBody');
+  const sentinel = document.getElementById('reportTableScrollSentinel');
   if (!thead || !tbody) return;
 
   if (state.report.scope === 'monthly_matrix' || data.scope === 'monthly_matrix') {
@@ -3261,7 +3946,27 @@ function renderReportTable(data) {
     return;
   }
 
-  if (state.report.type === 'daily') {
+  if (state.report.type === 'daily_leaves') {
+    thead.innerHTML = `
+      <tr>
+        <th data-col="col-idx">#</th>
+        <th data-col="col-date">Date</th>
+        <th data-col="col-uid">User ID</th>
+        <th data-col="col-emp">Employee Name</th>
+        <th data-col="col-dept">Department</th>
+        <th data-col="col-shift">Shift</th>
+        <th data-col="col-checkin">Check-In</th>
+        <th data-col="col-checkout">Check-Out</th>
+        <th data-col="col-worked">Worked Time</th>
+        <th data-col="col-ot">OT</th>
+        <th data-col="col-leave-req">Leave Requested</th>
+        <th data-col="col-leave-stat">Leave Status</th>
+        <th data-col="col-status">Daily Status / Remarks</th>
+      </tr>
+    `;
+    state.report.activeRows = data.records || [];
+    initProgressiveTableRender(tbody, sentinel, renderDailyLeaveRow);
+  } else if (state.report.type === 'daily') {
     thead.innerHTML = `
       <tr>
         <th data-col="col-idx">#</th>
@@ -3275,61 +3980,13 @@ function renderReportTable(data) {
         <th data-col="col-checkout">Check-Out (Last Punch)</th>
         <th data-col="col-worked">Worked Time</th>
         <th data-col="col-ot">OT (Hours)</th>
-        <th data-col="col-status">Daily Status</th>
+        <th data-col="col-status">Daily Status / Remarks</th>
       </tr>
     `;
-
-    const records = data.records || [];
-    if (records.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="12" class="text-center py-4 text-muted">No attendance records found for this date.</td></tr>`;
-      applyReportColumnStyles();
-      renderReportColumnSelector();
-      return;
-    }
-
-    tbody.innerHTML = records.map((r, i) => {
-      const isAbsent = (r.punch_count === 0 || r.check_in_status === 'ABSENT');
-      const checkInPill = isAbsent
-        ? `<span class="badge-absent">🔴 Absent (No Punch)</span>`
-        : (r.check_in_time && r.check_in_time !== '-')
-          ? `<div style="display:flex; flex-direction:column; gap:2px;">
-               <span class="font-mono font-bold" style="color:var(--text-main); font-size:0.88rem;">${r.check_in_time}</span>
-               <span class="${r.check_in_badge || 'badge-on-time'}" style="width:fit-content; font-size:0.75rem;">${escapeHtml(r.check_in_label || 'On Time')}</span>
-             </div>`
-          : `<span class="text-muted">-</span>`;
-
-      const checkOutPill = isAbsent
-        ? `<span class="text-muted">-</span>`
-        : (r.check_out_time && r.check_out_time !== '-')
-          ? `<div style="display:flex; flex-direction:column; gap:2px;">
-               <span class="font-mono font-bold" style="color:var(--text-main); font-size:0.88rem;">${r.check_out_time}</span>
-               <span class="${r.check_out_badge || 'badge-on-time'}" style="width:fit-content; font-size:0.75rem;">${escapeHtml(r.check_out_label || 'Full Day')}</span>
-             </div>`
-          : `<span class="badge-tag" style="background:#f1f5f9;color:#64748b;font-size:0.75rem;">Pending / Missing</span>`;
-
-      const dayBadgeClass = r.day_type === 'WEEKEND' ? 'badge-weekend' : (r.day_type === 'HOLIDAY' ? 'badge-holiday' : 'badge-weekday');
-      const statusBadgeClass = isAbsent ? 'badge-absent' : (r.daily_badge || 'badge-on-time');
-
-      return `
-        <tr>
-          <td data-col="col-idx" class="text-muted font-mono">${i + 1}</td>
-          <td data-col="col-date" class="font-mono"><strong>${r.date}</strong></td>
-          <td data-col="col-day"><span class="${dayBadgeClass}">${escapeHtml(r.day_name || '')}</span></td>
-          <td data-col="col-uid" class="font-mono"><strong>${r.user_id}</strong></td>
-          <td data-col="col-emp"><strong>${escapeHtml(r.employee_name || 'Unassigned')}</strong></td>
-          <td data-col="col-dept">${escapeHtml(r.department || 'General')}</td>
-          <td data-col="col-shift">${escapeHtml(r.shift_name || 'General')}</td>
-          <td data-col="col-checkin">${checkInPill}</td>
-          <td data-col="col-checkout">${checkOutPill}</td>
-          <td data-col="col-worked" class="font-mono">${r.worked_formatted !== '-' ? `<strong>${r.worked_formatted}</strong>` : '-'}</td>
-          <td data-col="col-ot">${r.ot_hours > 0 ? `<span class="badge-tag" style="background:#f3e8ff;color:#7e22ce;font-weight:700;">⚡ +${r.ot_hours}H OT</span>` : '<span class="text-muted">0 H</span>'}</td>
-          <td data-col="col-status"><span class="${statusBadgeClass}">${escapeHtml(r.daily_status || (isAbsent ? 'Absent' : 'Present'))}</span></td>
-        </tr>
-      `;
-    }).join('');
+    state.report.activeRows = data.records || [];
+    initProgressiveTableRender(tbody, sentinel, renderDailyStandardRow);
   } else if (state.report.type === 'weekly') {
     if (state.report.scope === 'single') {
-      // 7-day single user timesheet
       thead.innerHTML = `
         <tr>
           <th data-col="col-idx">#</th>
@@ -3341,52 +3998,12 @@ function renderReportTable(data) {
           <th data-col="col-punches">Punches</th>
           <th data-col="col-worked">Worked Duration</th>
           <th data-col="col-ot">OT (Hours)</th>
-          <th data-col="col-status">Daily Status</th>
+          <th data-col="col-status">Daily Status / Remarks</th>
         </tr>
       `;
-
-      const timesheet = data.timesheet || [];
-      if (timesheet.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" class="text-center py-4 text-muted">No timesheet records found for this week.</td></tr>`;
-        applyReportColumnStyles();
-        renderReportColumnSelector();
-        return;
-      }
-
-      tbody.innerHTML = timesheet.map((r, i) => {
-        const isAbsent = (r.punch_count === 0 || r.check_in_status === 'ABSENT');
-        const checkInPill = isAbsent
-          ? `<span class="badge-absent">🔴 Absent (No Punch)</span>`
-          : (r.check_in_time && r.check_in_time !== '-')
-            ? `<strong>${r.check_in_time}</strong> <span class="${r.check_in_badge || 'badge-on-time'}" style="font-size:0.75rem;">${escapeHtml(r.check_in_label || 'In')}</span>`
-            : `<span class="text-muted">-</span>`;
-
-        const checkOutPill = isAbsent
-          ? `<span class="text-muted">-</span>`
-          : (r.check_out_time && r.check_out_time !== '-')
-            ? `<strong>${r.check_out_time}</strong> <span class="${r.check_out_badge || 'badge-on-time'}" style="font-size:0.75rem;">${escapeHtml(r.check_out_label || 'Out')}</span>`
-            : `<span class="badge-tag" style="background:#f1f5f9;color:#64748b;font-size:0.75rem;">Pending / Missing</span>`;
-
-        const dayBadgeClass = r.day_type === 'WEEKEND' ? 'badge-weekend' : (r.day_type === 'HOLIDAY' ? 'badge-holiday' : 'badge-weekday');
-        const statusBadgeClass = isAbsent ? 'badge-absent' : (r.daily_badge || 'badge-on-time');
-
-        return `
-          <tr>
-            <td data-col="col-idx" class="text-muted font-mono">${i + 1}</td>
-            <td data-col="col-date" class="font-mono"><strong>${r.date}</strong></td>
-            <td data-col="col-day"><span class="${dayBadgeClass}">${escapeHtml(r.day_name || '')}</span></td>
-            <td data-col="col-shift">${escapeHtml(r.shift_name || 'General')}</td>
-            <td data-col="col-checkin">${checkInPill}</td>
-            <td data-col="col-checkout">${checkOutPill}</td>
-            <td data-col="col-punches" class="font-mono text-center">${r.punch_count || 0}</td>
-            <td data-col="col-worked" class="font-mono">${r.worked_formatted !== '-' ? `<strong>${r.worked_formatted}</strong>` : '-'}</td>
-            <td data-col="col-ot">${r.ot_hours > 0 ? `<span class="badge-tag" style="background:#f3e8ff;color:#7e22ce;font-weight:700;">⚡ +${r.ot_hours}H OT</span>` : '<span class="text-muted">0 H</span>'}</td>
-            <td data-col="col-status"><span class="${statusBadgeClass}">${escapeHtml(r.daily_status || (isAbsent ? 'Absent' : 'Present'))}</span></td>
-          </tr>
-        `;
-      }).join('');
+      state.report.activeRows = data.timesheet || [];
+      initProgressiveTableRender(tbody, sentinel, renderWeeklySingleRow);
     } else {
-      // Weekly All Users Summary
       thead.innerHTML = `
         <tr>
           <th data-col="col-idx">#</th>
@@ -3404,36 +4021,11 @@ function renderReportTable(data) {
           <th data-col="col-rate">Attendance %</th>
         </tr>
       `;
-
-      const records = data.records || [];
-      if (records.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="13" class="text-center py-4 text-muted">No employee summaries found.</td></tr>`;
-        applyReportColumnStyles();
-        renderReportColumnSelector();
-        return;
-      }
-
-      tbody.innerHTML = records.map((r, i) => `
-        <tr>
-          <td data-col="col-idx" class="text-muted font-mono">${i + 1}</td>
-          <td data-col="col-uid" class="font-mono"><strong>${r.user_id}</strong></td>
-          <td data-col="col-emp"><strong>${escapeHtml(r.employee_name || 'Unassigned')}</strong></td>
-          <td data-col="col-dept">${escapeHtml(r.department || 'General')}</td>
-          <td data-col="col-shift">${escapeHtml(r.shift_name || 'General')}</td>
-          <td data-col="col-sched" class="font-mono text-center">${r.scheduled_days}</td>
-          <td data-col="col-present" class="font-mono text-center" style="color: #16a34a; font-weight: 700;">${r.days_present}</td>
-          <td data-col="col-absent" class="font-mono text-center" style="color: ${r.days_absent > 0 ? '#dc2626' : 'var(--text-muted)'}; font-weight: 700;">${r.days_absent}</td>
-          <td data-col="col-half" class="font-mono text-center">${r.half_days}</td>
-          <td data-col="col-late" class="font-mono text-center">${r.late_or_grace}</td>
-          <td data-col="col-worked" class="font-mono"><strong>${r.total_worked_formatted}</strong></td>
-          <td data-col="col-ot">${r.total_ot_hours > 0 ? `<span class="badge-tag" style="background:#f3e8ff;color:#7e22ce;font-weight:700;">⚡ +${r.total_ot_hours}H OT</span>` : '<span class="text-muted">0 H</span>'}</td>
-          <td data-col="col-rate"><span class="badge-tag" style="background:#e0f2fe;color:#0369a1;font-weight:700;">${r.attendance_pct}</span></td>
-        </tr>
-      `).join('');
+      state.report.activeRows = data.records || [];
+      initProgressiveTableRender(tbody, sentinel, renderWeeklyAllUsersRow);
     }
   } else if (state.report.type === 'monthly') {
     if (state.report.scope === 'single') {
-      // Monthly Single User Full Timesheet
       thead.innerHTML = `
         <tr>
           <th data-col="col-idx">#</th>
@@ -3445,52 +4037,12 @@ function renderReportTable(data) {
           <th data-col="col-punches">Punches</th>
           <th data-col="col-worked">Worked Duration</th>
           <th data-col="col-ot">OT (Hours)</th>
-          <th data-col="col-status">Daily Status</th>
+          <th data-col="col-status">Daily Status / Remarks</th>
         </tr>
       `;
-
-      const timesheet = data.timesheet || [];
-      if (timesheet.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" class="text-center py-4 text-muted">No timesheet records found for this month.</td></tr>`;
-        applyReportColumnStyles();
-        renderReportColumnSelector();
-        return;
-      }
-
-      tbody.innerHTML = timesheet.map((r, i) => {
-        const isAbsent = (r.punch_count === 0 || r.check_in_status === 'ABSENT');
-        const checkInPill = isAbsent
-          ? `<span class="badge-absent">🔴 Absent (No Punch)</span>`
-          : (r.check_in_time && r.check_in_time !== '-')
-            ? `<strong>${r.check_in_time}</strong> <span class="${r.check_in_badge || 'badge-on-time'}" style="font-size:0.75rem;">${escapeHtml(r.check_in_label || 'In')}</span>`
-            : `<span class="text-muted">-</span>`;
-
-        const checkOutPill = isAbsent
-          ? `<span class="text-muted">-</span>`
-          : (r.check_out_time && r.check_out_time !== '-')
-            ? `<strong>${r.check_out_time}</strong> <span class="${r.check_out_badge || 'badge-on-time'}" style="font-size:0.75rem;">${escapeHtml(r.check_out_label || 'Out')}</span>`
-            : `<span class="badge-tag" style="background:#f1f5f9;color:#64748b;font-size:0.75rem;">Pending / Missing</span>`;
-
-        const dayBadgeClass = r.day_type === 'WEEKEND' ? 'badge-weekend' : (r.day_type === 'HOLIDAY' ? 'badge-holiday' : 'badge-weekday');
-        const statusBadgeClass = isAbsent ? 'badge-absent' : (r.daily_badge || 'badge-on-time');
-
-        return `
-          <tr>
-            <td data-col="col-idx" class="text-muted font-mono">${i + 1}</td>
-            <td data-col="col-date" class="font-mono"><strong>${r.date}</strong></td>
-            <td data-col="col-day"><span class="${dayBadgeClass}">${escapeHtml(r.day_name || '')}</span></td>
-            <td data-col="col-shift">${escapeHtml(r.shift_name || 'General')}</td>
-            <td data-col="col-checkin">${checkInPill}</td>
-            <td data-col="col-checkout">${checkOutPill}</td>
-            <td data-col="col-punches" class="font-mono text-center">${r.punch_count || 0}</td>
-            <td data-col="col-worked" class="font-mono">${r.worked_formatted !== '-' ? `<strong>${r.worked_formatted}</strong>` : '-'}</td>
-            <td data-col="col-ot">${r.ot_hours > 0 ? `<span class="badge-tag" style="background:#f3e8ff;color:#7e22ce;font-weight:700;">⚡ +${r.ot_hours}H OT</span>` : '<span class="text-muted">0 H</span>'}</td>
-            <td data-col="col-status"><span class="${statusBadgeClass}">${escapeHtml(r.daily_status || (isAbsent ? 'Absent' : 'Present'))}</span></td>
-          </tr>
-        `;
-      }).join('');
+      state.report.activeRows = data.timesheet || [];
+      initProgressiveTableRender(tbody, sentinel, renderMonthlySingleRow);
     } else {
-      // Monthly All Users Payroll Summary
       thead.innerHTML = `
         <tr>
           <th data-col="col-idx">#</th>
@@ -3509,38 +4061,10 @@ function renderReportTable(data) {
           <th data-col="col-rate">Attendance %</th>
         </tr>
       `;
-
-      const records = data.records || [];
-      if (records.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="14" class="text-center py-4 text-muted">No monthly summaries found.</td></tr>`;
-        applyReportColumnStyles();
-        renderReportColumnSelector();
-        return;
-      }
-
-      tbody.innerHTML = records.map((r, i) => `
-        <tr>
-          <td data-col="col-idx" class="text-muted font-mono">${i + 1}</td>
-          <td data-col="col-uid" class="font-mono"><strong>${r.user_id}</strong></td>
-          <td data-col="col-emp"><strong>${escapeHtml(r.employee_name || 'Unassigned')}</strong></td>
-          <td data-col="col-dept">${escapeHtml(r.department || 'General')}</td>
-          <td data-col="col-shift">${escapeHtml(r.shift_name || 'General')}</td>
-          <td data-col="col-workdays" class="font-mono text-center">${r.month_working_days}</td>
-          <td data-col="col-present" class="font-mono text-center" style="color: #16a34a; font-weight: 700;">${r.days_present}</td>
-          <td data-col="col-absent" class="font-mono text-center" style="color: ${r.days_absent > 0 ? '#dc2626' : 'var(--text-muted)'}; font-weight: 700;">${r.days_absent}</td>
-          <td data-col="col-half" class="font-mono text-center">${r.half_days}</td>
-          <td data-col="col-grace" class="font-mono text-center">${r.grace_used}</td>
-          <td data-col="col-shortleave" class="font-mono text-center">${r.short_leave_used}</td>
-          <td data-col="col-worked" class="font-mono"><strong>${r.total_worked_formatted}</strong></td>
-          <td data-col="col-ot">${r.total_ot_hours > 0 ? `<span class="badge-tag" style="background:#f3e8ff;color:#7e22ce;font-weight:700;">⚡ +${r.total_ot_hours}H OT</span>` : '<span class="text-muted">0 H</span>'}</td>
-          <td data-col="col-rate"><span class="badge-tag" style="background:#e0f2fe;color:#0369a1;font-weight:700;">${r.attendance_pct}</span></td>
-        </tr>
-      `).join('');
+      state.report.activeRows = data.records || [];
+      initProgressiveTableRender(tbody, sentinel, renderMonthlyAllUsersRow);
     }
   }
-
-  applyReportColumnStyles();
-  renderReportColumnSelector();
 }
 
 function triggerReportExport(format) {
@@ -3549,8 +4073,11 @@ function triggerReportExport(format) {
   q.set('scope', state.report.scope);
   q.set('format', format);
 
-  if (state.report.type === 'daily') {
+  if (state.report.type === 'daily' || state.report.type === 'daily_leaves') {
     q.set('date', state.report.date);
+    if (state.report.leaveFilter && state.report.leaveFilter !== 'all') {
+      q.set('statusFilter', state.report.leaveFilter);
+    }
   } else if (state.report.type === 'weekly') {
     q.set('startDate', state.report.weekDate);
   } else if (state.report.type === 'monthly') {
@@ -3653,6 +4180,53 @@ async function initEmployees() {
       }
     } catch (err) {
       showToast(err.message, 'error');
+    }
+  });
+
+  // Employee Directory: Sync to Cloud (Google Cloud Firestore)
+  document.getElementById('btnSyncEmployeesToCloud')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnSyncEmployeesToCloud');
+    if (btn && btn.disabled) return;
+    const origHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `
+        <span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span>
+        <span>Syncing to Cloud...</span>
+      `;
+    }
+
+    try {
+      showToast('Syncing employee directory to Google Cloud Firestore...', 'info');
+      if (window.IS_CLOUD_MODE && window.refreshCloudData) {
+        await window.refreshCloudData();
+        await loadEmployees();
+        showToast('Employee directory refreshed from Google Cloud Firestore!', 'success');
+      } else {
+        const res = await fetch('/api/firebase/sync-employees', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ forceAll: true })
+        });
+        const data = await res.json();
+        if (data.success) {
+          const count = data.count || data.uploaded || data.total || 0;
+          showToast(`Successfully synced ${count} employee(s) to Cloud Firestore!`, 'success');
+          await loadEmployees();
+          if (typeof loadFirebaseStatus === 'function') {
+            await loadFirebaseStatus();
+          }
+        } else {
+          showToast(data.error || 'Failed to sync employees to cloud', 'error');
+        }
+      }
+    } catch (err) {
+      showToast('Cloud sync error: ' + err.message, 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+      }
     }
   });
 
@@ -3926,9 +4500,17 @@ async function initEmployees() {
 
   document.getElementById('employeeForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const btnSave = document.getElementById('btnModalSave');
+    if (btnSave) {
+      btnSave.disabled = true;
+      btnSave.style.opacity = '0.7';
+    }
     const syncToDevice = document.getElementById('modalSyncDevice')?.checked ?? true;
+    const orgId = document.getElementById('modalOrgId')?.value || getActiveOrgFilter() || '';
+    const userId = document.getElementById('modalUserId').value;
+    const leaveCatId = parseInt(document.getElementById('modalLeaveCategoryId')?.value, 10) || 1;
     const payload = {
-      user_id: document.getElementById('modalUserId').value,
+      user_id: userId,
       employee_service_id: document.getElementById('modalServiceId').value,
       nic: document.getElementById('modalNic').value,
       title: document.getElementById('modalTitleSelect').value,
@@ -3940,6 +4522,8 @@ async function initEmployees() {
       department: document.getElementById('modalDept').value,
       role: document.getElementById('modalRole').value,
       shift_id: parseInt(document.getElementById('modalShiftId')?.value, 10) || 1,
+      leave_category_id: leaveCatId,
+      org_id: orgId,
       email: document.getElementById('modalEmail').value,
       phone: document.getElementById('modalPhone').value,
       photo: document.getElementById('modalPhotoData').value,
@@ -3957,15 +4541,28 @@ async function initEmployees() {
       const data = await res.json();
       if (data.success) {
         showToast(data.message || 'Employee updated successfully!', 'success');
+        // Clear cached leave balances so the newly assigned category balances are fetched fresh
+        if (state.empRegistry && state.empRegistry.leaveBalances) {
+          delete state.empRegistry.leaveBalances[userId];
+        }
         closeEmployeeModal();
-        loadEmployees();
-        loadDashboardStats();
-        populateReportEmployeeDropdown();
+        await loadEmployees();
+        // If this row was expanded, refresh its leave chips immediately
+        if (typeof loadDossierLeaveBalances === 'function' && state.empRegistry?.expandedRows?.has(userId)) {
+          loadDossierLeaveBalances(userId);
+        }
+        loadDashboardStats().catch(() => {});
+        populateReportEmployeeDropdown().catch(() => {});
       } else {
         showToast(data.error || 'Failed to save', 'error');
       }
     } catch (err) {
       showToast(err.message, 'error');
+    } finally {
+      if (btnSave) {
+        btnSave.disabled = false;
+        btnSave.style.opacity = '1';
+      }
     }
   });
 }
@@ -4429,6 +5026,19 @@ function renderEmployeesTable() {
               </span>
             </td>
           `;
+        case 'leave_category': {
+          const empCat = (state.leaveCategories || []).find(c => c.id === (emp.leave_category_id || 1));
+          const catName = emp.leave_category_name || (empCat ? empCat.name : 'Permanent');
+          const catColor = emp.leave_category_color || (empCat ? empCat.color : '#2563eb');
+          return `
+            <td data-col="leave_category">
+              <span class="badge" style="background: ${catColor}15; color: ${catColor}; border: 1px solid ${catColor}40; font-weight: 600; padding: 3px 9px; border-radius: 12px; font-size: 0.76rem; display: inline-flex; align-items: center; gap: 5px;">
+                <span style="width: 7px; height: 7px; border-radius: 50%; background: ${catColor}; display: inline-block;"></span>
+                ${escapeHtml(catName)}
+              </span>
+            </td>
+          `;
+        }
         case 'punches':
           return `
             <td data-col="punches">
@@ -4442,7 +5052,7 @@ function renderEmployeesTable() {
           return `
             <td data-col="actions" style="text-align: center;">
               <div style="display: flex; gap: 4px; align-items: center; justify-content: center;">
-                <button type="button" class="btn btn-sm btn-outline btn-edit-emp" data-emp='${JSON.stringify(emp).replace(/'/g, "&apos;")}'>
+                <button type="button" class="btn btn-sm btn-outline btn-edit-emp" data-userid="${emp.user_id}" data-emp='${JSON.stringify(emp).replace(/'/g, "&apos;")}'>
                   Edit
                 </button>
                 <button type="button" class="btn btn-sm btn-outline btn-sync-single" data-userid="${emp.user_id}" data-name="${escapeHtml(emp.name || '')}" data-role="${escapeHtml(emp.role || 'Staff')}" title="Sync this user to SpeedFace device">
@@ -4488,10 +5098,33 @@ function renderEmployeesTable() {
                 <div class="emp-dossier-card">
                   <h4>🏢 Employment &amp; Service</h4>
                   <div class="emp-dossier-list">
-                    <div class="emp-dossier-item"><span class="emp-dossier-label">Service ID:</span><span class="emp-dossier-val font-mono" style="NaN
+                    <div class="emp-dossier-item"><span class="emp-dossier-label">Service ID:</span><span class="emp-dossier-val font-mono">${escapeHtml(emp.employee_service_id || '-')}</span></div>
                     <div class="emp-dossier-item"><span class="emp-dossier-label">Department:</span><span class="emp-dossier-val">${escapeHtml(emp.department || 'General')}</span></div>
                     <div class="emp-dossier-item"><span class="emp-dossier-label">Designation / Role:</span><span class="emp-dossier-val">${escapeHtml(emp.role || 'Staff')}</span></div>
                     <div class="emp-dossier-item"><span class="emp-dossier-label">Employment Status:</span><span class="emp-dossier-val">${escapeHtml(emp.employment_status || 'Permanent')}</span></div>
+                    <div class="emp-dossier-item">
+                      <span class="emp-dossier-label">Leave Policy:</span>
+                      <span class="emp-dossier-val">
+                        ${(() => {
+                          const empCat = (state.leaveCategories || []).find(c => c.id === (emp.leave_category_id || 1));
+                          const catName = emp.leave_category_name || (empCat ? empCat.name : 'Permanent');
+                          const catColor = emp.leave_category_color || (empCat ? empCat.color : '#2563eb');
+                          return `<span class="badge" style="background:${catColor}15; color:${catColor}; border:1px solid ${catColor}40; font-weight:600; padding:2px 8px; border-radius:10px; font-size:0.75rem;"><span style="width:6px; height:6px; border-radius:50%; background:${catColor}; display:inline-block; margin-right:4px;"></span>${escapeHtml(catName)}</span>`;
+                        })()}
+                      </span>
+                    </div>
+                    <div class="emp-dossier-item">
+                      <span class="emp-dossier-label">Leave Balances:</span>
+                      <span class="emp-dossier-val" id="dossierLeaveBal_${emp.user_id}">
+                        ${(() => {
+                          const cached = state.empRegistry.leaveBalances && state.empRegistry.leaveBalances[emp.user_id];
+                          if (cached && typeof renderLeaveBalanceChips === 'function') {
+                            return renderLeaveBalanceChips(cached);
+                          }
+                          return `<span class="text-muted" style="font-size:0.75rem;">Loading balances...</span>`;
+                        })()}
+                      </span>
+                    </div>
                     <div class="emp-dossier-item"><span class="emp-dossier-label">Appointment Date:</span><span class="emp-dossier-val font-mono">${escapeHtml(emp.appointment_date || '-')}</span></div>
                     <div class="emp-dossier-item"><span class="emp-dossier-label">Order Rank:</span><span class="emp-dossier-val font-mono">${escapeHtml(emp.order_by_id || '-')}</span></div>
                   </div>
@@ -4525,7 +5158,7 @@ function renderEmployeesTable() {
                     <button type="button" class="btn btn-sm btn-outline btn-dossier-report" data-userid="${emp.user_id}" title="Generate Individual Timesheet Report">
                       📊 Timesheet
                     </button>
-                    <button type="button" class="btn btn-sm btn-outline btn-dossier-edit" data-emp='${JSON.stringify(emp).replace(/'/g, "&apos;")}'>
+                    <button type="button" class="btn btn-sm btn-outline btn-dossier-edit" data-userid="${emp.user_id}" data-emp='${JSON.stringify(emp).replace(/'/g, "&apos;")}'>
                       ✏️ Edit Details
                     </button>
                     <button type="button" class="btn btn-sm btn-primary btn-dossier-sync" data-userid="${emp.user_id}" data-name="${escapeHtml(emp.name || '')}" data-role="${escapeHtml(emp.role || 'Staff')}">
@@ -4556,6 +5189,13 @@ function renderEmployeesTable() {
 }
 
 function attachEmployeeRowListeners() {
+  // Trigger leave balances loader for any currently expanded rows
+  if (state.empRegistry.expandedRows && state.empRegistry.expandedRows.size > 0) {
+    state.empRegistry.expandedRows.forEach(uId => {
+      loadDossierLeaveBalances(uId);
+    });
+  }
+
   // Expand button listener
   document.querySelectorAll('.emp-expand-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -4574,8 +5214,24 @@ function attachEmployeeRowListeners() {
   document.querySelectorAll('.btn-edit-emp, .btn-dossier-edit').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      const emp = JSON.parse(btn.getAttribute('data-emp'));
-      openEmployeeModal(emp);
+      let emp = null;
+      const uId = btn.getAttribute('data-userid');
+      if (uId && state.empRegistry?.rawList) {
+        emp = state.empRegistry.rawList.find(x => String(x.user_id) === String(uId));
+      }
+      if (!emp) {
+        try {
+          const raw = btn.getAttribute('data-emp');
+          if (raw) emp = JSON.parse(raw);
+        } catch (parseErr) {
+          console.error('Error parsing data-emp attribute:', parseErr);
+        }
+      }
+      if (emp) {
+        openEmployeeModal(emp);
+      } else {
+        showToast('Could not load employee details for editing', 'error');
+      }
     });
   });
 
@@ -4683,6 +5339,9 @@ function attachEmployeeRowListeners() {
 }
 
 async function loadEmployees() {
+  if (!state.leaveCategories || state.leaveCategories.length === 0) {
+    await loadLeaveCategories().catch(() => {});
+  }
   const tbody = document.getElementById('employeesTableBody');
   if (!state.empRegistry.rawList || state.empRegistry.rawList.length === 0) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="18" class="text-center py-4">Loading employee list...</td></tr>`;
@@ -4784,15 +5443,41 @@ async function openEmployeeModal(emp) {
 
   // Populate shift select
   if (!state.shifts || state.shifts.length === 0) {
-    await loadShifts();
+    await loadShifts().catch(() => {});
   }
+  // Populate leave category select
+  if (!state.leaveCategories || state.leaveCategories.length === 0) {
+    await loadLeaveCategories().catch(() => {});
+  }
+
+  const leaveSelect = document.getElementById('modalLeaveCategoryId');
+  if (leaveSelect) {
+    const selectedCatId = Number(emp.leave_category_id || 1);
+    if (state.leaveCategories && state.leaveCategories.length > 0) {
+      leaveSelect.innerHTML = state.leaveCategories.map((c) => `
+        <option value="${c.id}" ${Number(c.id) === selectedCatId ? 'selected' : ''}>
+          ${escapeHtml(c.name)} ${c.is_default ? '(Default)' : ''}
+        </option>
+      `).join('');
+      leaveSelect.value = String(selectedCatId);
+    } else {
+      leaveSelect.innerHTML = '<option value="1">Permanent (Default)</option>';
+    }
+  }
+
   const shiftSelect = document.getElementById('modalShiftId');
-  if (shiftSelect && state.shifts.length > 0) {
-    shiftSelect.innerHTML = state.shifts.map((s) => `
-      <option value="${s.id}" ${s.id === (emp.shift_id || 1) ? 'selected' : ''}>
-        ${escapeHtml(s.name)} (${s.start_time} - ${s.end_time})
-      </option>
-    `).join('');
+  if (shiftSelect) {
+    const selectedShiftId = Number(emp.shift_id || 1);
+    if (state.shifts && state.shifts.length > 0) {
+      shiftSelect.innerHTML = state.shifts.map((s) => `
+        <option value="${s.id}" ${Number(s.id) === selectedShiftId ? 'selected' : ''}>
+          ${escapeHtml(s.name)} (${s.start_time} - ${s.end_time})
+        </option>
+      `).join('');
+      shiftSelect.value = String(selectedShiftId);
+    } else {
+      shiftSelect.innerHTML = '<option value="1">General Shift</option>';
+    }
   }
 
   const photoImg = document.getElementById('modalPhotoImg');
@@ -4827,7 +5512,11 @@ async function openEmployeeModal(emp) {
     };
   }
 
-  document.getElementById('employeeModal').classList.add('active');
+  const modal = document.getElementById('employeeModal');
+  if (modal) {
+    modal.style.display = 'flex';
+    modal.classList.add('active');
+  }
 }
 
 function closeEmployeeModal() {
@@ -6033,6 +6722,24 @@ async function loadGuideIps() {
 }
 
 // 8. Real-Time WebSockets
+function updateSidebarLiveIndicator(isLive) {
+  const dot = document.getElementById('sidebarLiveDot');
+  const text = document.getElementById('sidebarLiveText');
+  if (dot) {
+    if (isLive) {
+      dot.className = 'status-dot-sm live-dot';
+      dot.style.background = '#10b981';
+    } else {
+      dot.className = 'status-dot-sm';
+      dot.style.background = '#dc2626';
+    }
+  }
+  if (text) {
+    text.textContent = isLive ? 'Live Sync' : 'Reconnecting';
+  }
+}
+window.updateSidebarLiveIndicator = updateSidebarLiveIndicator;
+
 function initWebSocket() {
   if (window.IS_CLOUD_MODE) {
     console.log('[WEBSOCKET] Disabled in Cloud Mode. Using Firestore real-time queries.');
@@ -6089,6 +6796,7 @@ function initWebSocket() {
       console.log('[WS] Connected to real-time attendance monitor');
       hideDisconnectedBanner();
       reconnectDelay = 2000;
+      updateSidebarLiveIndicator(true);
     };
 
     state.ws.onmessage = (event) => {
@@ -6101,10 +6809,12 @@ function initWebSocket() {
     state.ws.onclose = () => {
       showDisconnectedBanner(`Connection to Attendance Server lost. Reconnecting in ${Math.round(reconnectDelay / 1000)}s...`);
       scheduleReconnect();
+      updateSidebarLiveIndicator(false);
     };
 
     state.ws.onerror = () => {
       try { state.ws.close(); } catch (_) {}
+      updateSidebarLiveIndicator(false);
     };
   }
 
@@ -8895,6 +9605,19 @@ async function loadFirebaseStatus() {
   }
 }
 
+function updateSidebarCloudIndicator(label, dotColor, isPulsing) {
+  const sDot = document.getElementById('sidebarCloudSyncDot');
+  const sText = document.getElementById('sidebarCloudSyncText');
+  if (sDot) {
+    sDot.style.background = dotColor || '#94a3b8';
+    sDot.style.animation = isPulsing ? 'pulse 1.2s infinite' : 'none';
+  }
+  if (sText && label) {
+    sText.textContent = label;
+  }
+}
+window.updateSidebarCloudIndicator = updateSidebarCloudIndicator;
+
 function updateCloudSyncProgressUI(prog) {
   if (!prog) return;
 
@@ -8917,6 +9640,7 @@ function updateCloudSyncProgressUI(prog) {
   if (prog.isSyncing) {
     state.cloudSyncing = true;
     updateStopSyncButtonsUI();
+    updateSidebarCloudIndicator(`Syncing (${Number(prog.uploadedCount || 0).toLocaleString()})`, '#1d4ed8', true);
 
     // Header Pill
     if (headerPill) {
@@ -8977,6 +9701,7 @@ function updateCloudSyncProgressUI(prog) {
     updateStopSyncButtonsUI();
 
     if (prog.state === 'COMPLETED') {
+      updateSidebarCloudIndicator('Cloud: Synced', '#16a34a', false);
       if (headerPill) {
         headerPill.style.background = '#f0fdf4';
         headerPill.style.borderColor = '#86efac';
@@ -9006,6 +9731,7 @@ function updateCloudSyncProgressUI(prog) {
       if (progressWrap) progressWrap.style.display = 'none';
       if (bannerPercent) bannerPercent.style.display = 'none';
     } else if (prog.state === 'STOPPED') {
+      updateSidebarCloudIndicator('Cloud: Paused', '#94a3b8', false);
       if (headerPill) {
         headerPill.style.background = '#f8fafc';
         headerPill.style.borderColor = '#cbd5e1';
@@ -9188,6 +9914,7 @@ function updateFirebaseStatusUI(status) {
   if (isSyncing) {
     state.cloudSyncing = true;
     updateStopSyncButtonsUI();
+    updateSidebarCloudIndicator(`Syncing (${Number(prog.uploadedCount || 0).toLocaleString()})`, '#1d4ed8', true);
 
     // 1. SYNCING ACTIVE
     if (headerPill) {
@@ -9241,6 +9968,7 @@ function updateFirebaseStatusUI(status) {
     updateStopSyncButtonsUI();
 
     if (prog.state === 'STOPPED') {
+      updateSidebarCloudIndicator(`Cloud: Paused (${pendingCount.toLocaleString()})`, '#94a3b8', false);
       if (headerPill) {
         headerPill.style.background = '#f8fafc';
         headerPill.style.borderColor = '#cbd5e1';
@@ -9278,6 +10006,7 @@ function updateFirebaseStatusUI(status) {
 
     } else if (!status.configured) {
     // 2. NO SERVICE ACCOUNT KEY
+    updateSidebarCloudIndicator('Cloud: No Key', '#d97706', false);
     if (headerPill) {
       headerPill.style.background = '#fef3c7';
       headerPill.style.borderColor = '#fde68a';
@@ -9315,6 +10044,7 @@ function updateFirebaseStatusUI(status) {
 
   } else if (status.quotaExceeded || prog.state === 'QUOTA_EXHAUSTED') {
     // 2.5 QUOTA EXCEEDED (Daily limit reached)
+    updateSidebarCloudIndicator(`Cloud: Quota (${pendingCount.toLocaleString()})`, '#ea580c', false);
     if (headerPill) {
       headerPill.style.background = '#fff7ed';
       headerPill.style.borderColor = '#fdba74';
@@ -9356,6 +10086,7 @@ function updateFirebaseStatusUI(status) {
 
   } else if (!status.online) {
     // 3. OFFLINE / DISCONNECTED
+    updateSidebarCloudIndicator(`Cloud: Offline (${pendingCount.toLocaleString()})`, '#dc2626', false);
     if (headerPill) {
       headerPill.style.background = '#fee2e2';
       headerPill.style.borderColor = '#fca5a5';
@@ -9393,6 +10124,7 @@ function updateFirebaseStatusUI(status) {
 
   } else if (pendingCount > 0) {
     // 4. ONLINE & PENDING
+    updateSidebarCloudIndicator(`Cloud: ${pendingCount.toLocaleString()} Queued`, '#f59e0b', false);
     if (headerPill) {
       headerPill.style.background = '#fffbeb';
       headerPill.style.borderColor = '#fde68a';
@@ -9430,6 +10162,7 @@ function updateFirebaseStatusUI(status) {
 
   } else {
     // 5. FULLY IN SYNC
+    updateSidebarCloudIndicator('Cloud: Synced', '#16a34a', false);
     if (headerPill) {
       headerPill.style.background = '#f0fdf4';
       headerPill.style.borderColor = '#86efac';
@@ -9848,12 +10581,24 @@ function lockSystem() {
   if (lockedNotice) lockedNotice.style.display = 'flex';
 
   const orgInput = document.getElementById('inputLoginOrgId');
-  if (orgInput && !orgInput.value) {
-    orgInput.value = localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
+  if (orgInput) {
+    orgInput.style.borderColor = '';
+    orgInput.style.boxShadow = '';
+    if (!orgInput.value) {
+      orgInput.value = localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
+    }
+  }
+  const alertBox = document.getElementById('loginAlertBox');
+  if (alertBox) {
+    alertBox.style.display = 'none';
+    alertBox.innerHTML = '';
   }
   const userInput = document.getElementById('inputLoginUsername');
-  if (userInput && !userInput.value) {
-    userInput.focus();
+  const pwdInput = document.getElementById('inputLoginPassword');
+  if (pwdInput) pwdInput.value = '';
+  if (userInput) {
+    userInput.value = '';
+    setTimeout(() => { try { userInput.focus(); } catch (e) {} }, 100);
   }
 }
 
@@ -9866,20 +10611,115 @@ function unlockSystem() {
   }
   const btnClose = document.getElementById('btnCloseLoginModal');
   if (btnClose) btnClose.style.display = 'none';
+  if (typeof recordUserActivity === 'function') recordUserActivity();
 }
 
-function systemLogout() {
+window.systemLogout = function (e, reason) {
+  if (e && typeof e.preventDefault === 'function') {
+    e.preventDefault();
+    e.stopPropagation();
+  }
   state.currentUser = null;
   state.authToken = null;
   try {
     localStorage.removeItem('speedface_auth_user');
     localStorage.removeItem('speedface_auth_token');
-  } catch (e) {}
+    sessionStorage.removeItem('speedface_auth_user');
+    sessionStorage.removeItem('speedface_auth_token');
+  } catch (err) {}
 
   applyRolePermissions(null);
   lockSystem();
-  showToast('Logged out of system. Dashboard locked until next sign in.', 'info');
+
+  if (reason === 'idle') {
+    const alertBox = document.getElementById('loginAlertBox');
+    if (alertBox) {
+      alertBox.style.display = 'block';
+      alertBox.style.background = '#fffbeb';
+      alertBox.style.color = '#92400e';
+      alertBox.style.border = '1px solid #fcd34d';
+      alertBox.innerHTML = '<strong>⏰ Session Expired:</strong><div style="margin-top: 4px; font-weight: 500;">You have been automatically logged out due to 5 minutes of inactivity. Please enter your credentials to resume.</div>';
+    }
+    showToast('Logged out due to 5 minutes of inactivity. Dashboard locked until next sign in.', 'warning', 6000);
+  } else {
+    showToast('Logged out of system. Dashboard locked until next sign in.', 'info');
+  }
+  if (typeof recordUserActivity === 'function') recordUserActivity();
+};
+const systemLogout = window.systemLogout;
+
+// ============================================================================
+// IDLE ACTIVITY DETECTION & AUTO-LOGOUT (5 MINUTES)
+// ============================================================================
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes (300,000 ms)
+let lastUserActivityTimestamp = Date.now();
+let idleDetectionInterval = null;
+
+function recordUserActivity() {
+  lastUserActivityTimestamp = Date.now();
 }
+window.recordUserActivity = recordUserActivity;
+
+function checkUserIdleTimeout() {
+  if (!state.currentUser) return; // Only apply auto-logout when user is actively logged in
+  const now = Date.now();
+  const elapsed = now - lastUserActivityTimestamp;
+  if (elapsed >= IDLE_TIMEOUT_MS) {
+    console.warn(`[AUTH] System idle for ${Math.round(elapsed / 1000)}s (>= 5 minutes). Logging out automatically.`);
+    systemLogout(null, 'idle');
+  }
+}
+window.checkUserIdleTimeout = checkUserIdleTimeout;
+
+function initIdleAutoLogout() {
+  lastUserActivityTimestamp = Date.now();
+
+  const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click', 'wheel'];
+  let throttleTimer = null;
+  const onActivity = () => {
+    if (!throttleTimer) {
+      recordUserActivity();
+      throttleTimer = setTimeout(() => { throttleTimer = null; }, 1000);
+    }
+  };
+
+  activityEvents.forEach(evtName => {
+    window.addEventListener(evtName, onActivity, { passive: true });
+  });
+
+  // Re-check immediately if user returns to this browser tab after being away
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      checkUserIdleTimeout();
+    }
+  });
+
+  // Check every 5 seconds
+  if (idleDetectionInterval) clearInterval(idleDetectionInterval);
+  idleDetectionInterval = setInterval(checkUserIdleTimeout, 5000);
+}
+window.initIdleAutoLogout = initIdleAutoLogout;
+
+window.handleLicenseCardClick = function (e) {
+  if (e && typeof e.preventDefault === 'function') {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const user = state.currentUser;
+  const role = user ? (user.role || 'staff').toLowerCase() : 'guest';
+  if (role === 'admin') {
+    switchTab('tab-settings');
+    const card = document.getElementById('cardSystemLicense');
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth' });
+      card.style.transition = 'box-shadow 0.3s ease';
+      card.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.4)';
+      setTimeout(() => { card.style.boxShadow = 'var(--shadow-sm)'; }, 1500);
+    }
+  } else {
+    openLicenseActivationModal();
+  }
+};
 
 function initSystemAuth() {
   const modalLogin = document.getElementById('modalSystemLogin');
@@ -9914,7 +10754,11 @@ function initSystemAuth() {
     lockSystem();
   }
 
-  function openLoginModal() {
+  window.openLoginModal = function (e) {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     if (!modalLogin) return;
     const curOrg = state.currentUser?.orgId || localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
     if (orgInput) orgInput.value = curOrg;
@@ -9929,9 +10773,10 @@ function initSystemAuth() {
       if (btnCloseModal) btnCloseModal.style.display = 'block';
       const lockedNotice = document.getElementById('loginLockedNotice');
       if (lockedNotice) lockedNotice.style.display = 'none';
-      userInput?.focus();
+      setTimeout(() => { try { userInput?.focus(); } catch (err) {} }, 100);
     }
-  }
+  };
+  const openLoginModal = window.openLoginModal;
 
   function closeLoginModal() {
     // Only allow closing if already logged in! If not logged in, system remains locked.
@@ -9943,11 +10788,42 @@ function initSystemAuth() {
   }
 
   btnHeaderLogout?.addEventListener('click', systemLogout);
+  document.getElementById('btnSidebarLogout')?.addEventListener('click', systemLogout);
   btnSettingsLogoutHero?.addEventListener('click', systemLogout);
   btnHeaderLogin?.addEventListener('click', openLoginModal);
+  document.getElementById('btnSidebarLogin')?.addEventListener('click', openLoginModal);
+  document.getElementById('sidebarUserProfileBtn')?.addEventListener('click', openLoginModal);
   btnSettingsSwitchUserHero?.addEventListener('click', openLoginModal);
   userPill?.addEventListener('click', openLoginModal);
   btnCloseModal?.addEventListener('click', closeLoginModal);
+
+  // Hook sidebar Cloud Sync pill click -> navigate to device tab / firebase section
+  document.getElementById('sidebarCloudSyncPill')?.addEventListener('click', () => {
+    if (typeof switchTab === 'function') switchTab('tab-device');
+    const el = document.getElementById('firebaseSyncCard');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  // Start idle activity monitoring (5 minutes auto-logout)
+  initIdleAutoLogout();
+
+  // Sidebar License Card Click -> Jump to Settings for Admin, Open Activation Modal for other roles
+  document.getElementById('sidebarLicenseCard')?.addEventListener('click', () => {
+    const user = state.currentUser;
+    const role = user ? (user.role || 'staff').toLowerCase() : 'guest';
+    if (role === 'admin') {
+      switchTab('tab-settings');
+      const card = document.getElementById('cardSystemLicense');
+      if (card) {
+        card.scrollIntoView({ behavior: 'smooth' });
+        card.style.transition = 'box-shadow 0.3s ease';
+        card.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.4)';
+        setTimeout(() => { card.style.boxShadow = 'var(--shadow-sm)'; }, 1500);
+      }
+    } else {
+      openLicenseActivationModal();
+    }
+  });
 
   modalLogin?.addEventListener('click', (e) => {
     // Only allow clicking background to close if already logged in
@@ -10025,7 +10901,18 @@ function initSystemAuth() {
           alertBox.style.display = 'block';
           alertBox.style.background = '#fee2e2';
           alertBox.style.color = '#991b1b';
-          alertBox.textContent = data.error || 'Authentication failed. Please check partition and credentials.';
+          alertBox.style.border = '1px solid #f87171';
+          const errMsg = data.error || 'Authentication failed. Please check partition and credentials.';
+          alertBox.innerHTML = `<strong>⚠️ Authentication Failed:</strong><div style="margin-top: 4px; font-weight: 500;">${escapeHtml(errMsg)}</div>`;
+
+          if (errMsg.toLowerCase().includes('partition') || errMsg.toLowerCase().includes('organization')) {
+            if (orgInput) {
+              orgInput.style.borderColor = '#ef4444';
+              orgInput.style.boxShadow = '0 0 0 3px rgba(239, 68, 68, 0.2)';
+              orgInput.focus();
+              orgInput.select();
+            }
+          }
         }
       }
     } catch (err) {
@@ -10033,7 +10920,8 @@ function initSystemAuth() {
         alertBox.style.display = 'block';
         alertBox.style.background = '#fee2e2';
         alertBox.style.color = '#991b1b';
-        alertBox.textContent = 'Connection error: ' + err.message;
+        alertBox.style.border = '1px solid #f87171';
+        alertBox.innerHTML = `<strong>⚠️ Connection Error:</strong><div style="margin-top: 4px;">${escapeHtml(err.message)}</div>`;
       }
     } finally {
       if (submitBtn) {
@@ -10042,15 +10930,30 @@ function initSystemAuth() {
       }
     }
   });
+
+  orgInput?.addEventListener('input', () => {
+    orgInput.style.borderColor = '';
+    orgInput.style.boxShadow = '';
+    if (alertBox && alertBox.innerHTML.toLowerCase().includes('partition')) {
+      alertBox.style.display = 'none';
+    }
+  });
 }
 
 function applyRolePermissions(user) {
   const loggedInBox = document.getElementById('headerLoggedInBox');
   const loggedOutBox = document.getElementById('headerLoggedOutBox');
+  const sidebarLoggedInBox = document.getElementById('sidebarLoggedInBox');
+  const sidebarLoggedOutBox = document.getElementById('sidebarLoggedOutBox');
+  const sidebarName = document.getElementById('sidebarUserName');
+  const sidebarRole = document.getElementById('sidebarUserRoleBadge');
+  const sidebarAvatar = document.getElementById('sidebarUserAvatar');
+  const btnSyncEmpCloud = document.getElementById('btnSyncEmployeesToCloud');
 
   const navDevice = document.querySelector('[data-tab="tab-device"]');
   const navApi = document.querySelector('[data-tab="tab-api"]');
   const navShifts = document.querySelector('[data-tab="tab-shifts"]');
+  const navLeave = document.querySelector('[data-tab="tab-leave"]');
   const navEmployees = document.querySelector('[data-tab="tab-employees"]');
   const navSettings = document.querySelector('[data-tab="tab-settings"]');
   const navLicenseActivation = document.getElementById('navItemLicenseActivation');
@@ -10059,26 +10962,33 @@ function applyRolePermissions(user) {
     // Guest / Logged out state
     if (loggedInBox) loggedInBox.style.display = 'none';
     if (loggedOutBox) loggedOutBox.style.display = 'inline-flex';
+    if (sidebarLoggedInBox) sidebarLoggedInBox.style.display = 'none';
+    if (sidebarLoggedOutBox) sidebarLoggedOutBox.style.display = 'flex';
+    if (btnSyncEmpCloud) btnSyncEmpCloud.style.display = 'none';
 
     if (navDevice) navDevice.style.display = 'none';
     if (navApi) navApi.style.display = 'none';
     if (navShifts) navShifts.style.display = 'none';
+    if (navLeave) navLeave.style.display = 'none';
     if (navEmployees) navEmployees.style.display = 'none';
     if (navSettings) navSettings.style.display = 'none';
     if (navLicenseActivation) navLicenseActivation.style.display = 'none';
 
-    const restrictedTabs = ['tab-device', 'tab-api', 'tab-shifts', 'tab-employees', 'tab-settings'];
+    const restrictedTabs = ['tab-device', 'tab-api', 'tab-shifts', 'tab-leave', 'tab-employees', 'tab-settings'];
     if (restrictedTabs.includes(state.currentTab)) {
       switchTab('tab-dashboard');
     }
     return;
   }
 
-  // Logged in state
+  // Logged in state - initialize role FIRST before using it in expressions
+  const role = (user.role || 'staff').toLowerCase();
+
   if (loggedInBox) loggedInBox.style.display = 'inline-flex';
   if (loggedOutBox) loggedOutBox.style.display = 'none';
-
-  const role = (user.role || 'staff').toLowerCase();
+  if (sidebarLoggedInBox) sidebarLoggedInBox.style.display = 'flex';
+  if (sidebarLoggedOutBox) sidebarLoggedOutBox.style.display = 'none';
+  if (btnSyncEmpCloud) btnSyncEmpCloud.style.display = (role === 'staff' ? 'none' : 'inline-flex');
 
   // 1. Update Header UI
   const headerName = document.getElementById('headerUserName');
@@ -10086,9 +10996,14 @@ function applyRolePermissions(user) {
   const headerAvatar = document.getElementById('headerUserAvatar');
 
   if (headerName) headerName.textContent = user.displayName || user.username || 'User';
+  if (sidebarName) sidebarName.textContent = user.displayName || user.username || 'User';
   if (headerAvatar) {
     const initial = (user.displayName || user.username || 'U').charAt(0).toUpperCase();
     headerAvatar.textContent = initial;
+  }
+  if (sidebarAvatar) {
+    const initial = (user.displayName || user.username || 'U').charAt(0).toUpperCase();
+    sidebarAvatar.textContent = initial;
   }
 
   const roleColors = {
@@ -10103,8 +11018,16 @@ function applyRolePermissions(user) {
     headerRole.style.background = color.bg;
     headerRole.style.color = color.text;
   }
+  if (sidebarRole) {
+    sidebarRole.textContent = role.toUpperCase();
+    sidebarRole.style.background = color.bg;
+    sidebarRole.style.color = color.text;
+  }
   if (headerAvatar) {
     headerAvatar.style.background = color.bg;
+  }
+  if (sidebarAvatar) {
+    sidebarAvatar.style.background = color.bg;
   }
 
   // Update Settings Tab Hero values if present
@@ -10131,6 +11054,7 @@ function applyRolePermissions(user) {
     if (navDevice) { navDevice.style.display = 'flex'; navDevice.title = 'Device Control (Admin)'; }
     if (navApi) { navApi.style.display = 'flex'; navApi.title = 'API Service'; }
     if (navShifts) { navShifts.style.display = 'flex'; }
+    if (navLeave) { navLeave.style.display = 'flex'; }
     if (navEmployees) { navEmployees.style.display = 'flex'; }
     if (navSettings) { navSettings.style.display = 'flex'; }
     if (navLicenseActivation) { navLicenseActivation.style.display = 'none'; }
@@ -10142,6 +11066,7 @@ function applyRolePermissions(user) {
     if (navDevice) { navDevice.style.display = 'none'; }
     if (navApi) { navApi.style.display = 'none'; }
     if (navShifts) { navShifts.style.display = 'flex'; }
+    if (navLeave) { navLeave.style.display = 'flex'; }
     if (navEmployees) { navEmployees.style.display = 'flex'; }
     if (navSettings) { navSettings.style.display = 'none'; } // Strict Admin Only
     if (navLicenseActivation) { navLicenseActivation.style.display = 'flex'; }
@@ -10154,6 +11079,7 @@ function applyRolePermissions(user) {
     if (navDevice) { navDevice.style.display = 'none'; }
     if (navApi) { navApi.style.display = 'none'; }
     if (navShifts) { navShifts.style.display = 'none'; }
+    if (navLeave) { navLeave.style.display = 'none'; }
     if (navEmployees) { navEmployees.style.display = 'none'; }
     if (navSettings) { navSettings.style.display = 'none'; } // Strict Admin Only
     if (navLicenseActivation) { navLicenseActivation.style.display = 'flex'; }
@@ -10667,6 +11593,39 @@ function renderLicenseStatusUI(lic) {
         headerPill.style.background = '#f0fdf4';
         headerPill.style.color = '#166534';
         headerPill.style.borderColor = '#bbf7d0';
+      }
+    }
+  }
+
+  // Update Sidebar License Status Card (Pinned to Bottom of Navigation)
+  const sidebarLicDays = document.getElementById('sidebarLicenseDaysText');
+  const sidebarLicBadge = document.getElementById('sidebarLicenseBadge');
+  const sidebarLicCard = document.getElementById('sidebarLicenseCard');
+
+  if (sidebarLicDays && sidebarLicBadge) {
+    if (!valid || status === 'EXPIRED') {
+      sidebarLicDays.textContent = 'License: EXPIRED';
+      sidebarLicBadge.textContent = 'EXPIRED';
+      sidebarLicBadge.style.background = '#dc2626';
+      if (sidebarLicCard) {
+        sidebarLicCard.style.background = '#fef2f2';
+        sidebarLicCard.style.borderColor = '#fca5a5';
+      }
+    } else if (remainingDays <= 14) {
+      sidebarLicDays.textContent = `${remainingDays} Day${remainingDays === 1 ? '' : 's'} Left`;
+      sidebarLicBadge.textContent = 'EXPIRING';
+      sidebarLicBadge.style.background = '#d97706';
+      if (sidebarLicCard) {
+        sidebarLicCard.style.background = '#fffbeb';
+        sidebarLicCard.style.borderColor = '#fde68a';
+      }
+    } else {
+      sidebarLicDays.textContent = `${remainingDays} Days Active`;
+      sidebarLicBadge.textContent = 'ACTIVE';
+      sidebarLicBadge.style.background = '#10b981';
+      if (sidebarLicCard) {
+        sidebarLicCard.style.background = '#f0fdf4';
+        sidebarLicCard.style.borderColor = '#bbf7d0';
       }
     }
   }
@@ -11219,4 +12178,2699 @@ function initLicenseManagement() {
     if (textArea) textArea.value = outputText.value;
     document.getElementById('btnActivateLicense')?.click();
   });
+}
+
+
+
+// ============================================================================
+// LEAVE MANAGEMENT MODULE LOGIC & EVENT HANDLERS
+// ============================================================================
+
+state.leaveCategories = state.leaveCategories || [];
+state.selectedLeaveCategoryId = state.selectedLeaveCategoryId || null;
+
+async function loadLeaveCategories() {
+  try {
+    const org = getActiveOrgFilter();
+    const url = org && org !== 'ALL' ? `/api/leave/categories?orgId=${encodeURIComponent(org)}` : '/api/leave/categories';
+    const res = await fetch(url, { headers: { 'x-organization-id': org || '' } });
+    const data = await res.json();
+    if (data.success && Array.isArray(data.categories)) {
+      state.leaveCategories = data.categories;
+    }
+  } catch (err) {
+    console.warn('[LEAVE] Could not load categories:', err.message);
+  }
+}
+
+async function loadLeaveManagement() {
+  try {
+    const org = getActiveOrgFilter();
+    const orgBadge = document.getElementById('leaveOrgPartitionBadge');
+    const orgSpan = document.getElementById('leaveOrgPathSpan');
+    if (orgBadge) orgBadge.textContent = org && org !== 'ALL' ? org : 'DSOFFICE_LUNUGAMWEHERA';
+    if (orgSpan) orgSpan.textContent = org && org !== 'ALL' ? org : 'DSOFFICE_LUNUGAMWEHERA';
+
+    await loadLeaveCategories();
+
+    // Calculate KPI metrics
+    const cats = state.leaveCategories || [];
+    let totalTypes = 0;
+    let totalEmployees = 0;
+    let defaultCatName = 'None';
+
+    cats.forEach(c => {
+      totalTypes += (c.leave_types || []).length;
+      totalEmployees += parseInt(c.employee_count || 0, 10);
+      if (c.is_default) defaultCatName = c.name;
+    });
+
+    const elKpiCats = document.getElementById('kpiTotalCategories');
+    const elKpiTypes = document.getElementById('kpiTotalLeaveTypes');
+    const elKpiEmps = document.getElementById('kpiAssignedEmployees');
+    const elKpiDef = document.getElementById('kpiDefaultCategory');
+
+    if (elKpiCats) elKpiCats.textContent = cats.length;
+    if (elKpiTypes) elKpiTypes.textContent = totalTypes;
+    if (elKpiEmps) elKpiEmps.textContent = totalEmployees;
+    if (elKpiDef) elKpiDef.textContent = defaultCatName;
+
+    renderLeaveCategoriesList();
+
+    if (cats.length > 0) {
+      const activeId = state.selectedLeaveCategoryId || cats[0].id;
+      selectLeaveCategory(activeId);
+    }
+  } catch (err) {
+    showToast('Failed to load Leave Management data: ' + err.message, 'error');
+  }
+}
+
+function renderLeaveCategoriesList() {
+  const container = document.getElementById('leaveCategoriesContainer');
+  if (!container) return;
+
+  const cats = state.leaveCategories || [];
+  if (cats.length === 0) {
+    container.innerHTML = `<div class="text-center py-4 text-muted">No leave categories defined. Click "+ Add Category" to start.</div>`;
+    return;
+  }
+
+  container.innerHTML = cats.map(c => {
+    const isSelected = state.selectedLeaveCategoryId === c.id;
+    const catColor = c.color || '#2563eb';
+    const typesCount = (c.leave_types || []).length;
+    const empsCount = c.employee_count || 0;
+
+    return `
+      <div class="leave-cat-card ${isSelected ? 'active' : ''}" style="border-left-color: ${catColor};" onclick="window.selectLeaveCategory(${c.id})">
+        <div class="leave-cat-header">
+          <div class="leave-cat-title">
+            <span style="width: 10px; height: 10px; border-radius: 50%; background: ${catColor}; display: inline-block;"></span>
+            <span>${escapeHtml(c.name)}</span>
+          </div>
+          <div>
+            ${c.is_default ? '<span class="badge" style="background:#e0e7ff; color:#4338ca; font-size:0.7rem; font-weight:700;">DEFAULT</span>' : ''}
+          </div>
+        </div>
+        <div class="leave-cat-desc">${escapeHtml(c.description || 'No description provided')}</div>
+        <div class="leave-cat-meta">
+          <span class="leave-cat-meta-item">📋 <strong>${typesCount}</strong> Leave Types</span>
+          <span class="leave-cat-meta-item">👥 <strong>${empsCount}</strong> Employees</span>
+        </div>
+        <div class="leave-cat-actions" onclick="event.stopPropagation()">
+          <button type="button" class="btn btn-sm btn-outline" onclick="window.openEditCategoryModal(${c.id})" style="padding: 2px 8px; font-size: 0.74rem;">✏️ Edit</button>
+          ${!c.is_default && c.id !== 1 ? `<button type="button" class="btn btn-sm btn-outline" onclick="window.deleteCategoryConfirm(${c.id}, '${escapeHtml(c.name)}')" style="padding: 2px 8px; font-size: 0.74rem; color: #ef4444; border-color: #fca5a5;">🗑️ Delete</button>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function selectLeaveCategory(catId) {
+  state.selectedLeaveCategoryId = catId;
+  const cats = state.leaveCategories || [];
+  const cat = cats.find(c => c.id === catId) || cats[0];
+  if (!cat) return;
+
+  renderLeaveCategoriesList();
+
+  const elDot = document.getElementById('selectedCatColorDot');
+  const elName = document.getElementById('selectedCategoryName');
+  const elBadge = document.getElementById('selectedCategoryBadge');
+  const elDesc = document.getElementById('selectedCategoryDesc');
+
+  if (elDot) elDot.style.background = cat.color || '#2563eb';
+  if (elName) elName.textContent = cat.name;
+  if (elBadge) elBadge.style.display = cat.is_default ? 'inline-block' : 'none';
+  if (elDesc) elDesc.textContent = cat.description || `Leave entitlements configured under ${cat.name}`;
+
+  renderLeaveTypesTable(cat);
+}
+
+function renderLeaveTypesTable(cat) {
+  const tbody = document.getElementById('leaveTypesTableBody');
+  if (!tbody) return;
+
+  const types = cat.leave_types || [];
+  if (types.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-muted">No leave types configured under <strong>${escapeHtml(cat.name)}</strong>. Click "+ Add Leave Type" to create one.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = types.map(t => {
+    const tColor = t.color || '#10b981';
+    const isPaid = t.is_paid !== 0;
+    const prio = parseInt(t.deduction_priority ?? 1, 10);
+    const isDuty = t.is_duty_leave === 1 || (t.code && t.code.toUpperCase() === 'DUTY');
+    const isComp = t.is_compensatory_leave === 1 || (t.code && t.code.toUpperCase() === 'COMP');
+    const isQuotaExempt = isDuty || isComp;
+
+    return `
+      <tr>
+        <td style="text-align: center;">
+          <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: ${tColor};"></span>
+        </td>
+        <td>
+          <div style="font-weight: 600; color: var(--text-color);">${escapeHtml(t.name)}</div>
+          <div style="display: flex; align-items: center; gap: 4px; margin-top: 2px;">
+            <span class="badge" style="background: ${tColor}20; color: ${tColor}; font-weight: 700; font-family: monospace; font-size: 0.72rem; padding: 1px 6px;">
+              ${escapeHtml(t.code || 'LEAVE')}
+            </span>
+            ${isDuty ? `<span class="badge" style="background: #ede9fe; color: #4338ca; border: 1px solid #c7d2fe; font-weight: 700; font-size: 0.7rem;">🏢 Official Duty</span>` : ''}
+            ${isComp ? `<span class="badge" style="background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; font-weight: 700; font-size: 0.7rem;">🔄 Compensatory</span>` : ''}
+          </div>
+        </td>
+        <td style="text-align: center;">
+          ${isQuotaExempt
+            ? `<span class="badge" style="background: #f1f5f9; color: #64748b; font-size: 0.72rem;" title="Quota-exempt leave does not participate in auto-reduction">🚫 Quota Exempt</span>`
+            : (prio > 0
+                ? `<span class="badge" style="background: #e0e7ff; color: #3730a3; font-weight: 700; font-size: 0.74rem;">🎯 Priority ${prio}</span>`
+                : `<span class="badge" style="background: #f1f5f9; color: #64748b; font-size: 0.72rem;">🚫 Disabled</span>`
+              )
+          }
+        </td>
+        <td style="text-align: center;">
+          ${isDuty
+            ? `<span class="badge" style="background: #ede9fe; color: #5b21b6; font-weight: 700; font-size: 0.75rem; padding: 3px 8px;">No Quota (Duty)</span>`
+            : (isComp
+                ? `<span class="badge" style="background: #e0f2fe; color: #0369a1; font-weight: 700; font-size: 0.75rem; padding: 3px 8px;">No Quota (Comp-Off)</span>`
+                : `<span class="leave-quota-badge">${parseFloat(t.days_allowed || 0).toFixed(1)} Days</span>`
+              )
+          }
+        </td>
+        <td style="text-align: center;">
+          <span style="font-size: 0.82rem; font-weight: 500;">
+            ${isQuotaExempt ? '<span class="text-muted">-</span>' : (t.carry_forward_days > 0 ? `Max ${t.carry_forward_days} Days` : '<span class="text-muted">None</span>')}
+          </span>
+        </td>
+        <td style="text-align: center;">
+          <span class="badge" style="${isPaid ? 'background:#dcfce7; color:#15803d;' : 'background:#fee2e2; color:#b91c1c;'} font-size: 0.74rem; font-weight: 600;">
+            ${isPaid ? 'Paid' : 'Unpaid'}
+          </span>
+        </td>
+        <td style="font-size: 0.82rem; color: var(--text-muted); max-width: 250px;">
+          ${escapeHtml(t.description || '-')}
+        </td>
+        <td style="text-align: center;">
+          <div style="display: inline-flex; gap: 4px;">
+            <button type="button" class="btn btn-sm btn-outline" onclick="window.openEditLeaveTypeModal(${t.id}, ${cat.id})" style="padding: 2px 6px; font-size: 0.72rem;" title="Edit Leave Type">✏️</button>
+            <button type="button" class="btn btn-sm btn-outline" onclick="window.deleteLeaveTypeConfirm(${t.id}, '${escapeHtml(t.name)}')" style="padding: 2px 6px; font-size: 0.72rem; color:#ef4444; border-color:#fca5a5;" title="Delete Leave Type">🗑️</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// Category Modal Functions
+function openAddCategoryModal() {
+  const modal = document.getElementById('modalLeaveCategory');
+  const title = document.getElementById('modalLeaveCategoryTitle');
+  const form = document.getElementById('formLeaveCategory');
+  if (!modal || !form) return;
+
+  title.textContent = 'Add Leave Category';
+  form.reset();
+  document.getElementById('leaveCatId').value = '';
+  document.getElementById('leaveCatColor').value = '#2563eb';
+  document.getElementById('leaveCatColorHex').value = '#2563eb';
+  modal.style.display = 'flex';
+}
+
+function openEditCategoryModal(catId) {
+  const cat = (state.leaveCategories || []).find(c => c.id === catId);
+  if (!cat) return;
+
+  const modal = document.getElementById('modalLeaveCategory');
+  const title = document.getElementById('modalLeaveCategoryTitle');
+  if (!modal) return;
+
+  title.textContent = 'Edit Leave Category';
+  document.getElementById('leaveCatId').value = cat.id;
+  document.getElementById('leaveCatName').value = cat.name || '';
+  document.getElementById('leaveCatDesc').value = cat.description || '';
+  document.getElementById('leaveCatColor').value = cat.color || '#2563eb';
+  document.getElementById('leaveCatColorHex').value = cat.color || '#2563eb';
+  document.getElementById('leaveCatIsDefault').checked = Boolean(cat.is_default);
+  modal.style.display = 'flex';
+}
+
+function closeLeaveCategoryModal() {
+  const modal = document.getElementById('modalLeaveCategory');
+  if (modal) modal.style.display = 'none';
+}
+
+async function handleCategoryFormSubmit(e) {
+  e.preventDefault();
+  const id = document.getElementById('leaveCatId').value;
+  const name = document.getElementById('leaveCatName').value.trim();
+  const description = document.getElementById('leaveCatDesc').value.trim();
+  const color = document.getElementById('leaveCatColorHex').value.trim() || document.getElementById('leaveCatColor').value;
+  const is_default = document.getElementById('leaveCatIsDefault').checked ? 1 : 0;
+  const org_id = getActiveOrgFilter();
+
+  try {
+    const url = id ? `/api/leave/categories/${id}` : '/api/leave/categories';
+    const method = id ? 'PUT' : 'POST';
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json', 'x-organization-id': org_id || '' },
+      body: JSON.stringify({ name, description, color, is_default, org_id })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || 'Leave category saved successfully!', 'success');
+      closeLeaveCategoryModal();
+      await loadLeaveManagement();
+      await loadEmployees();
+    } else {
+      showToast(data.error || 'Failed to save leave category', 'error');
+    }
+  } catch (err) {
+    showToast('Network error saving category: ' + err.message, 'error');
+  }
+}
+
+async function deleteCategoryConfirm(catId, catName) {
+  if (!confirm(`Are you sure you want to delete leave category "${catName}"?\n\nAssigned employees will be safely reassigned to the default category.`)) {
+    return;
+  }
+  try {
+    const res = await fetch(`/api/leave/categories/${catId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || 'Leave category deleted', 'success');
+      await loadLeaveManagement();
+      await loadEmployees();
+    } else {
+      showToast(data.error || 'Failed to delete category', 'error');
+    }
+  } catch (err) {
+    showToast('Error deleting category: ' + err.message, 'error');
+  }
+}
+
+// Leave Type Classification UI synchronizer (Standard Quota vs Duty Leave vs Compensatory Leave)
+function syncLeaveTypeClassificationUI() {
+  const isDuty = document.getElementById('classificationDuty')?.checked;
+  const isComp = document.getElementById('classificationCompensatory')?.checked;
+  const isQuotaExempt = isDuty || isComp;
+  const quotaRow = document.getElementById('leaveTypeQuotaFieldsRow');
+  const dutyAlert = document.getElementById('dutyLeaveInfoAlert');
+  const compAlert = document.getElementById('compensatoryLeaveInfoAlert');
+  const daysInput = document.getElementById('leaveTypeDays');
+  const cfInput = document.getElementById('leaveTypeCarryForward');
+  const prioSelect = document.getElementById('leaveTypePriority');
+  const colorInput = document.getElementById('leaveTypeColor');
+  const colorHex = document.getElementById('leaveTypeColorHex');
+
+  if (isDuty) {
+    if (quotaRow) quotaRow.style.display = 'none';
+    if (dutyAlert) dutyAlert.style.display = 'block';
+    if (compAlert) compAlert.style.display = 'none';
+    if (daysInput) daysInput.value = '0';
+    if (cfInput) cfInput.value = '0';
+    if (prioSelect) prioSelect.value = '0'; // Disabled
+    if (colorInput && (colorInput.value === '#10b981' || colorInput.value === '#0284c7')) {
+      colorInput.value = '#6366f1';
+      if (colorHex) colorHex.value = '#6366f1';
+    }
+  } else if (isComp) {
+    if (quotaRow) quotaRow.style.display = 'none';
+    if (dutyAlert) dutyAlert.style.display = 'none';
+    if (compAlert) compAlert.style.display = 'block';
+    if (daysInput) daysInput.value = '0';
+    if (cfInput) cfInput.value = '0';
+    if (prioSelect) prioSelect.value = '0'; // Disabled
+    if (colorInput && (colorInput.value === '#10b981' || colorInput.value === '#6366f1')) {
+      colorInput.value = '#0284c7';
+      if (colorHex) colorHex.value = '#0284c7';
+    }
+  } else {
+    if (quotaRow) quotaRow.style.display = 'grid';
+    if (dutyAlert) dutyAlert.style.display = 'none';
+    if (compAlert) compAlert.style.display = 'none';
+    if (daysInput && (parseFloat(daysInput.value) === 0 || !daysInput.value)) daysInput.value = '14';
+    if (prioSelect && prioSelect.value === '0') prioSelect.value = '1';
+  }
+}
+
+// Leave Type Modal Functions
+function openAddLeaveTypeModal() {
+  const modal = document.getElementById('modalLeaveType');
+  const title = document.getElementById('modalLeaveTypeTitle');
+  const form = document.getElementById('formLeaveType');
+  const catSelect = document.getElementById('leaveTypeCategorySelect');
+  if (!modal || !form) return;
+
+  title.textContent = 'Add Leave Type';
+  form.reset();
+  document.getElementById('leaveTypeId').value = '';
+
+  const radioStd = document.getElementById('classificationStandard');
+  if (radioStd) radioStd.checked = true;
+  syncLeaveTypeClassificationUI();
+
+  const cats = state.leaveCategories || [];
+  catSelect.innerHTML = cats.map(c => `
+    <option value="${c.id}" ${c.id === state.selectedLeaveCategoryId ? 'selected' : ''}>
+      ${escapeHtml(c.name)}
+    </option>
+  `).join('');
+
+  document.getElementById('leaveTypeDays').value = '14';
+  document.getElementById('leaveTypeCarryForward').value = '0';
+  document.getElementById('leaveTypeIsPaid').value = '1';
+  document.getElementById('leaveTypePriority').value = '1';
+  document.getElementById('leaveTypeColor').value = '#10b981';
+  document.getElementById('leaveTypeColorHex').value = '#10b981';
+  modal.style.display = 'flex';
+}
+
+function openEditLeaveTypeModal(typeId, catId) {
+  const cat = (state.leaveCategories || []).find(c => c.id === catId);
+  if (!cat) return;
+  const type = (cat.leave_types || []).find(t => t.id === typeId);
+  if (!type) return;
+
+  const modal = document.getElementById('modalLeaveType');
+  const title = document.getElementById('modalLeaveTypeTitle');
+  const catSelect = document.getElementById('leaveTypeCategorySelect');
+  if (!modal) return;
+
+  title.textContent = 'Edit Leave Type';
+  document.getElementById('leaveTypeId').value = type.id;
+
+  const isDuty = type.is_duty_leave === 1 || (type.code && type.code.toUpperCase() === 'DUTY');
+  const isComp = type.is_compensatory_leave === 1 || (type.code && type.code.toUpperCase() === 'COMP');
+  const radioDuty = document.getElementById('classificationDuty');
+  const radioComp = document.getElementById('classificationCompensatory');
+  const radioStd = document.getElementById('classificationStandard');
+  if (isDuty && radioDuty) {
+    radioDuty.checked = true;
+  } else if (isComp && radioComp) {
+    radioComp.checked = true;
+  } else if (radioStd) {
+    radioStd.checked = true;
+  }
+  syncLeaveTypeClassificationUI();
+
+  const cats = state.leaveCategories || [];
+  catSelect.innerHTML = cats.map(c => `
+    <option value="${c.id}" ${c.id === catId ? 'selected' : ''}>
+      ${escapeHtml(c.name)}
+    </option>
+  `).join('');
+
+  document.getElementById('leaveTypeName').value = type.name || '';
+  document.getElementById('leaveTypeCode').value = type.code || '';
+  document.getElementById('leaveTypeDays').value = type.days_allowed !== undefined ? type.days_allowed : 14;
+  document.getElementById('leaveTypeCarryForward').value = type.carry_forward_days || 0;
+  document.getElementById('leaveTypeIsPaid').value = type.is_paid !== 0 ? '1' : '0';
+  document.getElementById('leaveTypePriority').value = type.deduction_priority !== undefined ? String(type.deduction_priority) : '1';
+  document.getElementById('leaveTypeColor').value = type.color || '#10b981';
+  document.getElementById('leaveTypeColorHex').value = type.color || '#10b981';
+  document.getElementById('leaveTypeDesc').value = type.description || '';
+  modal.style.display = 'flex';
+}
+
+function closeLeaveTypeModal() {
+  const modal = document.getElementById('modalLeaveType');
+  if (modal) modal.style.display = 'none';
+}
+
+async function handleLeaveTypeFormSubmit(e) {
+  e.preventDefault();
+  const id = document.getElementById('leaveTypeId').value;
+  const category_id = parseInt(document.getElementById('leaveTypeCategorySelect').value, 10);
+  const name = document.getElementById('leaveTypeName').value.trim();
+  const code = document.getElementById('leaveTypeCode').value.trim().toUpperCase();
+  const is_duty_leave = document.getElementById('classificationDuty')?.checked ? 1 : 0;
+  const is_compensatory_leave = document.getElementById('classificationCompensatory')?.checked ? 1 : 0;
+  const is_quota_exempt = is_duty_leave || is_compensatory_leave;
+  const days_allowed = is_quota_exempt ? 0.0 : parseFloat(document.getElementById('leaveTypeDays').value || 0);
+  const carry_forward_days = is_quota_exempt ? 0.0 : parseFloat(document.getElementById('leaveTypeCarryForward').value || 0);
+  const is_paid = parseInt(document.getElementById('leaveTypeIsPaid').value, 10);
+  const deduction_priority = is_quota_exempt ? 99 : parseInt(document.getElementById('leaveTypePriority')?.value || 1, 10);
+  const color = document.getElementById('leaveTypeColorHex').value.trim() || document.getElementById('leaveTypeColor').value;
+  const description = document.getElementById('leaveTypeDesc').value.trim();
+
+  try {
+    const url = id ? `/api/leave/types/${id}` : '/api/leave/types';
+    const method = id ? 'PUT' : 'POST';
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        category_id, name, code, days_allowed, carry_forward_days, is_paid,
+        color, description, deduction_priority,
+        enable_auto_deduct: is_quota_exempt ? 0 : (deduction_priority > 0 ? 1 : 0),
+        is_duty_leave,
+        is_compensatory_leave
+      })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || 'Leave type saved successfully!', 'success');
+      closeLeaveTypeModal();
+      await loadLeaveManagement();
+    } else {
+      showToast(data.error || 'Failed to save leave type', 'error');
+    }
+  } catch (err) {
+    showToast('Network error saving leave type: ' + err.message, 'error');
+  }
+}
+
+async function deleteLeaveTypeConfirm(typeId, typeName) {
+  if (!confirm(`Are you sure you want to delete leave type "${typeName}"?\n\nThis will remove quotas and active balance records for this leave type.`)) {
+    return;
+  }
+  try {
+    const res = await fetch(`/api/leave/types/${typeId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || 'Leave type deleted', 'success');
+      await loadLeaveManagement();
+    } else {
+      showToast(data.error || 'Failed to delete leave type', 'error');
+    }
+  } catch (err) {
+    showToast('Error deleting leave type: ' + err.message, 'error');
+  }
+}
+
+// Bulk Assign Leave Modal Functions
+function openBulkLeaveModal() {
+  const modal = document.getElementById('bulkLeaveModal');
+  const sel = document.getElementById('bulkLeaveCategorySelect');
+  const preview = document.getElementById('bulkLeaveCategoryPreview');
+  const scopeSel = document.getElementById('bulkLeaveScope');
+  if (!modal || !sel) return;
+
+  const cats = state.leaveCategories || [];
+  sel.innerHTML = cats.map(c => `
+    <option value="${c.id}" ${c.is_default ? 'selected' : ''}>
+      ${escapeHtml(c.name)} ${c.is_default ? '(Default)' : ''} — ${(c.leave_types || []).length} Types
+    </option>
+  `).join('');
+
+  const updateCatPreview = () => {
+    const selectedCat = cats.find(c => c.id === parseInt(sel.value, 10));
+    if (selectedCat && selectedCat.leave_types) {
+      const summary = selectedCat.leave_types.map(t => `${t.name}: ${t.days_allowed}d`).join(' | ');
+      preview.textContent = summary || 'No leave types configured';
+    } else {
+      preview.textContent = '';
+    }
+  };
+  sel.onchange = updateCatPreview;
+  updateCatPreview();
+
+  const deptSel = document.getElementById('bulkLeaveDeptSelect');
+  if (deptSel) {
+    const rawList = state.empRegistry.rawList || [];
+    const depts = Array.from(new Set(rawList.map(e => e.department).filter(Boolean))).sort();
+    deptSel.innerHTML = depts.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+  }
+
+  const selectedCount = (state.empRegistry.selectedUserIds && state.empRegistry.selectedUserIds.size) || 0;
+  if (scopeSel) {
+    const optSelected = scopeSel.querySelector('option[value="selected"]');
+    if (optSelected) {
+      optSelected.textContent = `Selected Employees in Table (${selectedCount} selected)`;
+      optSelected.disabled = selectedCount === 0;
+    }
+    scopeSel.value = selectedCount > 0 ? 'selected' : 'all';
+    const deptWrap = document.getElementById('bulkLeaveDeptWrap');
+    if (deptWrap) deptWrap.style.display = 'none';
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeBulkLeaveModal() {
+  const modal = document.getElementById('bulkLeaveModal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function handleBulkLeaveFormSubmit(e) {
+  e.preventDefault();
+  const leave_category_id = document.getElementById('bulkLeaveCategorySelect').value;
+  const scope = document.getElementById('bulkLeaveScope').value;
+  const department = scope === 'dept' ? document.getElementById('bulkLeaveDeptSelect').value : '';
+  const reinitialize_balances = document.getElementById('bulkLeaveReinit')?.checked !== false;
+
+  let user_ids = [];
+  if (scope === 'selected' && state.empRegistry.selectedUserIds) {
+    user_ids = Array.from(state.empRegistry.selectedUserIds);
+  }
+
+  try {
+    showToast('Applying leave category assignment...', 'info');
+    const res = await fetch('/api/employees/assign-leave-category', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        leave_category_id,
+        user_ids,
+        department,
+        reinitialize_balances
+      })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || 'Leave category applied successfully!', 'success');
+      state.empRegistry.leaveBalances = {};
+      closeBulkLeaveModal();
+      await loadEmployees();
+      await loadLeaveManagement();
+    } else {
+      showToast(data.error || 'Failed to assign leave category', 'error');
+    }
+  } catch (err) {
+    showToast('Error assigning leave category: ' + err.message, 'error');
+  }
+}
+
+// Dossier Leave Balances Chips Renderer
+function renderLeaveBalanceChips(balances) {
+  if (!balances || balances.length === 0) {
+    return `<span class="text-muted" style="font-size:0.75rem;">No quotas allocated</span>`;
+  }
+  return balances.map(b => {
+    const tColor = b.leave_type_color || b.color || '#10b981';
+    const code = b.leave_type_code || b.code || b.leave_type_name || 'LEAVE';
+    const rem = parseFloat(b.remaining_days ?? 0).toFixed(0);
+    const alloc = parseFloat(b.allocated_days ?? 0).toFixed(0);
+    return `<span class="leave-balance-chip" style="background:${tColor}15; color:${tColor}; border:1px solid ${tColor}40;" title="${escapeHtml(b.leave_type_name || code)}: ${rem} remaining out of ${alloc} days">
+      ${escapeHtml(code)}: <strong>${rem}</strong>/${alloc}d
+    </span>`;
+  }).join(' ');
+}
+
+// Dossier Leave Balances Loader with State Caching
+async function loadDossierLeaveBalances(userId, forceRefresh = false) {
+  state.empRegistry.leaveBalances = state.empRegistry.leaveBalances || {};
+
+  if (forceRefresh) {
+    delete state.empRegistry.leaveBalances[userId];
+  }
+
+  const container = document.getElementById(`dossierLeaveBal_${userId}`);
+
+  // If already cached, update DOM immediately
+  if (!forceRefresh && state.empRegistry.leaveBalances[userId]) {
+    if (container) {
+      container.innerHTML = renderLeaveBalanceChips(state.empRegistry.leaveBalances[userId]);
+    }
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/leave/balances/${encodeURIComponent(userId)}`);
+    const data = await res.json();
+    if (data.success && Array.isArray(data.balances)) {
+      state.empRegistry.leaveBalances[userId] = data.balances;
+      const target = document.getElementById(`dossierLeaveBal_${userId}`);
+      if (target) {
+        target.innerHTML = renderLeaveBalanceChips(data.balances);
+      }
+    } else {
+      const target = document.getElementById(`dossierLeaveBal_${userId}`);
+      if (target) {
+        target.innerHTML = `<span class="text-muted" style="font-size:0.75rem;">No quotas allocated</span>`;
+      }
+    }
+  } catch (e) {
+    const target = document.getElementById(`dossierLeaveBal_${userId}`);
+    if (target) {
+      target.innerHTML = `<span class="text-muted" style="font-size:0.75rem;">-</span>`;
+    }
+  }
+}
+
+// Cloud Synchronization Handlers
+async function triggerLeaveCloudSync(direction = 'two_way') {
+  const syncBtn = document.getElementById('btnTwoWaySyncLeave');
+  const icon = document.getElementById('leaveSyncIcon');
+  const statusText = document.getElementById('leaveSyncStatusText');
+
+  if (icon) icon.classList.add('spin');
+  if (syncBtn) syncBtn.disabled = true;
+  if (statusText) statusText.textContent = 'Syncing leave management with Firebase...';
+
+  try {
+    const org = getActiveOrgFilter();
+    const res = await fetch('/api/leave/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-organization-id': org || '' },
+      body: JSON.stringify({ orgId: org, direction })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || 'Leave cloud sync completed successfully!', 'success');
+      if (statusText) statusText.textContent = `Synced just now (${new Date().toLocaleTimeString()})`;
+      await loadLeaveManagement();
+    } else {
+      showToast(data.error || 'Failed to sync with cloud', 'warning');
+      if (statusText) statusText.textContent = 'Sync notice: ' + (data.error || 'offline');
+    }
+  } catch (err) {
+    showToast('Network error during leave cloud sync: ' + err.message, 'error');
+  } finally {
+    if (icon) icon.classList.remove('spin');
+    if (syncBtn) syncBtn.disabled = false;
+  }
+}
+
+// ==========================================
+// LEAVE BALANCES & YEARLY CALCULATION MODULE
+// ==========================================
+
+let yearlyLeaveOverviewCache = [];
+let yearlyLeaveSearchTimeout = null;
+
+function switchLeaveSubtab(subtab) {
+  const btnPolicies = document.getElementById('btnSubtabPolicies');
+  const btnBalances = document.getElementById('btnSubtabBalances');
+  const btnRequests = document.getElementById('btnSubtabRequests');
+  const secPolicies = document.getElementById('leaveSectionPolicies');
+  const secBalances = document.getElementById('leaveSectionBalances');
+  const secRequests = document.getElementById('leaveSectionRequests');
+
+  [btnPolicies, btnBalances, btnRequests].forEach(b => {
+    if (b) {
+      b.classList.remove('btn-primary', 'active');
+      b.classList.add('btn-outline');
+    }
+  });
+  if (secPolicies) secPolicies.style.display = 'none';
+  if (secBalances) secBalances.style.display = 'none';
+  if (secRequests) secRequests.style.display = 'none';
+
+  if (subtab === 'requests') {
+    if (btnRequests) { btnRequests.classList.remove('btn-outline'); btnRequests.classList.add('btn-primary', 'active'); }
+    if (secRequests) secRequests.style.display = 'block';
+    loadLeaveRequests();
+    loadLeaveRequestStats();
+  } else if (subtab === 'balances') {
+    if (btnBalances) { btnBalances.classList.remove('btn-outline'); btnBalances.classList.add('btn-primary', 'active'); }
+    if (secBalances) secBalances.style.display = 'block';
+    loadYearlyLeaveBalances();
+  } else {
+    if (btnPolicies) { btnPolicies.classList.remove('btn-outline'); btnPolicies.classList.add('btn-primary', 'active'); }
+    if (secPolicies) secPolicies.style.display = 'block';
+    loadLeaveManagement();
+  }
+}
+
+async function loadYearlyLeaveBalances() {
+  const tbody = document.getElementById('yearlyLeaveBalancesTableBody');
+  const yearSelect = document.getElementById('leaveBalanceYearSelect');
+  const year = yearSelect ? parseInt(yearSelect.value, 10) : new Date().getFullYear();
+  const org = getActiveOrgFilter();
+  const deptFilter = document.getElementById('leaveBalanceDeptFilter');
+  const catFilter = document.getElementById('leaveBalanceCatFilter');
+  const searchInput = document.getElementById('leaveBalanceSearchInput');
+
+  const dept = deptFilter ? deptFilter.value : 'all';
+  const cat = catFilter ? catFilter.value : 'all';
+  const search = searchInput ? searchInput.value.trim() : '';
+
+  const titleYear = document.getElementById('leaveBalancesYearTitle');
+  if (titleYear) titleYear.textContent = year;
+
+  try {
+    const params = new URLSearchParams({
+      year,
+      orgId: org && org !== 'ALL' ? org : '',
+      department: dept,
+      categoryId: cat,
+      search
+    });
+
+    const res = await fetch(`/api/leave/yearly-overview?${params.toString()}`, {
+      headers: { 'x-organization-id': org || '' }
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Failed to load yearly balances');
+
+    yearlyLeaveOverviewCache = data.employees || [];
+
+    // Update KPI Metrics
+    const s = data.summary || {};
+    const elEmps = document.getElementById('kpiBalTotalEmployees');
+    const elAlloc = document.getElementById('kpiBalTotalAllocated');
+    const elCarried = document.getElementById('kpiBalTotalCarried');
+    const elUsed = document.getElementById('kpiBalTotalUsed');
+    const elRem = document.getElementById('kpiBalTotalRemaining');
+    const elCountBadge = document.getElementById('leaveBalancesCountBadge');
+
+    if (elEmps) elEmps.textContent = s.totalEmployees ?? yearlyLeaveOverviewCache.length;
+    if (elAlloc) elAlloc.textContent = `${s.totalAllocated ?? 0} days`;
+    if (elCarried) elCarried.textContent = `${s.totalCarriedForward ?? 0} days`;
+    if (elUsed) elUsed.textContent = `${s.totalUsed ?? 0} days`;
+    if (elRem) elRem.textContent = `${s.totalRemaining ?? 0} days`;
+    if (elCountBadge) elCountBadge.textContent = `${yearlyLeaveOverviewCache.length} Employees`;
+
+    // Dynamically populate Department filter if not populated
+    if (deptFilter && deptFilter.options.length <= 1 && yearlyLeaveOverviewCache.length > 0) {
+      const depts = Array.from(new Set(yearlyLeaveOverviewCache.map(e => e.department).filter(Boolean))).sort();
+      deptFilter.innerHTML = '<option value="all">All Departments</option>' +
+        depts.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+      if (dept && depts.includes(dept)) deptFilter.value = dept;
+    }
+
+    // Dynamically populate Category filter if not populated
+    if (catFilter && catFilter.options.length <= 1 && state.leaveCategories && state.leaveCategories.length > 0) {
+      catFilter.innerHTML = '<option value="all">All Policies</option>' +
+        state.leaveCategories.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+      if (cat && cat !== 'all') catFilter.value = cat;
+    }
+
+    // Render Table Rows
+    renderYearlyLeaveBalancesTable(yearlyLeaveOverviewCache, year);
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-danger">Error loading balances: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function renderYearlyLeaveBalancesTable(employees, year) {
+  const tbody = document.getElementById('yearlyLeaveBalancesTableBody');
+  if (!tbody) return;
+
+  if (!employees || employees.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-muted">No employees found for the selected criteria.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = employees.map(emp => {
+    const catColor = emp.leave_category_color || '#2563eb';
+    const balances = emp.balances || [];
+
+    const balancesHtml = balances.length > 0 ? balances.map(b => {
+      const tColor = b.leave_type_color || b.color || '#10b981';
+      const code = b.leave_type_code || b.code || b.leave_type_name || 'LEAVE';
+      const alloc = parseFloat(b.allocated_days ?? 0).toFixed(0);
+      const cf = parseFloat(b.carried_forward_days ?? 0).toFixed(0);
+      const used = parseFloat(b.used_days ?? 0).toFixed(0);
+      const rem = parseFloat(b.remaining_days ?? 0).toFixed(0);
+      const notes = b.notes ? `\nNote: ${b.notes}` : '';
+
+      return `
+        <span class="leave-balance-chip" style="background:${tColor}12; color:${tColor}; border:1px solid ${tColor}35; display:inline-flex; align-items:center; gap:5px; padding:3px 8px; border-radius:5px; font-size:0.75rem; margin:2px;" title="${escapeHtml(b.leave_type_name)}: Alloc ${alloc}d | Prev +${cf}d | Used -${used}d = ${rem}d Net${escapeHtml(notes)}">
+          <strong style="color:${tColor};">${escapeHtml(code)}:</strong>
+          <span>Alloc ${alloc}d</span>
+          ${parseFloat(cf) > 0 ? `<span style="color:#d97706; font-weight:700;">+${cf}prev</span>` : ''}
+          ${parseFloat(used) > 0 ? `<span style="color:#dc2626;">-${used}used</span>` : ''}
+          <strong style="color:#0f172a; margin-left:2px; font-size:0.78rem;">= ${rem}d</strong>
+        </span>
+      `;
+    }).join(' ') : `<span class="text-muted" style="font-size:0.75rem;">No quotas allocated</span>`;
+
+    return `
+      <tr>
+        <td style="text-align:center; font-family:monospace; font-weight:700;">${emp.user_id}</td>
+        <td>
+          <div style="font-weight:600; color:var(--text-color);">${escapeHtml(emp.name || 'Unnamed')}</div>
+          <div style="font-size:0.75rem; color:var(--text-muted); font-family:monospace;">
+            ${emp.employee_service_id ? `Service ID: ${escapeHtml(emp.employee_service_id)}` : 'No Service ID'}
+          </div>
+          ${emp.carried_fwd_cutoff_date ? `<div style="font-size:0.72rem; color:#475569; margin-top:2px;" title="Previous balance set up to this date">📅 CF Till: <strong>${escapeHtml(emp.carried_fwd_cutoff_date)}</strong></div>` : ''}
+        </td>
+        <td><span class="badge" style="background:#f1f5f9; color:#475569;">${escapeHtml(emp.department || 'General')}</span></td>
+        <td>
+          <span class="badge" style="background:${catColor}15; color:${catColor}; border:1px solid ${catColor}40; font-weight:600; font-size:0.75rem;">
+            <span style="width:6px; height:6px; border-radius:50%; background:${catColor}; display:inline-block; margin-right:4px;"></span>
+            ${escapeHtml(emp.leave_category_name || 'Permanent')}
+          </span>
+        </td>
+        <td>${balancesHtml}</td>
+        <td style="text-align:center;">
+          <span class="badge" style="background:#ecfdf5; color:#047857; border:1px solid #a7f3d0; font-size:0.85rem; font-weight:700; padding:4px 10px;">
+            ${parseFloat(emp.total_remaining ?? 0).toFixed(0)} days
+          </span>
+          ${parseFloat(emp.no_pay_days || 0) > 0 ? `<div style="margin-top:4px;"><span class="badge" style="background:#fee2e2; color:#b91c1c; border:1px solid #fca5a5; font-size:0.74rem; font-weight:700; padding:2px 6px;" title="Unpaid absence days recorded after paid quotas exhausted">⚠️ No-Pay: ${parseFloat(emp.no_pay_days)}d</span></div>` : ''}
+        </td>
+        <td style="text-align:center;">
+          <div style="display:inline-flex; gap:4px;">
+            <button type="button" class="btn btn-sm btn-outline btn-table-adj-bal" data-userid="${emp.user_id}" data-name="${escapeHtml(emp.name || '')}" data-year="${year}" title="Manually adjust previous balance or current quota for ${escapeHtml(emp.name)}">
+              ✏️ Adjust
+            </button>
+            <button type="button" class="btn btn-sm btn-outline btn-table-recalc-emp" data-userid="${emp.user_id}" data-year="${year}" title="Recalculate policy allowances for this employee">
+              🔄
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // Attach button listeners
+  tbody.querySelectorAll('.btn-table-adj-bal').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const uId = btn.getAttribute('data-userid');
+      const yr = btn.getAttribute('data-year') || year;
+      openManualLeaveBalanceModal(uId, yr);
+    });
+  });
+
+  tbody.querySelectorAll('.btn-table-recalc-emp').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const uId = btn.getAttribute('data-userid');
+      const yr = btn.getAttribute('data-year') || year;
+      await recalculateSingleEmployeeBalances(uId, yr);
+    });
+  });
+}
+
+// Recalculate single employee balances
+async function recalculateSingleEmployeeBalances(userId, year) {
+  try {
+    showToast(`Recalculating ${year} leave balances for User ${userId}...`, 'info');
+    const org = getActiveOrgFilter();
+    const res = await fetch('/api/leave/calculate-yearly', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-organization-id': org || '' },
+      body: JSON.stringify({ year: parseInt(year, 10), user_ids: [userId], orgId: org })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`User ${userId} leave balances calculated successfully!`, 'success');
+      if (state.empRegistry?.leaveBalances) delete state.empRegistry.leaveBalances[userId];
+      await loadYearlyLeaveBalances();
+    } else {
+      showToast(data.error || 'Failed to calculate balances', 'error');
+    }
+  } catch (err) {
+    showToast('Error calculating balance: ' + err.message, 'error');
+  }
+}
+
+// Bulk Calculate Yearly Leave for all employees
+async function calculateYearlyLeaveAll() {
+  const yearSelect = document.getElementById('leaveBalanceYearSelect');
+  const year = yearSelect ? parseInt(yearSelect.value, 10) : new Date().getFullYear();
+  const prevYear = year - 1;
+
+  if (!confirm(`Calculate and roll forward leave balances for YEAR ${year}?\n\n` +
+    `• Standard quotas for each employee's policy category will be applied.\n` +
+    `• Any unconsumed leaves from ${prevYear} will be carried forward according to each leave type's rules.\n` +
+    `• Existing manual adjustments will be preserved.\n\n` +
+    `Proceed with calculation?`)) {
+    return;
+  }
+
+  const btn = document.getElementById('btnCalcYearlyBalances');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spin">⏳</span> Calculating...`;
+  }
+
+  try {
+    showToast(`Calculating ${year} employee leave balances & rolling forward...`, 'info');
+    const org = getActiveOrgFilter();
+    const res = await fetch('/api/leave/calculate-yearly', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-organization-id': org || '' },
+      body: JSON.stringify({ year, orgId: org, overwrite_manual: false })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || `Successfully calculated ${year} leave balances!`, 'success');
+      state.empRegistry.leaveBalances = {};
+      await loadYearlyLeaveBalances();
+    } else {
+      showToast(data.error || 'Failed to calculate yearly leave', 'error');
+    }
+  } catch (err) {
+    showToast('Error calculating yearly leave: ' + err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> <span>⚡ Calculate Yearly Leave</span>`;
+    }
+  }
+}
+
+// Manual Balance Adjustment Modal Logic
+let currentAdjUserId = null;
+let currentAdjEmployeeBalances = [];
+let modalEmployeesList = [];
+
+// Fetch or retrieve cached employees list for balance modal
+async function getAllEmployeesForLeaveModal() {
+  if (state.allEmployeesCache && state.allEmployeesCache.length > 0) {
+    return state.allEmployeesCache;
+  }
+  if (state.empRegistry?.rawList && state.empRegistry.rawList.length > 0) {
+    state.allEmployeesCache = state.empRegistry.rawList;
+    return state.allEmployeesCache;
+  }
+  try {
+    const res = await fetch('/api/employees?status=all');
+    const data = await res.json();
+    if (data.success && Array.isArray(data.employees) && data.employees.length > 0) {
+      state.allEmployeesCache = data.employees;
+      return state.allEmployeesCache;
+    }
+  } catch (err) {
+    console.warn('Could not fetch employees for leave modal:', err);
+  }
+  return yearlyLeaveOverviewCache || [];
+}
+
+// Update the Employee Profile summary banner in the modal
+function updateManualAdjProfileCard(emp) {
+  if (!emp) return;
+  const nameEl = document.getElementById('manualAdjEmpName');
+  const userIdBadge = document.getElementById('manualAdjEmpUserIdBadge');
+  const srvBadge = document.getElementById('manualAdjEmpServiceIdBadge');
+  const statusBadge = document.getElementById('manualAdjEmpStatusBadge');
+  const deptEl = document.getElementById('manualAdjEmpDept');
+  const roleEl = document.getElementById('manualAdjEmpRole');
+  const avatarEl = document.getElementById('manualAdjEmpAvatar');
+  const policyLabel = document.getElementById('manualAdjPolicyName');
+  const modalTitle = document.getElementById('manualAdjModalTitle');
+
+  const fullName = emp.name || `User #${emp.user_id}`;
+  if (nameEl) nameEl.textContent = fullName;
+  if (modalTitle) modalTitle.textContent = `Adjust Leave Balances: ${fullName}`;
+  if (userIdBadge) userIdBadge.textContent = `User #${emp.user_id}`;
+
+  if (srvBadge) {
+    srvBadge.textContent = emp.employee_service_id ? `ID: ${emp.employee_service_id}` : 'No Service ID';
+    srvBadge.style.display = emp.employee_service_id ? 'inline-block' : 'none';
+  }
+
+  if (statusBadge) {
+    statusBadge.textContent = emp.employment_status || emp.leave_category_name || 'Permanent';
+  }
+
+  if (deptEl) deptEl.textContent = emp.department || 'General';
+  if (roleEl) roleEl.textContent = emp.role || 'Staff';
+
+  if (emp.leave_category_name && policyLabel) {
+    policyLabel.textContent = emp.leave_category_name;
+    if (emp.leave_category_color) policyLabel.style.color = emp.leave_category_color;
+  }
+
+  if (avatarEl) {
+    if (emp.photo && (emp.photo.startsWith('data:') || emp.photo.startsWith('http') || emp.photo.startsWith('/'))) {
+      avatarEl.innerHTML = `<img src="${emp.photo}" alt="${escapeHtml(fullName)}" style="width: 100%; height: 100%; object-fit: cover;">`;
+    } else {
+      const parts = fullName.trim().split(/\s+/);
+      const initials = (parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : parts[0].substring(0, 2)).toUpperCase();
+      avatarEl.textContent = initials;
+      const palette = ['#2563eb', '#7c3aed', '#db2777', '#d97706', '#059669', '#0891b2', '#4f46e5', '#ea580c'];
+      const charCode = (emp.user_id || fullName).toString().charCodeAt(0) || 0;
+      avatarEl.style.background = emp.leave_category_color || palette[charCode % palette.length];
+      avatarEl.style.color = '#ffffff';
+    }
+  }
+}
+
+// Filter Employee Profile select options based on search query
+function filterManualAdjEmployeeSelect(searchTerm) {
+  const select = document.getElementById('manualAdjEmployeeSelect');
+  if (!select) return;
+  const term = (searchTerm || '').trim().toLowerCase();
+  const filtered = term
+    ? modalEmployeesList.filter(e =>
+        (e.name && e.name.toLowerCase().includes(term)) ||
+        (String(e.user_id).toLowerCase().includes(term)) ||
+        (e.employee_service_id && e.employee_service_id.toLowerCase().includes(term)) ||
+        (e.department && e.department.toLowerCase().includes(term)) ||
+        (e.role && e.role.toLowerCase().includes(term))
+      )
+    : modalEmployeesList;
+
+  select.innerHTML = filtered.map(e => `
+    <option value="${e.user_id}">
+      User #${e.user_id} - ${escapeHtml(e.name || 'Unnamed')} ${e.employee_service_id ? `(${e.employee_service_id})` : ''} [${escapeHtml(e.department || 'General')}]
+    </option>
+  `).join('');
+
+  const countBadge = document.getElementById('manualAdjEmpCountBadge');
+  if (countBadge) {
+    countBadge.textContent = term ? `${filtered.length} of ${modalEmployeesList.length}` : `${modalEmployeesList.length} employees`;
+  }
+
+  if (filtered.some(e => String(e.user_id) === String(currentAdjUserId))) {
+    select.value = String(currentAdjUserId);
+  } else if (filtered.length > 0 && term) {
+    select.value = String(filtered[0].user_id);
+    onManualAdjEmployeeSelected(filtered[0].user_id);
+  }
+}
+
+// Handle change of selected employee
+async function onManualAdjEmployeeSelected(userId) {
+  if (!userId) return;
+  currentAdjUserId = userId;
+  const hiddenId = document.getElementById('manualAdjUserId');
+  if (hiddenId) hiddenId.value = String(userId);
+
+  const yearSelect = document.getElementById('manualAdjYearSelect');
+  const yr = yearSelect ? parseInt(yearSelect.value, 10) : new Date().getFullYear();
+
+  const emp = modalEmployeesList.find(e => String(e.user_id) === String(userId));
+  if (emp) updateManualAdjProfileCard(emp);
+
+  await loadEmployeeBalancesForAdjustment(userId, yr);
+}
+
+async function openManualLeaveBalanceModal(userId, year) {
+  const modal = document.getElementById('modalManualLeaveBalance');
+  if (!modal) return;
+
+  const yr = parseInt(year, 10) || new Date().getFullYear();
+  const yearSelect = document.getElementById('manualAdjYearSelect');
+  if (yearSelect) yearSelect.value = String(yr);
+
+  const prevYrLabel = document.getElementById('manualAdjPrevYearLabel');
+  if (prevYrLabel) prevYrLabel.textContent = String(yr - 1);
+
+  // Clear search field
+  const searchInput = document.getElementById('manualAdjEmpSearch');
+  if (searchInput) searchInput.value = '';
+
+  modal.style.display = 'flex';
+  modal.classList.add('active');
+
+  // Load complete employee list
+  modalEmployeesList = await getAllEmployeesForLeaveModal();
+
+  const countBadge = document.getElementById('manualAdjEmpCountBadge');
+  if (countBadge) countBadge.textContent = `${modalEmployeesList.length} employees`;
+
+  const empSelect = document.getElementById('manualAdjEmployeeSelect');
+  if (empSelect) {
+    empSelect.innerHTML = modalEmployeesList.map(e => `
+      <option value="${e.user_id}">
+        User #${e.user_id} - ${escapeHtml(e.name || 'Unnamed')} ${e.employee_service_id ? `(${e.employee_service_id})` : ''} [${escapeHtml(e.department || 'General')}]
+      </option>
+    `).join('');
+  }
+
+  // Determine targetId: passed userId or first employee in list
+  let targetId = userId;
+  if (!targetId && modalEmployeesList.length > 0) {
+    targetId = modalEmployeesList[0].user_id;
+  }
+
+  if (targetId) {
+    if (empSelect) empSelect.value = String(targetId);
+    currentAdjUserId = targetId;
+    const hiddenId = document.getElementById('manualAdjUserId');
+    if (hiddenId) hiddenId.value = String(targetId);
+
+    const initialEmp = modalEmployeesList.find(e => String(e.user_id) === String(targetId));
+    if (initialEmp) updateManualAdjProfileCard(initialEmp);
+
+    await loadEmployeeBalancesForAdjustment(targetId, yr);
+  }
+}
+
+function closeManualLeaveBalanceModal() {
+  const modal = document.getElementById('modalManualLeaveBalance');
+  if (modal) {
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+  }
+  const searchInput = document.getElementById('manualAdjEmpSearch');
+  if (searchInput) searchInput.value = '';
+  currentAdjUserId = null;
+  currentAdjEmployeeBalances = [];
+}
+
+async function loadEmployeeBalancesForAdjustment(userId, year) {
+  const container = document.getElementById('manualAdjTypeRowsContainer');
+  const policyLabel = document.getElementById('manualAdjPolicyName');
+  const cutoffInput = document.getElementById('manualAdjCutoffDate');
+  const noPayInput = document.getElementById('manualAdjNoPayDaysInput');
+  const sumBox = document.getElementById('manualAdjAttendanceSummaryBox');
+
+  if (container) container.innerHTML = `<div class="text-center py-4 text-muted">Loading leave balances...</div>`;
+  if (sumBox) {
+    sumBox.style.display = 'none';
+    sumBox.innerHTML = '';
+  }
+
+  try {
+    const res = await fetch(`/api/leave/balances/${encodeURIComponent(userId)}?year=${year}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Failed to load balances');
+
+    // Update Employee Profile banner with live balance data
+    updateManualAdjProfileCard({
+      user_id: data.user_id,
+      name: data.name,
+      employee_service_id: data.employee_service_id,
+      employment_status: data.employment_status,
+      department: data.department,
+      role: data.role,
+      leave_category_name: data.leave_category_name,
+      leave_category_color: data.leave_category_color,
+      photo: data.photo
+    });
+
+    if (policyLabel) {
+      policyLabel.textContent = data.leave_category_name || 'Permanent';
+      if (data.leave_category_color) policyLabel.style.color = data.leave_category_color;
+    }
+
+    // Set Baseline Till Date
+    if (cutoffInput) {
+      cutoffInput.value = data.carried_fwd_cutoff_date || `${year}-05-31`;
+    }
+
+    // Set No-Pay Days
+    if (noPayInput) {
+      noPayInput.value = parseFloat(data.no_pay_days || 0);
+    }
+
+    currentAdjEmployeeBalances = data.balances || [];
+
+    if (currentAdjEmployeeBalances.length === 0) {
+      container.innerHTML = `<div class="text-center py-4 text-muted">No leave types configured for category "${escapeHtml(data.leave_category_name)}".</div>`;
+      return;
+    }
+
+    container.innerHTML = currentAdjEmployeeBalances.map(b => {
+      const tColor = b.leave_type_color || b.color || '#2563eb';
+      const alloc = parseFloat(b.allocated_days ?? b.type_days_allowed ?? 0);
+      const cf = parseFloat(b.carried_forward_days ?? 0);
+      const used = parseFloat(b.used_days ?? 0);
+      const net = Math.max(0, (alloc + cf) - used);
+      const priority = parseInt(b.deduction_priority, 10);
+      const hasPriority = priority > 0 && priority < 90;
+      const reqDeduct = parseFloat(b.request_deducted_days || 0);
+      const autoDeduct = parseFloat(b.auto_deducted_days || 0);
+
+      const priorityBadge = hasPriority
+        ? `<span class="badge" style="font-size:0.7rem; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; font-weight:600;" title="Priority #${priority} for automatic absence reduction">⚡ Auto Priority #${priority}</span>`
+        : `<span class="badge" style="font-size:0.7rem; background:#f1f5f9; color:#64748b;" title="No auto-deduction priority set">Priority: None</span>`;
+
+      const deductionBreakdown = (reqDeduct > 0 || autoDeduct > 0)
+        ? `<div style="font-size:0.72rem; color:#64748b; margin-top:2px;">
+             ${reqDeduct > 0 ? `<span style="color:#059669; font-weight:600;">Request: ${reqDeduct}d</span>` : ''}
+             ${reqDeduct > 0 && autoDeduct > 0 ? ` • ` : ''}
+             ${autoDeduct > 0 ? `<span style="color:#2563eb; font-weight:600;">Auto: ${autoDeduct}d</span>` : ''}
+           </div>`
+        : '';
+
+      return `
+        <div class="card" style="margin-bottom: 12px; padding: 12px 14px; border: 1px solid #e2e8f0; background: #ffffff; border-radius: 8px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span style="width: 10px; height: 10px; border-radius: 50%; background: ${tColor}; display: inline-block;"></span>
+              <strong style="font-size: 0.92rem; color: #1e293b;">${escapeHtml(b.leave_type_name)} (${escapeHtml(b.leave_type_code || '')})</strong>
+              <span class="badge" style="font-size: 0.72rem; background: ${tColor}15; color: ${tColor}; font-weight:600;">
+                ${b.type_days_allowed || alloc}d standard
+              </span>
+              ${b.type_carry_forward > 0 ? `<span class="badge" style="font-size:0.7rem; background:#fef3c7; color:#92400e;">Max CF: ${b.type_carry_forward}d</span>` : ''}
+              ${priorityBadge}
+            </div>
+            <div style="font-size: 0.84rem; font-weight: 700; color: #059669;">
+              Net Remaining: <span id="adjNetDisplay_${b.leave_type_id}" style="font-size: 1rem; color: #047857;">${net}</span> days
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+            <div>
+              <label style="font-size: 0.75rem; color: #475569; font-weight: 600; display: block; margin-bottom: 2px;">
+                Previous Balance (Carried Fwd)
+              </label>
+              <input type="number" step="0.5" min="0" max="365" class="form-control form-control-sm adj-calc-input adj-cf-input" data-typeid="${b.leave_type_id}" id="adjCf_${b.leave_type_id}" value="${cf}" placeholder="0">
+            </div>
+            <div>
+              <label style="font-size: 0.75rem; color: #475569; font-weight: 600; display: block; margin-bottom: 2px;">
+                Annual Allocated Quota
+              </label>
+              <input type="number" step="0.5" min="0" max="365" class="form-control form-control-sm adj-calc-input adj-alloc-input" data-typeid="${b.leave_type_id}" id="adjAlloc_${b.leave_type_id}" value="${alloc}" placeholder="${b.type_days_allowed}">
+            </div>
+            <div>
+              <label style="font-size: 0.75rem; color: #475569; font-weight: 600; display: block; margin-bottom: 2px;">
+                Leaves Taken / Used
+              </label>
+              <input type="number" step="0.5" min="0" max="365" class="form-control form-control-sm adj-calc-input adj-used-input" data-typeid="${b.leave_type_id}" id="adjUsed_${b.leave_type_id}" value="${used}" placeholder="0" data-auto-deduct="${autoDeduct}" data-req-deduct="${reqDeduct}">
+              ${deductionBreakdown}
+            </div>
+          </div>
+
+          <div style="margin-top: 8px;">
+            <input type="text" class="form-control form-control-sm" id="adjNotes_${b.leave_type_id}" value="${escapeHtml(b.notes || '')}" placeholder="Adjustment remarks (e.g. Approved carried-over leave per letter)" style="font-size: 0.76rem;">
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Attach real-time calculation listener
+    container.querySelectorAll('.adj-calc-input').forEach(input => {
+      input.addEventListener('input', () => {
+        const typeId = input.getAttribute('data-typeid');
+        const cfEl = document.getElementById(`adjCf_${typeId}`);
+        const allocEl = document.getElementById(`adjAlloc_${typeId}`);
+        const usedEl = document.getElementById(`adjUsed_${typeId}`);
+        const netEl = document.getElementById(`adjNetDisplay_${typeId}`);
+
+        const cf = parseFloat(cfEl?.value || 0);
+        const alloc = parseFloat(allocEl?.value || 0);
+        const used = parseFloat(usedEl?.value || 0);
+        const net = Math.max(0, (alloc + cf) - used);
+
+        if (netEl) netEl.textContent = net.toFixed(net % 1 === 0 ? 0 : 1);
+      });
+    });
+  } catch (err) {
+    if (container) container.innerHTML = `<div class="text-center py-4 text-danger">Error: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+// Auto-calculate / fetch from previous year into modal
+async function autoFetchPrevYearBalancesForModal() {
+  const userId = document.getElementById('manualAdjUserId')?.value || currentAdjUserId;
+  const yearSelect = document.getElementById('manualAdjYearSelect');
+  const year = yearSelect ? parseInt(yearSelect.value, 10) : new Date().getFullYear();
+  const prevYear = year - 1;
+
+  if (!userId) return;
+
+  try {
+    showToast(`Fetching User ${userId} balances from ${prevYear}...`, 'info');
+    const res = await fetch(`/api/leave/balances/${encodeURIComponent(userId)}?year=${prevYear}`);
+    const data = await res.json();
+    if (!data.success || !Array.isArray(data.balances) || data.balances.length === 0) {
+      showToast(`No previous balances found in ${prevYear} for User ${userId}`, 'warning');
+      return;
+    }
+
+    let appliedCount = 0;
+    data.balances.forEach(prevB => {
+      const cfInput = document.getElementById(`adjCf_${prevB.leave_type_id}`);
+      if (cfInput) {
+        const prevRem = Math.max(0, parseFloat(prevB.remaining_days || 0));
+        const limit = parseFloat(prevB.type_carry_forward || 0);
+        const carried = limit > 0 ? Math.min(prevRem, limit) : prevRem;
+
+        cfInput.value = carried;
+        // Trigger input event to update display
+        cfInput.dispatchEvent(new Event('input'));
+        appliedCount++;
+      }
+    });
+
+    showToast(`Carried forward balances from ${prevYear} into ${year} (${appliedCount} types updated)!`, 'success');
+  } catch (err) {
+    showToast('Failed to fetch previous year balance: ' + err.message, 'error');
+  }
+}
+
+// Scan employee attendance after till date, resolve leave requests and cascade auto-deductions
+async function calcAttendanceLeavesForModal() {
+  const userId = document.getElementById('manualAdjUserId')?.value || currentAdjUserId;
+  const yearSelect = document.getElementById('manualAdjYearSelect');
+  const year = yearSelect ? parseInt(yearSelect.value, 10) : new Date().getFullYear();
+  const cutoffInput = document.getElementById('manualAdjCutoffDate');
+  const cutoffDate = cutoffInput?.value;
+  const btn = document.getElementById('btnCalcAttendanceLeaves');
+  const sumBox = document.getElementById('manualAdjAttendanceSummaryBox');
+  const noPayInput = document.getElementById('manualAdjNoPayDaysInput');
+
+  if (!userId) {
+    showToast('Please select an employee first', 'warning');
+    return;
+  }
+  if (!cutoffDate) {
+    showToast('Please enter the Previous Balance Till Date (e.g. 2026-05-31)', 'warning');
+    cutoffInput?.focus();
+    return;
+  }
+
+  const origBtnHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span><span>Scanning Attendance...</span>`;
+  }
+
+  try {
+    showToast(`Scanning attendance records after ${cutoffDate} for User ${userId}...`, 'info');
+    const org = getActiveOrgFilter();
+    const res = await fetch('/api/leave/balances/calculate-from-attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-organization-id': org || '' },
+      body: JSON.stringify({
+        user_id: userId,
+        year,
+        cutoff_date: cutoffDate,
+        persist: false
+      })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Failed to scan attendance');
+
+    const result = data.result || data || {};
+    const balances = result.balances || result.typeDeductions || [];
+    const absentLog = result.absentLog || result.absentDates || [];
+
+    // Update Used inputs and net remaining for each leave type
+    balances.forEach(b => {
+      const typeId = b.leave_type_id ?? b.leaveTypeId;
+      const usedInput = document.getElementById(`adjUsed_${typeId}`);
+      if (usedInput) {
+        const totalUsed = parseFloat(b.used_days ?? b.totalDeducted ?? 0);
+        const autoDeduct = parseFloat(b.auto_deducted_days ?? b.autoDeducted ?? 0);
+        const reqDeduct = parseFloat(b.request_deducted_days ?? b.requestDeducted ?? 0);
+
+        usedInput.value = totalUsed;
+        usedInput.dataset.autoDeduct = autoDeduct;
+        usedInput.dataset.reqDeduct = reqDeduct;
+        // Trigger calculation event
+        usedInput.dispatchEvent(new Event('input'));
+      }
+    });
+
+    // Update No-Pay input
+    if (noPayInput) {
+      noPayInput.value = parseFloat(result.noPayDays ?? result.no_pay_days ?? 0);
+    }
+
+    const absentCount = result.totalAbsentDays ?? absentLog.length;
+    const reqCount = balances.reduce((acc, b) => acc + (parseFloat(b.request_deducted_days ?? b.requestDeducted) || 0), 0);
+    const autoCount = balances.reduce((acc, b) => acc + (parseFloat(b.auto_deducted_days ?? b.autoDeducted) || 0), 0);
+    const noPayCount = parseFloat(result.noPayDays ?? result.no_pay_days ?? 0);
+
+    // Render Summary Box
+    if (sumBox) {
+      let datesHtml = '';
+      if (absentLog.length > 0) {
+        const dateChips = absentLog.map(d => {
+          const isApproved = d.resolution === 'APPROVED_REQUEST' || d.isApprovedRequest;
+          const isAuto = d.resolution === 'AUTO_DEDUCTED' || Boolean(d.deductedType) || Boolean(d.leaveTypeId);
+          const typeName = d.leaveTypeName || d.deductedTypeName || 'No-Pay';
+
+          let chipColor = '#991b1b';
+          let chipBg = '#fee2e2';
+          let border = '#fca5a5';
+          let tag = 'No-Pay';
+
+          if (isApproved) {
+            chipColor = '#065f46';
+            chipBg = '#d1fae5';
+            border = '#6ee7b7';
+            tag = `Approved (${typeName})`;
+          } else if (isAuto && d.resolution !== 'NO_PAY') {
+            chipColor = '#1e40af';
+            chipBg = '#dbeafe';
+            border = '#93c5fd';
+            tag = `Auto (${typeName})`;
+          }
+
+          return `<span style="display:inline-block; font-size:0.7rem; font-family:monospace; background:${chipBg}; color:${chipColor}; border:1px solid ${border}; border-radius:4px; padding:2px 6px; margin:2px;">
+            ${d.date} (${d.dayName}): <strong>${tag}</strong>
+          </span>`;
+        }).join('');
+
+        datesHtml = `
+          <details style="margin-top:8px; font-size:0.75rem; color:#475569;">
+            <summary style="cursor:pointer; font-weight:600; color:#3b82f6;">View all ${absentLog.length} absence dates breakdown</summary>
+            <div style="margin-top:6px; max-height:140px; overflow-y:auto; padding:6px; background:#ffffff; border:1px solid #e2e8f0; border-radius:6px;">
+              ${dateChips}
+            </div>
+          </details>
+        `;
+      }
+
+      sumBox.innerHTML = `
+        <div style="background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px; padding: 10px 12px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-size: 1.1rem;">⚡</span>
+              <strong style="color: #3730a3; font-size: 0.85rem;">Attendance Scan Results (${result.startDate || ''} to ${result.endDate || ''}):</strong>
+            </div>
+            <span class="badge" style="background:#4338ca; color:#ffffff; font-size:0.75rem; font-weight:700;">${absentCount} Total Absences</span>
+          </div>
+
+          <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
+            <span class="badge" style="background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; font-size:0.75rem; padding:4px 8px;">
+              📝 Approved Requests: <strong>${reqCount}d</strong>
+            </span>
+            <span class="badge" style="background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; font-size:0.75rem; padding:4px 8px;">
+              ⚡ Auto Deducted: <strong>${autoCount}d</strong>
+            </span>
+            <span class="badge" style="background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; font-size:0.75rem; padding:4px 8px;">
+              ⚠️ No-Pay Leaves: <strong>${noPayCount}d</strong>
+            </span>
+          </div>
+
+          ${datesHtml}
+        </div>
+      `;
+      sumBox.style.display = 'block';
+    }
+
+    showToast(`Scanned attendance: ${absentCount} absent days (${reqCount} requested, ${autoCount} auto-deducted, ${noPayCount} no-pay). Click "Save & Apply Balances" to persist.`, 'success');
+  } catch (err) {
+    showToast('Failed to calculate attendance leaves: ' + err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origBtnHtml;
+    }
+  }
+}
+
+// Handle Manual Adjustment Form Submit
+async function handleManualLeaveBalanceSubmit(e) {
+  e.preventDefault();
+  const userId = document.getElementById('manualAdjUserId')?.value || currentAdjUserId;
+  const yearSelect = document.getElementById('manualAdjYearSelect');
+  const year = yearSelect ? parseInt(yearSelect.value, 10) : new Date().getFullYear();
+  const org = getActiveOrgFilter();
+  const cutoffDate = document.getElementById('manualAdjCutoffDate')?.value || null;
+  const noPayDays = parseFloat(document.getElementById('manualAdjNoPayDaysInput')?.value || 0);
+
+  if (!userId) {
+    showToast('Please select an employee', 'error');
+    return;
+  }
+
+  const btnSave = document.getElementById('btnSaveManualLeaveBalance');
+  if (btnSave) {
+    btnSave.disabled = true;
+    btnSave.textContent = 'Saving...';
+  }
+
+  const balances = [];
+  currentAdjEmployeeBalances.forEach(b => {
+    const typeId = b.leave_type_id;
+    const cf = parseFloat(document.getElementById(`adjCf_${typeId}`)?.value || 0);
+    const alloc = parseFloat(document.getElementById(`adjAlloc_${typeId}`)?.value || 0);
+    const usedInput = document.getElementById(`adjUsed_${typeId}`);
+    const used = parseFloat(usedInput?.value || 0);
+    const notes = document.getElementById(`adjNotes_${typeId}`)?.value || '';
+
+    const autoDeduct = parseFloat(usedInput?.dataset?.autoDeduct ?? b.auto_deducted_days ?? 0);
+    const reqDeduct = parseFloat(usedInput?.dataset?.reqDeduct ?? b.request_deducted_days ?? 0);
+
+    balances.push({
+      leave_type_id: typeId,
+      allocated_days: alloc,
+      carried_forward_days: cf,
+      used_days: used,
+      auto_deducted_days: autoDeduct,
+      request_deducted_days: reqDeduct,
+      remaining_days: Math.max(0, (alloc + cf) - used),
+      notes: notes.trim()
+    });
+  });
+
+  try {
+    showToast(`Saving leave balance adjustments for User ${userId}...`, 'info');
+    const res = await fetch('/api/leave/balances/adjust', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-organization-id': org || '' },
+      body: JSON.stringify({
+        user_id: userId,
+        year,
+        balances,
+        carried_fwd_cutoff_date: cutoffDate,
+        no_pay_days: noPayDays,
+        orgId: org
+      })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || 'Leave balances saved successfully!', 'success');
+      if (state.empRegistry?.leaveBalances) delete state.empRegistry.leaveBalances[userId];
+      closeManualLeaveBalanceModal();
+      await loadYearlyLeaveBalances();
+    } else {
+      showToast(data.error || 'Failed to save adjustments', 'error');
+    }
+  } catch (err) {
+    showToast('Error saving adjustments: ' + err.message, 'error');
+  } finally {
+    if (btnSave) {
+      btnSave.disabled = false;
+      btnSave.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg> <span>Save &amp; Apply Balances</span>`;
+    }
+  }
+}
+
+// Export Yearly Leave Balances CSV
+function exportYearlyLeaveBalancesCsv() {
+  if (!yearlyLeaveOverviewCache || yearlyLeaveOverviewCache.length === 0) {
+    showToast('No leave balance data available to export', 'warning');
+    return;
+  }
+
+  const yearSelect = document.getElementById('leaveBalanceYearSelect');
+  const year = yearSelect ? yearSelect.value : new Date().getFullYear();
+
+  const headers = ['User ID', 'Employee Name', 'Service ID', 'Department', 'Role', 'Policy Category', 'Year', 'Carried Fwd Till Date', 'No-Pay Days', 'Leave Type Code', 'Leave Type Name', 'Annual Allocated', 'Previous Carried Fwd', 'Leaves Taken (Used)', 'Auto Deducted Days', 'Request Deducted Days', 'Net Remaining', 'Notes'];
+  const rows = [headers];
+
+  yearlyLeaveOverviewCache.forEach(emp => {
+    (emp.balances || []).forEach(b => {
+      rows.push([
+        emp.user_id,
+        `"${(emp.name || '').replace(/"/g, '""')}"`,
+        `"${(emp.employee_service_id || '').replace(/"/g, '""')}"`,
+        `"${(emp.department || '').replace(/"/g, '""')}"`,
+        `"${(emp.role || '').replace(/"/g, '""')}"`,
+        `"${(emp.leave_category_name || '').replace(/"/g, '""')}"`,
+        year,
+        `"${emp.carried_fwd_cutoff_date || ''}"`,
+        emp.no_pay_days ?? 0,
+        `"${(b.leave_type_code || '').replace(/"/g, '""')}"`,
+        `"${(b.leave_type_name || '').replace(/"/g, '""')}"`,
+        b.allocated_days ?? 0,
+        b.carried_forward_days ?? 0,
+        b.used_days ?? 0,
+        b.auto_deducted_days ?? 0,
+        b.request_deducted_days ?? 0,
+        b.remaining_days ?? 0,
+        `"${(b.notes || '').replace(/"/g, '""')}"`
+      ]);
+    });
+  });
+
+  const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + rows.map(e => e.join(',')).join('\n');
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement('a');
+  link.setAttribute('href', encodedUri);
+  link.setAttribute('download', `Employee_Leave_Balances_${year}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showToast(`Exported Employee Leave Balances for ${year}!`, 'success');
+}
+
+// ============================================================================
+// LEAVE REQUESTS & APPROVAL WORKFLOW MODULE
+// ============================================================================
+
+let leaveRequestsCache = [];
+let leaveReqEmployeesList = [];
+let currentActionRequestId = null;
+let leaveReqSearchTimeout = null;
+let cachedEmployeeLeaveBalances = {};
+
+// Load KPI statistics
+async function loadLeaveRequestStats() {
+  try {
+    const org = getActiveOrgFilter();
+    const yrSelect = document.getElementById('leaveReqYearSelect');
+    const yr = yrSelect && yrSelect.value ? yrSelect.value : new Date().getFullYear();
+    const url = `/api/leave/requests/stats?year=${encodeURIComponent(yr)}&orgId=${encodeURIComponent(org || '')}`;
+    const res = await fetch(url, { headers: { 'x-organization-id': org || '' } });
+    const data = await res.json();
+    if (data.success && data.stats) {
+      const s = data.stats;
+      const elPending = document.getElementById('kpiReqPending');
+      const elBadge = document.getElementById('leavePendingBadge');
+      const elApproved = document.getElementById('kpiReqApproved');
+      const elApprovedDays = document.getElementById('kpiReqApprovedDays');
+      const elRejected = document.getElementById('kpiReqRejected');
+      const elToday = document.getElementById('kpiReqTodayOnLeave');
+
+      if (elPending) elPending.textContent = s.pending;
+      if (elBadge) {
+        if (s.pending > 0) {
+          elBadge.textContent = s.pending;
+          elBadge.style.display = 'inline-block';
+        } else {
+          elBadge.style.display = 'none';
+        }
+      }
+      if (elApproved) elApproved.textContent = s.approved;
+      if (elApprovedDays) elApprovedDays.textContent = typeof s.approvedDays === 'number' ? s.approvedDays.toFixed(1) : s.approvedDays;
+      if (elRejected) elRejected.textContent = s.rejected;
+      if (elToday) elToday.textContent = s.todayOnLeave;
+    }
+  } catch (err) {
+    console.warn('[LEAVE] Failed to load request stats:', err);
+  }
+}
+
+// Load Leave Requests table with filters
+async function loadLeaveRequests() {
+  const tbody = document.getElementById('leaveRequestsTableBody');
+  if (!tbody) return;
+
+  const statusFilter = document.getElementById('leaveReqStatusFilter')?.value || 'ALL';
+  const deptFilter = document.getElementById('leaveReqDeptFilter')?.value || 'all';
+  const yearSelect = document.getElementById('leaveReqYearSelect')?.value || '';
+  const searchInput = document.getElementById('leaveReqSearchInput')?.value || '';
+  const org = getActiveOrgFilter();
+
+  tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-muted"><div class="spinner-border spinner-border-sm mr-2" role="status"></div> Loading leave requests...</td></tr>`;
+
+  try {
+    const params = new URLSearchParams();
+    if (org && org !== 'ALL') params.append('orgId', org);
+    if (statusFilter && statusFilter !== 'ALL') params.append('status', statusFilter);
+    if (deptFilter && deptFilter !== 'all') params.append('department', deptFilter);
+    if (yearSelect) params.append('year', yearSelect);
+    if (searchInput) params.append('search', searchInput);
+
+    const res = await fetch(`/api/leave/requests?${params.toString()}`, {
+      headers: { 'x-organization-id': org || '' }
+    });
+    const data = await res.json();
+
+    if (!data.success || !Array.isArray(data.requests)) {
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-danger">Failed to load leave requests: ${escapeHtml(data.error || 'Server error')}</td></tr>`;
+      return;
+    }
+
+    leaveRequestsCache = data.requests;
+    renderLeaveRequestsTable(data.requests);
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-danger">Error loading requests: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+// Render leave requests table
+function renderLeaveRequestsTable(requests) {
+  const tbody = document.getElementById('leaveRequestsTableBody');
+  if (!tbody) return;
+
+  if (requests.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="7" class="text-center py-5 text-muted">
+          <div style="font-size: 2.2rem; margin-bottom: 8px;">📭</div>
+          <div style="font-weight: 600; font-size: 0.95rem;">No leave requests found</div>
+          <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 4px;">Click "+ Apply for Leave" to submit a new leave request.</div>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  // Determine role: Admin and Manager can approve/reject
+  const user = state.currentUser || {};
+  const role = (user.role || '').toLowerCase();
+  const canApprove = role === 'admin' || role === 'manager' || !role;
+
+  tbody.innerHTML = requests.map(r => {
+    let statusBadge = '';
+    const st = (r.status || 'PENDING').toUpperCase();
+    if (st === 'APPROVED') {
+      statusBadge = `<span class="badge" style="background: #dcfce7; color: #15803d; font-weight: 700; padding: 4px 8px; border-radius: 6px; font-size: 0.76rem; border: 1px solid #86efac;">✅ APPROVED</span>`;
+    } else if (st === 'REJECTED') {
+      statusBadge = `<span class="badge" style="background: #fee2e2; color: #b91c1c; font-weight: 700; padding: 4px 8px; border-radius: 6px; font-size: 0.76rem; border: 1px solid #fca5a5;">❌ REJECTED</span>`;
+    } else if (st === 'CANCELLED') {
+      statusBadge = `<span class="badge" style="background: #f1f5f9; color: #475569; font-weight: 600; padding: 4px 8px; border-radius: 6px; font-size: 0.76rem; border: 1px solid #cbd5e1;">🚫 CANCELLED</span>`;
+    } else {
+      statusBadge = `<span class="badge" style="background: #fef3c7; color: #b45309; font-weight: 700; padding: 4px 8px; border-radius: 6px; font-size: 0.76rem; border: 1px solid #fde68a;">⏳ PENDING</span>`;
+    }
+
+    let coverageBadge = 'Full Day';
+    if (r.day_type === 'FIRST_HALF') coverageBadge = 'Half Day (AM)';
+    else if (r.day_type === 'SECOND_HALF') coverageBadge = 'Half Day (PM)';
+
+    const isSingleDay = r.start_date === r.end_date;
+    const dateDisplay = isSingleDay
+      ? `<div style="font-weight: 600; color: #0f172a;">${r.start_date}</div>`
+      : `<div style="font-weight: 600; color: #0f172a;">${r.start_date} <span style="color: #94a3b8; font-weight: normal;">to</span> ${r.end_date}</div>`;
+
+    const daysPill = `<span class="badge" style="background: #e0e7ff; color: #3730a3; font-weight: 700; font-size: 0.74rem; padding: 2px 6px; border-radius: 4px;">${r.days_requested} day(s)</span>`;
+
+    const typeColor = r.leave_type_color || '#2563eb';
+    const typePill = `
+      <div style="display: inline-flex; align-items: center; gap: 5px;">
+        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${typeColor}; display: inline-block;"></span>
+        <strong style="color: #1e293b; font-size: 0.86rem;">${escapeHtml(r.leave_type_name || r.leave_type_code || 'Leave')}</strong>
+        <span style="font-size: 0.72rem; color: #64748b; font-family: monospace;">(${escapeHtml(r.leave_type_code || '')})</span>
+      </div>
+      <div style="font-size: 0.74rem; color: #64748b; margin-top: 2px;">${coverageBadge}</div>
+    `;
+
+    let actionInfo = `<span style="color: #94a3b8; font-size: 0.76rem;">—</span>`;
+    if (r.action_by) {
+      const actionDate = r.action_at ? new Date(r.action_at).toLocaleDateString() : '';
+      actionInfo = `
+        <div style="font-size: 0.78rem; color: #1e293b; font-weight: 600;">${escapeHtml(r.action_by)}</div>
+        <div style="font-size: 0.7rem; color: #64748b;">${actionDate}</div>
+        ${r.action_remarks ? `<div style="font-size: 0.72rem; color: #475569; font-style: italic; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(r.action_remarks)}">"${escapeHtml(r.action_remarks)}"</div>` : ''}
+      `;
+    }
+
+    let actionsHtml = '';
+    if (canApprove) {
+      if (st === 'PENDING') {
+        actionsHtml = `
+          <div style="display: flex; gap: 4px; align-items: center; justify-content: flex-end;">
+            <button class="btn btn-sm btn-success" onclick="openActionLeaveRequestModal(${r.id}, 'approve')" style="padding: 3px 8px; font-size: 0.75rem; font-weight: 600; background: #059669; border-color: #059669;" title="Approve Leave Request">
+              ✅ Approve
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="openActionLeaveRequestModal(${r.id}, 'reject')" style="padding: 3px 8px; font-size: 0.75rem; font-weight: 600; background: #dc2626; border-color: #dc2626;" title="Reject Leave Request">
+              ❌ Reject
+            </button>
+            <button class="btn btn-sm btn-outline" onclick="deleteLeaveRequestConfirm(${r.id})" style="padding: 3px 6px; font-size: 0.75rem; color: #94a3b8;" title="Delete Record">
+              🗑️
+            </button>
+          </div>
+        `;
+      } else if (st === 'APPROVED') {
+        actionsHtml = `
+          <div style="display: flex; gap: 4px; align-items: center; justify-content: flex-end;">
+            <button class="btn btn-sm btn-outline" onclick="openActionLeaveRequestModal(${r.id}, 'cancel')" style="padding: 3px 8px; font-size: 0.75rem; font-weight: 600; color: #b45309; border-color: #fde68a; background: #fffbeb;" title="Revoke and restore leave days">
+              ↩️ Revoke/Cancel
+            </button>
+            <button class="btn btn-sm btn-outline" onclick="deleteLeaveRequestConfirm(${r.id})" style="padding: 3px 6px; font-size: 0.75rem; color: #94a3b8;" title="Delete Record">
+              🗑️
+            </button>
+          </div>
+        `;
+      } else {
+        actionsHtml = `
+          <div style="display: flex; gap: 4px; align-items: center; justify-content: flex-end;">
+            <button class="btn btn-sm btn-outline" onclick="deleteLeaveRequestConfirm(${r.id})" style="padding: 3px 6px; font-size: 0.75rem; color: #94a3b8;" title="Delete Record">
+              🗑️ Delete
+            </button>
+          </div>
+        `;
+      }
+    } else {
+      actionsHtml = `<span style="font-size: 0.74rem; color: #94a3b8;">${st === 'PENDING' ? '⏳ Awaiting Review' : 'Closed'}</span>`;
+    }
+
+    return `
+      <tr>
+        <td>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="width: 32px; height: 32px; border-radius: 50%; background: #e2e8f0; color: #334155; font-weight: 700; font-size: 0.78rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              ${(r.employee_name || 'U').substring(0, 2).toUpperCase()}
+            </div>
+            <div>
+              <div style="font-weight: 700; color: #0f172a; font-size: 0.88rem;">${escapeHtml(r.employee_name || 'User #' + r.user_id)}</div>
+              <div style="display: flex; gap: 4px; align-items: center; margin-top: 2px;">
+                <span class="badge" style="background: #f1f5f9; color: #475569; font-family: monospace; font-size: 0.7rem; padding: 1px 4px;">#${r.user_id}</span>
+                ${r.employee_service_id ? `<span class="badge" style="background: #e0f2fe; color: #0369a1; font-size: 0.7rem; padding: 1px 4px;">ID: ${escapeHtml(r.employee_service_id)}</span>` : ''}
+                <span style="font-size: 0.74rem; color: #64748b;">${escapeHtml(r.employee_department || 'General')}</span>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td>
+          ${typePill}
+          ${r.qualifying_date ? `
+            <div style="margin-top: 3px;">
+              <span class="badge" style="background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; font-size: 0.68rem; padding: 1px 5px;" title="Qualifying Worked/Duty Date: ${escapeHtml(r.qualifying_date)}">
+                ${(r.compensatory_source_type && r.compensatory_source_type.startsWith('DUTY')) 
+                  ? (r.compensatory_source_type === 'DUTY_WORKED_OFF_DAY' ? '🏢🏖️ Duty+Worked' : (r.compensatory_source_type === 'DUTY_OFF_DAY' ? '🏢🏖️ Off-Day Duty' : '🏢 Duty Ref'))
+                  : '🔄 Worked Ref'}: ${escapeHtml(r.qualifying_date)}
+              </span>
+            </div>
+          ` : ''}
+        </td>
+        <td>
+          ${dateDisplay}
+          <div style="margin-top: 3px;">${daysPill}</div>
+        </td>
+        <td>
+          <div style="font-size: 0.82rem; color: #1e293b; max-width: 240px; word-break: break-word;">
+            ${escapeHtml(r.reason || '—')}
+          </div>
+          ${r.emergency_contact ? `
+            <div style="font-size: 0.72rem; color: #64748b; margin-top: 2px;">
+              📞 <span style="color: #475569;">${escapeHtml(r.emergency_contact)}</span>
+            </div>
+          ` : ''}
+        </td>
+        <td style="text-align: center;">${statusBadge}</td>
+        <td>${actionInfo}</td>
+        <td style="text-align: right; white-space: nowrap;">${actionsHtml}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// Open Create Leave Request Modal
+async function openCreateLeaveRequestModal(defaultUserId) {
+  const modal = document.getElementById('modalCreateLeaveRequest');
+  if (!modal) return;
+
+  const form = document.getElementById('formCreateLeaveRequest');
+  if (form) form.reset();
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const startInput = document.getElementById('reqStartDate');
+  const endInput = document.getElementById('reqEndDate');
+  const daysInput = document.getElementById('reqDaysRequested');
+  const dayTypeSelect = document.getElementById('reqDayTypeSelect');
+  const quotaWarning = document.getElementById('reqQuotaWarning');
+
+  if (startInput) startInput.value = todayStr;
+  if (endInput) endInput.value = todayStr;
+  if (daysInput) daysInput.value = '1.0';
+  if (dayTypeSelect) dayTypeSelect.value = 'FULL_DAY';
+  if (quotaWarning) quotaWarning.style.display = 'none';
+
+  const compSection = document.getElementById('reqCompensatorySection');
+  if (compSection) compSection.style.display = 'none';
+  const customWrap = document.getElementById('reqCompCustomDateWrap');
+  if (customWrap) customWrap.style.display = 'none';
+  const dropdownWrap = document.getElementById('reqCompDropdownWrap');
+  if (dropdownWrap) dropdownWrap.style.display = 'block';
+  const btnToggle = document.getElementById('btnToggleCompCustomDate');
+  if (btnToggle) btnToggle.textContent = '✏️ Custom Date';
+  const customDateInput = document.getElementById('reqCompensatoryCustomDate');
+  if (customDateInput) customDateInput.value = '';
+
+  leaveReqEmployeesList = await getAllEmployeesForLeaveModal();
+  const select = document.getElementById('reqEmployeeSelect');
+  const countBadge = document.getElementById('reqEmpCountBadge');
+  if (countBadge) countBadge.textContent = `${leaveReqEmployeesList.length} employees`;
+
+  if (select) {
+    select.innerHTML = leaveReqEmployeesList.map(e => `
+      <option value="${e.user_id}">
+        User #${e.user_id} - ${escapeHtml(e.name || 'Unnamed')} ${e.employee_service_id ? `(${e.employee_service_id})` : ''} [${escapeHtml(e.department || 'General')}]
+      </option>
+    `).join('');
+  }
+
+  const searchInput = document.getElementById('reqEmpSearch');
+  if (searchInput) searchInput.value = '';
+
+  modal.style.display = 'flex';
+  modal.classList.add('active');
+
+  let targetId = defaultUserId;
+  if (!targetId && leaveReqEmployeesList.length > 0) {
+    targetId = leaveReqEmployeesList[0].user_id;
+  }
+  if (targetId && select) {
+    select.value = String(targetId);
+    await onReqEmployeeSelected(targetId);
+  }
+}
+
+function closeCreateLeaveRequestModal() {
+  const modal = document.getElementById('modalCreateLeaveRequest');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.classList.remove('active');
+  }
+}
+
+function filterCreateReqEmployeeSelect(searchTerm) {
+  const select = document.getElementById('reqEmployeeSelect');
+  if (!select) return;
+  const term = (searchTerm || '').trim().toLowerCase();
+  const filtered = term
+    ? leaveReqEmployeesList.filter(e =>
+        (e.name && e.name.toLowerCase().includes(term)) ||
+        (String(e.user_id).toLowerCase().includes(term)) ||
+        (e.employee_service_id && e.employee_service_id.toLowerCase().includes(term)) ||
+        (e.department && e.department.toLowerCase().includes(term))
+      )
+    : leaveReqEmployeesList;
+
+  select.innerHTML = filtered.map(e => `
+    <option value="${e.user_id}">
+      User #${e.user_id} - ${escapeHtml(e.name || 'Unnamed')} ${e.employee_service_id ? `(${e.employee_service_id})` : ''} [${escapeHtml(e.department || 'General')}]
+    </option>
+  `).join('');
+
+  const countBadge = document.getElementById('reqEmpCountBadge');
+  if (countBadge) countBadge.textContent = term ? `${filtered.length} of ${leaveReqEmployeesList.length}` : `${leaveReqEmployeesList.length} employees`;
+
+  if (filtered.length > 0) {
+    select.value = String(filtered[0].user_id);
+    onReqEmployeeSelected(filtered[0].user_id);
+  }
+}
+
+async function onReqEmployeeSelected(userId) {
+  if (!userId) return;
+  const chipsContainer = document.getElementById('reqBalanceChipsContainer');
+  const typeSelect = document.getElementById('reqLeaveTypeSelect');
+  const schemeLabel = document.getElementById('reqPolicySchemeLabel');
+  const yrLabel = document.getElementById('reqBalanceYearLabel');
+  const currentYear = new Date().getFullYear();
+
+  if (yrLabel) yrLabel.textContent = String(currentYear);
+  if (chipsContainer) chipsContainer.innerHTML = `<span class="text-muted" style="font-size: 0.78rem;">Loading balance quotas...</span>`;
+  if (typeSelect) typeSelect.innerHTML = `<option value="">Loading types...</option>`;
+
+  const emp = leaveReqEmployeesList.find(e => String(e.user_id) === String(userId));
+  if (schemeLabel && emp) {
+    schemeLabel.textContent = `Scheme: ${emp.leave_category_name || 'Standard'}`;
+    if (emp.leave_category_color) schemeLabel.style.color = emp.leave_category_color;
+  }
+
+  try {
+    const res = await fetch(`/api/leave/balances/${userId}?year=${currentYear}`);
+    const data = await res.json();
+
+    if (data.success && Array.isArray(data.balances)) {
+      cachedEmployeeLeaveBalances[userId] = data.balances;
+
+      if (chipsContainer) {
+        if (data.balances.length === 0) {
+          chipsContainer.innerHTML = `<span class="text-muted" style="font-size: 0.78rem;">No leave quotas allocated for this employee.</span>`;
+        } else {
+          chipsContainer.innerHTML = data.balances.map(b => {
+            const isDuty = b.is_duty_leave === 1 || (b.leave_type_code && b.leave_type_code.toUpperCase() === 'DUTY');
+            const isComp = b.is_compensatory_leave === 1 || (b.leave_type_code && b.leave_type_code.toUpperCase() === 'COMP');
+            if (isDuty) {
+              return `
+                <div style="background: #ede9fe; border: 1px solid #c7d2fe; border-radius: 6px; padding: 4px 8px; font-size: 0.75rem; display: flex; align-items: center; gap: 6px;">
+                  <span style="font-weight: 700; color: #4338ca;">🏢 ${escapeHtml(b.leave_type_code || 'DUTY')}</span>
+                  <span style="color: #475569;"><strong>Official Duty</strong> (No Quota Limit)</span>
+                </div>
+              `;
+            }
+            if (isComp) {
+              return `
+                <div style="background: #e0f2fe; border: 1px solid #bae6fd; border-radius: 6px; padding: 4px 8px; font-size: 0.75rem; display: flex; align-items: center; gap: 6px;">
+                  <span style="font-weight: 700; color: #0284c7;">🔄 ${escapeHtml(b.leave_type_code || 'COMP')}</span>
+                  <span style="color: #475569;"><strong>Comp-Off</strong> (No Quota Limit)</span>
+                </div>
+              `;
+            }
+            const rem = b.remaining_days ?? 0;
+            const bg = rem > 0 ? '#ecfdf5' : '#fef2f2';
+            const text = rem > 0 ? '#065f46' : '#991b1b';
+            const border = rem > 0 ? '#a7f3d0' : '#fecaca';
+            return `
+              <div style="background: ${bg}; border: 1px solid ${border}; border-radius: 6px; padding: 4px 8px; font-size: 0.75rem; display: flex; align-items: center; gap: 6px;">
+                <span style="font-weight: 700; color: ${text};">${escapeHtml(b.leave_type_code || b.leave_type_name)}</span>
+                <span style="color: #475569;">Rem: <strong>${rem}d</strong> / ${b.allocated_days ?? 0}d</span>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      if (typeSelect) {
+        if (data.balances.length === 0) {
+          typeSelect.innerHTML = `<option value="">No types available (Check leave category)</option>`;
+        } else {
+          typeSelect.innerHTML = data.balances.map(b => {
+            const isDuty = b.is_duty_leave === 1 || (b.leave_type_code && b.leave_type_code.toUpperCase() === 'DUTY');
+            const isComp = b.is_compensatory_leave === 1 || (b.leave_type_code && b.leave_type_code.toUpperCase() === 'COMP');
+            const rem = b.remaining_days ?? 0;
+            if (isDuty) {
+              return `<option value="${b.leave_type_id}" data-rem="999" data-duty="1" data-comp="0" data-code="${b.leave_type_code || 'DUTY'}" data-name="${escapeHtml(b.leave_type_name || 'Duty Leave')}">
+                🏢 ${escapeHtml(b.leave_type_name || b.leave_type_code)} (${b.leave_type_code}) — Official Duty (No Quota)
+              </option>`;
+            }
+            if (isComp) {
+              return `<option value="${b.leave_type_id}" data-rem="999" data-duty="0" data-comp="1" data-code="${b.leave_type_code || 'COMP'}" data-name="${escapeHtml(b.leave_type_name || 'Compensatory Leave')}">
+                🔄 ${escapeHtml(b.leave_type_name || b.leave_type_code)} (${b.leave_type_code}) — Compensatory (Worked / Duty Date)
+              </option>`;
+            }
+            return `<option value="${b.leave_type_id}" data-rem="${rem}" data-duty="0" data-comp="0" data-code="${b.leave_type_code || ''}" data-name="${escapeHtml(b.leave_type_name || '')}">
+              ${escapeHtml(b.leave_type_name || b.leave_type_code)} (${b.leave_type_code}) — ${rem} days left
+            </option>`;
+          }).join('');
+        }
+      }
+
+      await onReqLeaveTypeChanged();
+    }
+  } catch (err) {
+    console.warn('[LEAVE] Error loading balances for user:', err);
+    if (chipsContainer) chipsContainer.innerHTML = `<span class="text-danger" style="font-size: 0.78rem;">Error loading quotas</span>`;
+  }
+}
+
+async function onReqLeaveTypeChanged() {
+  const typeSelect = document.getElementById('reqLeaveTypeSelect');
+  const compSection = document.getElementById('reqCompensatorySection');
+  const selectedOpt = typeSelect?.selectedOptions?.[0];
+  const isComp = selectedOpt?.getAttribute('data-comp') === '1';
+
+  calcReqDaysCount();
+
+  if (!compSection) return;
+
+  if (isComp) {
+    compSection.style.display = 'block';
+    const userId = document.getElementById('reqEmployeeSelect')?.value;
+    if (userId) {
+      await loadCompensatoryEligibleDates(userId);
+    }
+  } else {
+    compSection.style.display = 'none';
+  }
+}
+
+async function loadCompensatoryEligibleDates(userId) {
+  const select = document.getElementById('reqCompensatoryDateSelect');
+  const helper = document.getElementById('reqCompensatoryHelperText');
+  if (!select) return;
+
+  select.innerHTML = `<option value="">Loading eligible worked / duty dates...</option>`;
+  try {
+    const yr = new Date().getFullYear();
+    const res = await fetch(`/api/leave/compensatory-eligible-dates?userId=${encodeURIComponent(userId)}&year=${yr}`);
+    const data = await res.json();
+
+    if (data.success && Array.isArray(data.eligibleDates)) {
+      if (data.eligibleDates.length === 0) {
+        select.innerHTML = `<option value="">No off-day punches or approved duty dates found (Use Custom Date)</option>`;
+        if (helper) helper.textContent = 'ℹ️ No worked weekend/holiday or duty records detected for this year. You can click "Custom Date" above to specify a date manually.';
+      } else {
+        // Group into intuitive categories
+        const dutyOffDays = data.eligibleDates.filter(d => d.sourceType === 'DUTY_WORKED_OFF_DAY' || d.sourceType === 'DUTY_OFF_DAY');
+        const workedOffDays = data.eligibleDates.filter(d => d.sourceType === 'WORKED_OFF_DAY');
+        const otherDuty = data.eligibleDates.filter(d => d.sourceType === 'DUTY_LEAVE');
+        const otherDates = data.eligibleDates.filter(d => !['DUTY_WORKED_OFF_DAY', 'DUTY_OFF_DAY', 'WORKED_OFF_DAY', 'DUTY_LEAVE'].includes(d.sourceType));
+
+        const renderOption = (d) => {
+          let icon = '🏖️';
+          if (d.sourceType === 'DUTY_WORKED_OFF_DAY' || d.sourceType === 'DUTY_OFF_DAY') {
+            icon = '🏢🏖️';
+          } else if (d.sourceType === 'DUTY_LEAVE') {
+            icon = '🏢';
+          }
+
+          const claimedText = d.isClaimed ? ` [ALREADY CLAIMED in Req #${d.claimedRequestId} (${d.claimedStatus})]` : '';
+          const disabled = d.isClaimed ? 'disabled style="color: #94a3b8;"' : '';
+          return `
+            <option value="${d.date}" data-source="${d.sourceType}" data-label="${escapeHtml(d.label)}" ${disabled}>
+              ${icon} ${d.date} (${d.dayName}) — ${escapeHtml(d.label)}${claimedText}
+            </option>
+          `;
+        };
+
+        let html = '<option value="">-- Select an Eligible Worked Date or Approved Duty Date --</option>';
+
+        if (dutyOffDays.length > 0) {
+          html += `<optgroup label="⭐ Approved Duty on Off-Days / Weekends / Holidays (${dutyOffDays.length})">
+            ${dutyOffDays.map(renderOption).join('')}
+          </optgroup>`;
+        }
+
+        if (workedOffDays.length > 0) {
+          html += `<optgroup label="🏖️ Worked Off-Days / Weekends / Holidays (Punches) (${workedOffDays.length})">
+            ${workedOffDays.map(renderOption).join('')}
+          </optgroup>`;
+        }
+
+        if (otherDuty.length > 0) {
+          html += `<optgroup label="🏢 Other Approved Duty Leaves (${otherDuty.length})">
+            ${otherDuty.map(renderOption).join('')}
+          </optgroup>`;
+        }
+
+        if (otherDates.length > 0) {
+          html += `<optgroup label="📅 Other Dates (${otherDates.length})">
+            ${otherDates.map(renderOption).join('')}
+          </optgroup>`;
+        }
+
+        select.innerHTML = html;
+        if (helper) {
+          helper.textContent = `Found ${data.eligibleDates.length} eligible date(s). Select an approved off-day duty or worked off-day to justify this comp-off request.`;
+        }
+      }
+    } else {
+      select.innerHTML = `<option value="">Error loading eligible dates (Use Custom Date)</option>`;
+    }
+  } catch (e) {
+    select.innerHTML = `<option value="">Error loading dates (${e.message})</option>`;
+  }
+}
+
+function toggleCompCustomDateUI() {
+  const dropdownWrap = document.getElementById('reqCompDropdownWrap');
+  const customWrap = document.getElementById('reqCompCustomDateWrap');
+  const btn = document.getElementById('btnToggleCompCustomDate');
+  const customInput = document.getElementById('reqCompensatoryCustomDate');
+  const dateSelect = document.getElementById('reqCompensatoryDateSelect');
+
+  if (!customWrap || !dropdownWrap) return;
+
+  const isCustom = customWrap.style.display !== 'none';
+  if (isCustom) {
+    customWrap.style.display = 'none';
+    dropdownWrap.style.display = 'block';
+    if (btn) btn.textContent = '✏️ Custom Date';
+  } else {
+    customWrap.style.display = 'block';
+    dropdownWrap.style.display = 'none';
+    if (btn) btn.textContent = '📋 From List';
+    if (customInput && !customInput.value && dateSelect?.value) {
+      customInput.value = dateSelect.value;
+    }
+  }
+}
+
+function onCompensatoryDateSelectChanged() {
+  const select = document.getElementById('reqCompensatoryDateSelect');
+  const reasonTextarea = document.getElementById('reqReason');
+  if (!select || !select.value) return;
+
+  const selectedOpt = select.selectedOptions?.[0];
+  const sourceType = selectedOpt?.getAttribute('data-source') || 'WORKED_OFF_DAY';
+
+  let label = 'Worked Off-Day';
+  if (sourceType === 'DUTY_WORKED_OFF_DAY' || sourceType === 'DUTY_OFF_DAY') {
+    label = 'Approved Duty on Off-Day';
+  } else if (sourceType === 'DUTY_LEAVE') {
+    label = 'Approved Duty';
+  }
+
+  if (reasonTextarea && (!reasonTextarea.value.trim() || reasonTextarea.value.startsWith('Compensatory leave for'))) {
+    reasonTextarea.value = `Compensatory leave for [${label} on ${select.value}]`;
+  }
+}
+
+function calcReqDaysCount() {
+  const dayType = document.getElementById('reqDayTypeSelect')?.value || 'FULL_DAY';
+  const startInput = document.getElementById('reqStartDate');
+  const endInput = document.getElementById('reqEndDate');
+  const daysInput = document.getElementById('reqDaysRequested');
+  const warningBox = document.getElementById('reqQuotaWarning');
+  const warnDays = document.getElementById('reqWarnDays');
+  const warnRem = document.getElementById('reqWarnRem');
+  const typeSelect = document.getElementById('reqLeaveTypeSelect');
+
+  if (!startInput || !endInput || !daysInput) return;
+
+  if (dayType === 'FIRST_HALF' || dayType === 'SECOND_HALF') {
+    endInput.value = startInput.value;
+    endInput.disabled = true;
+    daysInput.value = '0.5';
+  } else {
+    endInput.disabled = false;
+    if (startInput.value && endInput.value) {
+      if (endInput.value < startInput.value) {
+        endInput.value = startInput.value;
+      }
+      const d1 = new Date(startInput.value);
+      const d2 = new Date(endInput.value);
+      const diffMs = d2 - d1;
+      const count = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)) + 1);
+      daysInput.value = count.toFixed(1);
+    }
+  }
+
+  const requested = parseFloat(daysInput.value) || 0;
+  const selectedOpt = typeSelect?.selectedOptions?.[0];
+  const isDuty = selectedOpt?.getAttribute('data-duty') === '1';
+  const isComp = selectedOpt?.getAttribute('data-comp') === '1';
+  const isQuotaExempt = isDuty || isComp;
+  const rem = selectedOpt ? parseFloat(selectedOpt.getAttribute('data-rem') || '0') : 0;
+
+  if (isQuotaExempt) {
+    if (warningBox) warningBox.style.display = 'none';
+  } else if (requested > rem && warningBox) {
+    warningBox.style.display = 'block';
+    if (warnDays) warnDays.textContent = requested;
+    if (warnRem) warnRem.textContent = rem;
+  } else if (warningBox) {
+    warningBox.style.display = 'none';
+  }
+}
+
+async function handleCreateLeaveRequestSubmit(e) {
+  if (e) e.preventDefault();
+  const btnSubmit = document.getElementById('btnSubmitLeaveRequest');
+  const userId = document.getElementById('reqEmployeeSelect')?.value;
+  const leaveTypeId = document.getElementById('reqLeaveTypeSelect')?.value;
+  const dayType = document.getElementById('reqDayTypeSelect')?.value || 'FULL_DAY';
+  const startDate = document.getElementById('reqStartDate')?.value;
+  const endDate = document.getElementById('reqEndDate')?.value;
+  const requestedDays = parseFloat(document.getElementById('reqDaysRequested')?.value || '1.0');
+  const reason = document.getElementById('reqReason')?.value?.trim();
+  const emergencyContact = document.getElementById('reqEmergencyContact')?.value?.trim();
+  const org = getActiveOrgFilter();
+
+  if (!userId || !leaveTypeId || !startDate || !endDate) {
+    showToast('Please fill all required fields.', 'warning');
+    return;
+  }
+
+  const selectedOpt = document.getElementById('reqLeaveTypeSelect')?.selectedOptions?.[0];
+  const isComp = selectedOpt?.getAttribute('data-comp') === '1';
+  let qualifying_date = null;
+  let compensatory_source_type = null;
+
+  if (isComp) {
+    const customWrap = document.getElementById('reqCompCustomDateWrap');
+    const isCustom = customWrap && customWrap.style.display !== 'none';
+    if (isCustom) {
+      qualifying_date = document.getElementById('reqCompensatoryCustomDate')?.value?.trim();
+      compensatory_source_type = 'MANUAL';
+    } else {
+      const select = document.getElementById('reqCompensatoryDateSelect');
+      qualifying_date = select?.value?.trim();
+      compensatory_source_type = select?.selectedOptions?.[0]?.getAttribute('data-source') || 'WORKED_OFF_DAY';
+    }
+
+    if (!qualifying_date) {
+      showToast('Please select or enter the qualifying worked date or approved Duty leave date for this Compensatory Leave.', 'warning');
+      return;
+    }
+  }
+
+  if (btnSubmit) {
+    btnSubmit.disabled = true;
+    btnSubmit.textContent = 'Submitting...';
+  }
+
+  try {
+    const res = await fetch('/api/leave/requests', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-organization-id': org || ''
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        leave_type_id: parseInt(leaveTypeId, 10),
+        start_date: startDate,
+        end_date: endDate,
+        days_requested: requestedDays,
+        day_type: dayType,
+        reason: reason,
+        emergency_contact: emergencyContact,
+        qualifying_date,
+        compensatory_source_type,
+        orgId: org
+      })
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || 'Leave request submitted successfully!', 'success');
+      closeCreateLeaveRequestModal();
+      await loadLeaveRequests();
+      await loadLeaveRequestStats();
+    } else {
+      showToast(data.error || 'Failed to submit leave request.', 'error');
+    }
+  } catch (err) {
+    showToast('Error submitting leave request: ' + err.message, 'error');
+  } finally {
+    if (btnSubmit) {
+      btnSubmit.disabled = false;
+      btnSubmit.textContent = 'Submit Leave Request';
+    }
+  }
+}
+
+// Open Action Modal (Approve / Reject / Cancel)
+async function openActionLeaveRequestModal(requestId, suggestedDecision) {
+  const modal = document.getElementById('modalActionLeaveRequest');
+  if (!modal) return;
+
+  const req = leaveRequestsCache.find(r => r.id === requestId);
+  if (!req) {
+    showToast(`Leave request #${requestId} not found in cache. Refreshing...`, 'warning');
+    await loadLeaveRequests();
+    return;
+  }
+
+  currentActionRequestId = requestId;
+
+  const elId = document.getElementById('actionRequestId');
+  const elTitle = document.getElementById('actionModalTitle');
+  const elName = document.getElementById('actionEmpName');
+  const elEmpId = document.getElementById('actionEmpIdBadge');
+  const elDept = document.getElementById('actionEmpDeptBadge');
+  const elStatus = document.getElementById('actionCurrentStatusBadge');
+  const elType = document.getElementById('actionLeaveType');
+  const elDays = document.getElementById('actionDays');
+  const elStart = document.getElementById('actionStartDate');
+  const elEnd = document.getElementById('actionEndDate');
+  const elReason = document.getElementById('actionReason');
+  const elEmergency = document.getElementById('actionEmergencyContact');
+  const elDeductDays = document.getElementById('actionDeductDays');
+  const elImpact = document.getElementById('actionBalanceImpactNotice');
+  const remarksInput = document.getElementById('actionRemarksInput');
+  const btnApprove = document.getElementById('btnApproveLeaveRequest');
+  const btnReject = document.getElementById('btnRejectLeaveRequest');
+
+  if (elId) elId.value = String(requestId);
+  if (elName) elName.textContent = req.employee_name || `User #${req.user_id}`;
+  if (elEmpId) elEmpId.textContent = `User #${req.user_id}`;
+  if (elDept) elDept.textContent = req.employee_department || 'General';
+  if (elType) elType.textContent = `${req.leave_type_name || req.leave_type_code} (${req.leave_type_code || ''})`;
+  if (elDays) elDays.textContent = `${req.days_requested} Day(s) [${req.day_type || 'Full Day'}]`;
+  if (elStart) elStart.textContent = req.start_date;
+  if (elEnd) elEnd.textContent = req.end_date;
+  if (elReason) elReason.textContent = req.reason || '—';
+  if (elEmergency) elEmergency.textContent = req.emergency_contact || 'None provided';
+  if (elDeductDays) elDeductDays.textContent = req.days_requested;
+  if (remarksInput) remarksInput.value = '';
+
+  const elQualifyingRow = document.getElementById('actionQualifyingDateRow');
+  const elQualifyingText = document.getElementById('actionQualifyingDateText');
+  if (elQualifyingRow) {
+    if (req.qualifying_date) {
+      elQualifyingRow.style.display = 'block';
+      let sourceLabel = 'Worked Date';
+      if (req.compensatory_source_type === 'DUTY_WORKED_OFF_DAY') {
+        sourceLabel = '🏢🏖️ Approved Duty on Off-Day + Worked';
+      } else if (req.compensatory_source_type === 'DUTY_OFF_DAY') {
+        sourceLabel = '🏢🏖️ Approved Duty on Off-Day';
+      } else if (req.compensatory_source_type === 'DUTY_LEAVE') {
+        sourceLabel = '🏢 Approved Duty Leave';
+      } else if (req.compensatory_source_type === 'WORKED_OFF_DAY') {
+        sourceLabel = '🏖️ Weekend / Holiday Worked';
+      }
+      if (elQualifyingText) elQualifyingText.textContent = `${req.qualifying_date} (${sourceLabel})`;
+    } else {
+      elQualifyingRow.style.display = 'none';
+    }
+  }
+
+  const isDutyOrComp = req.is_duty_leave === 1 || req.is_compensatory_leave === 1 ||
+                       (req.leave_type_code && (req.leave_type_code.toUpperCase() === 'DUTY' || req.leave_type_code.toUpperCase() === 'COMP'));
+
+  const st = (req.status || 'PENDING').toUpperCase();
+  if (elStatus) {
+    if (st === 'APPROVED') {
+      elStatus.textContent = '✅ APPROVED';
+      elStatus.style.background = '#dcfce7';
+      elStatus.style.color = '#15803d';
+    } else if (st === 'REJECTED') {
+      elStatus.textContent = '❌ REJECTED';
+      elStatus.style.background = '#fee2e2';
+      elStatus.style.color = '#b91c1c';
+    } else if (st === 'CANCELLED') {
+      elStatus.textContent = '🚫 CANCELLED';
+      elStatus.style.background = '#f1f5f9';
+      elStatus.style.color = '#475569';
+    } else {
+      elStatus.textContent = '⏳ PENDING REVIEW';
+      elStatus.style.background = '#fef3c7';
+      elStatus.style.color = '#b45309';
+    }
+  }
+
+  if (suggestedDecision === 'cancel' || st === 'APPROVED') {
+    if (elTitle) elTitle.textContent = 'Revoke / Cancel Approved Leave';
+    if (elImpact) {
+      elImpact.style.background = '#fffbeb';
+      elImpact.style.borderColor = '#fef08a';
+      elImpact.style.color = '#854d0e';
+      elImpact.innerHTML = `<div>💡 Revoking / Cancelling will <strong>restore ${req.days_requested} day(s)</strong> back to employee's balance.</div>`;
+    }
+    if (btnApprove) btnApprove.style.display = 'none';
+    if (btnReject) {
+      btnReject.style.display = 'inline-flex';
+      btnReject.innerHTML = `<span>↩️ Confirm Cancellation</span>`;
+      btnReject.onclick = () => executeLeaveRequestAction(requestId, 'cancel');
+    }
+  } else {
+    if (elTitle) elTitle.textContent = 'Review Leave Request';
+    if (elImpact) {
+      if (isDutyOrComp) {
+        elImpact.style.background = '#e0f2fe';
+        elImpact.style.borderColor = '#bae6fd';
+        elImpact.style.color = '#0369a1';
+        elImpact.innerHTML = `<div>🏢 Official Duty / Compensatory Leave: <strong>0 days deducted</strong> from regular annual leave quotas.</div><div style="font-weight: 700; font-family: monospace;">Quota-Exempt</div>`;
+      } else {
+        elImpact.style.background = '#ecfdf5';
+        elImpact.style.borderColor = '#a7f3d0';
+        elImpact.style.color = '#065f46';
+        elImpact.innerHTML = `<div>💡 Approval will deduct <strong>${req.days_requested} day(s)</strong> from employee balance.</div><div style="font-weight: 700; font-family: monospace;">Auto-Calculated</div>`;
+      }
+    }
+    if (btnApprove) {
+      btnApprove.style.display = 'inline-flex';
+      btnApprove.innerHTML = `<span>✅ Approve Leave</span>`;
+      btnApprove.onclick = () => executeLeaveRequestAction(requestId, 'approve');
+    }
+    if (btnReject) {
+      btnReject.style.display = 'inline-flex';
+      btnReject.innerHTML = `<span>❌ Reject</span>`;
+      btnReject.onclick = () => executeLeaveRequestAction(requestId, 'reject');
+    }
+  }
+
+  modal.style.display = 'flex';
+  modal.classList.add('active');
+}
+
+function closeActionLeaveRequestModal() {
+  const modal = document.getElementById('modalActionLeaveRequest');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.classList.remove('active');
+  }
+}
+
+async function executeLeaveRequestAction(requestId, action) {
+  const remarksInput = document.getElementById('actionRemarksInput');
+  const remarks = remarksInput ? remarksInput.value.trim() : '';
+  const user = state.currentUser || {};
+  const role = user.role || 'admin';
+  const reviewerName = user.displayName || user.name || user.username || (role === 'admin' ? 'Administrator' : 'Attendance Manager');
+  const org = getActiveOrgFilter();
+
+  try {
+    const res = await fetch(`/api/leave/requests/${requestId}/action`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-role': role,
+        'x-organization-id': org || '',
+        'Authorization': state.authToken ? `Bearer ${state.authToken}` : ''
+      },
+      body: JSON.stringify({
+        action,
+        remarks,
+        actionBy: reviewerName,
+        role: role,
+        orgId: org
+      })
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || `Leave request ${action}ed successfully!`, 'success');
+      closeActionLeaveRequestModal();
+      await loadLeaveRequests();
+      await loadLeaveRequestStats();
+      if (document.getElementById('yearlyLeaveBalancesTableBody')) {
+        loadYearlyLeaveBalances();
+      }
+    } else {
+      showToast(data.error || `Failed to ${action} leave request`, 'error');
+    }
+  } catch (err) {
+    showToast(`Error performing ${action}: ` + err.message, 'error');
+  }
+}
+
+async function deleteLeaveRequestConfirm(requestId) {
+  if (!confirm(`Are you sure you want to permanently delete Leave Request #${requestId}?`)) {
+    return;
+  }
+  try {
+    const res = await fetch(`/api/leave/requests/${requestId}`, {
+      method: 'DELETE'
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || 'Leave request deleted.', 'success');
+      await loadLeaveRequests();
+      await loadLeaveRequestStats();
+    } else {
+      showToast(data.error || 'Failed to delete leave request.', 'error');
+    }
+  } catch (err) {
+    showToast('Error deleting leave request: ' + err.message, 'error');
+  }
+}
+
+// Wire Event Listeners for Leave Management
+function initLeaveManagementEvents() {
+  // Sub-tabs navigation
+  document.getElementById('btnSubtabPolicies')?.addEventListener('click', () => switchLeaveSubtab('policies'));
+  document.getElementById('btnSubtabBalances')?.addEventListener('click', () => switchLeaveSubtab('balances'));
+  document.getElementById('btnSubtabRequests')?.addEventListener('click', () => switchLeaveSubtab('requests'));
+
+  // Requests toolbar controls
+  document.getElementById('leaveReqStatusFilter')?.addEventListener('change', loadLeaveRequests);
+  document.getElementById('leaveReqDeptFilter')?.addEventListener('change', loadLeaveRequests);
+  document.getElementById('leaveReqYearSelect')?.addEventListener('change', () => {
+    loadLeaveRequests();
+    loadLeaveRequestStats();
+  });
+  document.getElementById('leaveReqSearchInput')?.addEventListener('input', () => {
+    if (leaveReqSearchTimeout) clearTimeout(leaveReqSearchTimeout);
+    leaveReqSearchTimeout = setTimeout(loadLeaveRequests, 300);
+  });
+  document.getElementById('btnRefreshLeaveRequests')?.addEventListener('click', () => {
+    loadLeaveRequests();
+    loadLeaveRequestStats();
+  });
+  document.getElementById('btnOpenNewLeaveRequestModal')?.addEventListener('click', () => openCreateLeaveRequestModal());
+
+  // Create Leave Request Modal events
+  document.getElementById('btnCreateLeaveRequestClose')?.addEventListener('click', closeCreateLeaveRequestModal);
+  document.getElementById('btnCreateLeaveRequestCancel')?.addEventListener('click', closeCreateLeaveRequestModal);
+  document.getElementById('modalCreateLeaveRequestBackdrop')?.addEventListener('click', closeCreateLeaveRequestModal);
+  document.getElementById('formCreateLeaveRequest')?.addEventListener('submit', handleCreateLeaveRequestSubmit);
+  document.getElementById('reqEmpSearch')?.addEventListener('input', (e) => filterCreateReqEmployeeSelect(e.target.value));
+  document.getElementById('reqEmployeeSelect')?.addEventListener('change', (e) => onReqEmployeeSelected(e.target.value));
+  document.getElementById('reqLeaveTypeSelect')?.addEventListener('change', onReqLeaveTypeChanged);
+  document.getElementById('reqDayTypeSelect')?.addEventListener('change', calcReqDaysCount);
+  document.getElementById('reqStartDate')?.addEventListener('change', calcReqDaysCount);
+  document.getElementById('reqEndDate')?.addEventListener('change', calcReqDaysCount);
+  document.getElementById('btnToggleCompCustomDate')?.addEventListener('click', toggleCompCustomDateUI);
+  document.getElementById('reqCompensatoryDateSelect')?.addEventListener('change', onCompensatoryDateSelectChanged);
+
+  // Action / Review Leave Request Modal events
+  document.getElementById('btnActionLeaveRequestClose')?.addEventListener('click', closeActionLeaveRequestModal);
+  document.getElementById('btnActionLeaveRequestCancel')?.addEventListener('click', closeActionLeaveRequestModal);
+  document.getElementById('modalActionLeaveRequestBackdrop')?.addEventListener('click', closeActionLeaveRequestModal);
+
+  // Balances toolbar controls
+  document.getElementById('leaveBalanceYearSelect')?.addEventListener('change', loadYearlyLeaveBalances);
+  document.getElementById('leaveBalanceDeptFilter')?.addEventListener('change', loadYearlyLeaveBalances);
+  document.getElementById('leaveBalanceCatFilter')?.addEventListener('change', loadYearlyLeaveBalances);
+  document.getElementById('leaveBalanceSearchInput')?.addEventListener('input', (e) => {
+    if (yearlyLeaveSearchTimeout) clearTimeout(yearlyLeaveSearchTimeout);
+    yearlyLeaveSearchTimeout = setTimeout(() => {
+      loadYearlyLeaveBalances();
+    }, 300);
+  });
+  document.getElementById('btnCalcYearlyBalances')?.addEventListener('click', calculateYearlyLeaveAll);
+  document.getElementById('btnOpenManualAdjModal')?.addEventListener('click', () => {
+    const yr = document.getElementById('leaveBalanceYearSelect')?.value;
+    openManualLeaveBalanceModal(null, yr);
+  });
+  document.getElementById('btnExportBalancesCsv')?.addEventListener('click', exportYearlyLeaveBalancesCsv);
+
+  // Manual adjustment modal events
+  document.getElementById('btnManualLeaveBalanceModalClose')?.addEventListener('click', closeManualLeaveBalanceModal);
+  document.getElementById('btnManualLeaveBalanceModalCancel')?.addEventListener('click', closeManualLeaveBalanceModal);
+  document.getElementById('modalManualLeaveBalanceBackdrop')?.addEventListener('click', closeManualLeaveBalanceModal);
+  document.getElementById('formManualLeaveBalance')?.addEventListener('submit', handleManualLeaveBalanceSubmit);
+  document.getElementById('manualAdjEmployeeSelect')?.addEventListener('change', (e) => {
+    onManualAdjEmployeeSelected(e.target.value);
+  });
+  document.getElementById('manualAdjEmpSearch')?.addEventListener('input', (e) => {
+    filterManualAdjEmployeeSelect(e.target.value);
+  });
+  document.getElementById('manualAdjYearSelect')?.addEventListener('change', (e) => {
+    const uId = document.getElementById('manualAdjUserId')?.value || currentAdjUserId;
+    const prevYrLabel = document.getElementById('manualAdjPrevYearLabel');
+    if (prevYrLabel) prevYrLabel.textContent = String(parseInt(e.target.value, 10) - 1);
+    if (uId) loadEmployeeBalancesForAdjustment(uId, e.target.value);
+  });
+  document.getElementById('btnAutoFetchPrevYearBalance')?.addEventListener('click', autoFetchPrevYearBalancesForModal);
+  document.getElementById('btnCalcAttendanceLeaves')?.addEventListener('click', calcAttendanceLeavesForModal);
+
+  document.getElementById('btnOpenAddCategoryModal')?.addEventListener('click', openAddCategoryModal);
+  document.getElementById('btnLeaveCategoryModalClose')?.addEventListener('click', closeLeaveCategoryModal);
+  document.getElementById('btnLeaveCategoryModalCancel')?.addEventListener('click', closeLeaveCategoryModal);
+  document.getElementById('formLeaveCategory')?.addEventListener('submit', handleCategoryFormSubmit);
+
+  // Sync color hex input and color picker
+  const catColor = document.getElementById('leaveCatColor');
+  const catHex = document.getElementById('leaveCatColorHex');
+  if (catColor && catHex) {
+    catColor.addEventListener('input', (e) => catHex.value = e.target.value);
+    catHex.addEventListener('input', (e) => catColor.value = e.target.value);
+  }
+
+  document.getElementById('btnOpenAddLeaveTypeModal')?.addEventListener('click', openAddLeaveTypeModal);
+  document.getElementById('btnLeaveTypeModalClose')?.addEventListener('click', closeLeaveTypeModal);
+  document.getElementById('btnLeaveTypeModalCancel')?.addEventListener('click', closeLeaveTypeModal);
+  document.getElementById('formLeaveType')?.addEventListener('submit', handleLeaveTypeFormSubmit);
+  document.getElementById('classificationStandard')?.addEventListener('change', syncLeaveTypeClassificationUI);
+  document.getElementById('classificationDuty')?.addEventListener('change', syncLeaveTypeClassificationUI);
+  document.getElementById('classificationCompensatory')?.addEventListener('change', syncLeaveTypeClassificationUI);
+
+  const typeColor = document.getElementById('leaveTypeColor');
+  const typeHex = document.getElementById('leaveTypeColorHex');
+  if (typeColor && typeHex) {
+    typeColor.addEventListener('input', (e) => typeHex.value = e.target.value);
+    typeHex.addEventListener('input', (e) => typeColor.value = e.target.value);
+  }
+
+  // Bulk leave modal events
+  document.getElementById('btnOpenBulkLeaveModal')?.addEventListener('click', openBulkLeaveModal);
+  document.getElementById('btnBulkLeaveModalClose')?.addEventListener('click', closeBulkLeaveModal);
+  document.getElementById('btnBulkLeaveModalCancel')?.addEventListener('click', closeBulkLeaveModal);
+  document.getElementById('bulkLeaveForm')?.addEventListener('submit', handleBulkLeaveFormSubmit);
+
+  document.getElementById('bulkLeaveScope')?.addEventListener('change', (e) => {
+    const deptWrap = document.getElementById('bulkLeaveDeptWrap');
+    if (deptWrap) {
+      deptWrap.style.display = e.target.value === 'dept' ? 'block' : 'none';
+    }
+  });
+
+  // Cloud sync buttons
+  document.getElementById('btnTwoWaySyncLeave')?.addEventListener('click', () => triggerLeaveCloudSync('two_way'));
+  document.getElementById('btnPullLeaveFromCloud')?.addEventListener('click', () => triggerLeaveCloudSync('download'));
+  document.getElementById('btnPushLeaveBalancesOnly')?.addEventListener('click', async () => {
+    try {
+      showToast('Pushing employee leave balances to cloud...', 'info');
+      const org = getActiveOrgFilter();
+      const res = await fetch('/api/leave/sync-balances', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-organization-id': org || '' }
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Pushed ${data.uploadedCount || 0} employee leave balances to Cloud!`, 'success');
+      } else {
+        showToast(data.error || 'Failed to push balances', 'warning');
+      }
+    } catch (e) {
+      showToast('Error pushing balances: ' + e.message, 'error');
+    }
+  });
+}
+
+// Global exposure for inline onclick handlers
+window.selectLeaveCategory = selectLeaveCategory;
+window.openEditCategoryModal = openEditCategoryModal;
+window.deleteCategoryConfirm = deleteCategoryConfirm;
+window.openEditLeaveTypeModal = openEditLeaveTypeModal;
+window.deleteLeaveTypeConfirm = deleteLeaveTypeConfirm;
+window.openBulkLeaveModal = openBulkLeaveModal;
+window.loadDossierLeaveBalances = loadDossierLeaveBalances;
+window.renderLeaveBalanceChips = renderLeaveBalanceChips;
+window.switchLeaveSubtab = switchLeaveSubtab;
+window.loadYearlyLeaveBalances = loadYearlyLeaveBalances;
+window.calculateYearlyLeaveAll = calculateYearlyLeaveAll;
+window.openManualLeaveBalanceModal = openManualLeaveBalanceModal;
+window.closeManualLeaveBalanceModal = closeManualLeaveBalanceModal;
+window.calcAttendanceLeavesForModal = calcAttendanceLeavesForModal;
+window.exportYearlyLeaveBalancesCsv = exportYearlyLeaveBalancesCsv;
+window.loadLeaveRequests = loadLeaveRequests;
+window.loadLeaveRequestStats = loadLeaveRequestStats;
+window.openCreateLeaveRequestModal = openCreateLeaveRequestModal;
+window.closeCreateLeaveRequestModal = closeCreateLeaveRequestModal;
+window.openActionLeaveRequestModal = openActionLeaveRequestModal;
+window.closeActionLeaveRequestModal = closeActionLeaveRequestModal;
+window.executeLeaveRequestAction = executeLeaveRequestAction;
+window.deleteLeaveRequestConfirm = deleteLeaveRequestConfirm;
+window.syncLeaveTypeClassificationUI = syncLeaveTypeClassificationUI;
+window.onReqLeaveTypeChanged = onReqLeaveTypeChanged;
+window.toggleCompCustomDateUI = toggleCompCustomDateUI;
+window.onCompensatoryDateSelectChanged = onCompensatoryDateSelectChanged;
+window.loadCompensatoryEligibleDates = loadCompensatoryEligibleDates;
+
+// Hook into app initialization
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    initLeaveManagementEvents();
+    loadLeaveCategories();
+  });
+} else {
+  initLeaveManagementEvents();
+  loadLeaveCategories();
 }

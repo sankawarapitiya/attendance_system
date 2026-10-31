@@ -162,7 +162,10 @@ function formatDailyForExport(rows) {
     'Punches Today': r.punch_count !== undefined ? r.punch_count : 0,
     'Worked Duration': r.worked_formatted || '-',
     'OT (Hours)': r.ot_hours ? `${r.ot_hours} H` : '0 H',
-    'Daily Status': r.daily_status || 'Present'
+    'Leave Requested': r.leave_type_name || (r.leave_status ? 'Leave' : '-'),
+    'Leave Status': r.leave_status || '-',
+    'Daily Status': r.daily_status || 'Present',
+    'Daily Status / Remarks': r.remarks || r.daily_status || '-'
   }));
 }
 
@@ -325,7 +328,10 @@ function generateEmployeeTimesheetExcelBuffer(employee, timesheet, totals, perio
     'Punches': r.punch_count || 0,
     'Worked Duration': r.worked_formatted || '-',
     'OT (Hours)': r.ot_hours ? `${r.ot_hours} H` : '0 H',
-    'Daily Status': r.daily_status || 'Present'
+    'Leave Requested': r.leave_type_name || (r.leave_status ? 'Leave' : '-'),
+    'Leave Status': r.leave_status || '-',
+    'Daily Status': r.daily_status || 'Present',
+    'Daily Status / Remarks': r.remarks || r.daily_status || '-'
   }));
 
   const worksheet = XLSX.utils.json_to_sheet(formatted);
@@ -354,7 +360,10 @@ function generateEmployeeTimesheetCsvString(employee, timesheet, totals, periodL
     'Punches': r.punch_count || 0,
     'Worked Duration': r.worked_formatted || '-',
     'OT (Hours)': r.ot_hours ? `${r.ot_hours} H` : '0 H',
-    'Daily Status': r.daily_status || 'Present'
+    'Leave Requested': r.leave_type_name || (r.leave_status ? 'Leave' : '-'),
+    'Leave Status': r.leave_status || '-',
+    'Daily Status': r.daily_status || 'Present',
+    'Daily Status / Remarks': r.remarks || r.daily_status || '-'
   }));
   const worksheet = XLSX.utils.json_to_sheet(formatted);
   return XLSX.utils.sheet_to_csv(worksheet);

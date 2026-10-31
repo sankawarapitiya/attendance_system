@@ -1,7 +1,8 @@
 const net = require('net');
 const os = require('os');
 const ZKLib = require('node-zklib');
-const { COMMANDS, REQUEST_DATA } = require('node-zklib/constants');
+const { COMMANDS, REQUEST_DATA, MAX_CHUNK } = require('node-zklib/constants');
+const { createTCPHeader, decodeTCPHeader, checkNotEventTCP } = require('node-zklib/utils');
 const { getVerifyModeName, getPunchStateName } = require('./db');
 
 /**
@@ -232,13 +233,107 @@ class SpeedFaceClient {
   /**
    * Pulls and decodes attendance logs using the SpeedFace 49-byte packet format.
    */
-  async getAttendances() {
+
+  /**
+   * Robust sequential TCP chunk reader for ZKTeco terminals with large logs (>10,000 records).
+   * Downloads each 64KB chunk sequentially with per-chunk timeout and flow control to prevent buffer overflows.
+   */
+  readBufferSequential(tcp, reqData, onProgress = null) {
+    return new Promise(async (resolve, reject) => {
+      tcp.replyId++;
+      const buf = createTCPHeader(COMMANDS.CMD_DATA_WRRQ, tcp.sessionId, tcp.replyId, reqData);
+      let reply = null;
+      try {
+        reply = await tcp.requestData(buf);
+      } catch (err) {
+        return reject(err);
+      }
+
+      const header = decodeTCPHeader(reply.subarray(0, 16));
+      if (header.commandId === COMMANDS.CMD_DATA) {
+        return resolve({ data: reply.subarray(16), mode: 8 });
+      }
+
+      if (header.commandId !== COMMANDS.CMD_ACK_OK && header.commandId !== COMMANDS.CMD_PREPARE_DATA) {
+        return reject(new Error('Unexpected command response: ' + header.commandId));
+      }
+
+      const recvData = reply.subarray(16);
+      const size = recvData.readUIntLE(1, 4);
+
+      const remain = size % MAX_CHUNK;
+      const numberChunks = Math.floor(size / MAX_CHUNK);
+      const totalChunks = numberChunks + (remain > 0 ? 1 : 0);
+      let replyData = Buffer.alloc(0);
+      let totalBuffer = Buffer.alloc(0);
+      let realTotalBuffer = Buffer.alloc(0);
+      let currentChunk = 0;
+      let timer = null;
+
+      const resetTimer = () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          cleanup();
+          reject(new Error('Timeout waiting for chunk ' + (currentChunk + 1) + '/' + totalChunks));
+        }, 15000);
+      };
+
+      const cleanup = () => {
+        if (timer) clearTimeout(timer);
+        if (tcp.socket) tcp.socket.removeListener('data', handleOnData);
+      };
+
+      const sendNextChunk = () => {
+        const isLast = (currentChunk === totalChunks - 1);
+        const chunkSize = (isLast && remain > 0) ? remain : MAX_CHUNK;
+        const offset = currentChunk * MAX_CHUNK;
+        resetTimer();
+        tcp.sendChunkRequest(offset, chunkSize);
+      };
+
+      const handleOnData = (chunk) => {
+        if (checkNotEventTCP(chunk)) return;
+        resetTimer();
+        totalBuffer = Buffer.concat([totalBuffer, chunk]);
+
+        while (totalBuffer.length >= 8) {
+          const packetLength = totalBuffer.readUIntLE(4, 2);
+          if (totalBuffer.length < 8 + packetLength) break;
+          realTotalBuffer = Buffer.concat([realTotalBuffer, totalBuffer.subarray(16, 8 + packetLength)]);
+          totalBuffer = totalBuffer.subarray(8 + packetLength);
+
+          const isLast = (currentChunk === totalChunks - 1);
+          const expectedChunkSize = (isLast && remain > 0) ? remain : MAX_CHUNK;
+
+          if (realTotalBuffer.length >= expectedChunkSize + 8) {
+            replyData = Buffer.concat([replyData, realTotalBuffer.subarray(8, 8 + expectedChunkSize)]);
+            realTotalBuffer = realTotalBuffer.subarray(8 + expectedChunkSize);
+            currentChunk++;
+            if (typeof onProgress === 'function') onProgress(replyData.length, size);
+
+            if (currentChunk >= totalChunks) {
+              cleanup();
+              return resolve({ data: replyData });
+            } else {
+              sendNextChunk();
+            }
+          }
+        }
+      };
+
+      tcp.socket.on('data', handleOnData);
+      sendNextChunk();
+    });
+  }
+
+  async getAttendances(onProgress = null) {
     const zk = this.createInstance();
     try {
       await zk.createSocket();
 
       // Read raw attendance buffer
-      const res = await zk.zklibTcp.readWithBuffer(REQUEST_DATA.GET_ATTENDANCE_LOGS);
+      const res = await this.readBufferSequential(zk.zklibTcp, REQUEST_DATA.GET_ATTENDANCE_LOGS, onProgress);
+      try { await zk.zklibTcp.freeData(); } catch (e) {}
       await zk.disconnect();
 
       if (!res || !res.data || res.data.length < 4) {

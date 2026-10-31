@@ -1,34 +1,7 @@
-// ===============================================================
-// Assumed Data Model
-// ===============================================================
-//
-// Collection: organizations/{orgId}
-// Document ID: Organization ID string (e.g., DSOFFICE_LUNUGAMWEHERA)
-//
-// Subcollection: organizations/{orgId}/attendance/{docId}
-// Fields:
-//   - user_id: string
-//   - punch_time: string
-//   - punch_state: number / string
-//   - verify_type: number / string
-//   - org_id: string
-//
-// Subcollection: organizations/{orgId}/employees/{userId}
-// Fields:
-//   - user_id: string
-//   - name: string
-//   - role: string
-//   - department: string
-//
-// Collection: _system_health/{docId}
-// Document ID: 'ping'
-//
-// ===============================================================
-
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Organizations and partitioned data (read-only for cloud dashboard, write-protected)
+    // Organizations and partitioned data
     match /organizations/{orgId} {
       allow read: if true;
       allow write: if false;
@@ -43,15 +16,55 @@ service cloud.firestore {
         allow write: if false;
       }
 
-      match /users/{userId} {
-        allow read: if true;
-        allow write: if false;
-      }
-
       match /system_users/{userId} {
         allow read: if true;
         allow write: if false;
       }
+
+      // Mobile app users registered under organization with biometric Fingerprint ID
+      match /mobile_app_users/{userId} {
+        allow read, write: if true;
+      }
+
+      match /holidays/{holidayId} {
+        allow read: if true;
+        allow write: if false;
+      }
+
+      match /working_shifts/{shiftId} {
+        allow read: if true;
+        allow write: if false;
+      }
+
+      match /leave_categories/{catId} {
+        allow read, write: if true;
+      }
+
+      match /leave_balances/{userId} {
+        allow read, write: if true;
+      }
+
+      match /users/{userId} {
+        allow read, write: if true;
+      }
+    }
+
+    // Leave Management Collections
+    match /leave_requests/{requestId} {
+      allow read, write: if true;
+    }
+
+    match /leave_balances/{userId} {
+      allow read, write: if true;
+    }
+
+    match /company_holidays/{id} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /users/{userId} {
+      allow read, write: if true;
     }
 
     // Legacy attendance_records collection
@@ -64,11 +77,6 @@ service cloud.firestore {
     match /_system_health/{docId} {
       allow read: if true;
       allow write: if false;
-    }
-
-    // Default deny all other paths
-    match /{document=**} {
-      allow read, write: if false;
     }
   }
 }

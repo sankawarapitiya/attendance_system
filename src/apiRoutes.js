@@ -8,12 +8,36 @@ const {
   dbRun, 
   runDatabaseBackup,
   getSystemUserByIdentifier,
+  getValidOrganizationIds,
   getSystemUserByUid,
   getSystemUsersByOrg,
   saveSystemUser,
   deleteSystemUser,
   getShiftsByOrg,
-  getHolidaysByOrg
+  getHolidaysByOrg,
+  getLeaveCategories,
+  getLeaveCategoryById,
+  saveLeaveCategory,
+  deleteLeaveCategory,
+  getLeaveTypesByCategory,
+  saveLeaveType,
+  deleteLeaveType,
+  initializeEmployeeLeaveBalances,
+  assignLeaveCategoryToEmployees,
+  getEmployeeLeaveBalances,
+  saveEmployeeLeaveBalance,
+  calculateYearlyLeaveBalances,
+  calculateAttendanceLeavesForEmployee,
+  calculateAllEmployeesAttendanceLeaves,
+  getYearlyLeaveOverview,
+  getOrganizationLeaveBalances,
+  createLeaveRequest,
+  getLeaveRequestById,
+  getLeaveRequests,
+  getLeaveRequestStats,
+  updateLeaveRequestStatus,
+  deleteLeaveRequest,
+  getCompensatoryEligibleDates
 } = require('./db');
 const { syncFromDevice, cancelDeviceSync, checkDeviceHealth, getSyncStatus, startAutoSync, stopAutoSync } = require('./syncService');
 const { SpeedFaceClient } = require('./zktProtocol');
@@ -818,8 +842,9 @@ router.get('/reports/data', async (req, res) => {
     const activeOnly = (req.query.includeInactive === 'true' || req.query.activeOnly === 'false') ? false : true;
 
     let result;
-    if (type === 'daily') {
+    if (type === 'daily' || type === 'daily_leaves') {
       result = await generateDailyReport(date, { userId, search, statusFilter, activeOnly, orgId });
+      if (type === 'daily_leaves') result.type = 'daily_leaves';
     } else if (type === 'weekly') {
       result = await generateWeeklyReport(startDate, endDate, { userId, search, scope, activeOnly, orgId });
     } else if (type === 'monthly') {
@@ -841,9 +866,9 @@ router.get('/reports/export', async (req, res) => {
     const orgId = req.query.orgId || req.headers['x-organization-id'];
     const activeOnly = (req.query.includeInactive === 'true' || req.query.activeOnly === 'false') ? false : true;
 
-    if (type === 'daily') {
+    if (type === 'daily' || type === 'daily_leaves') {
       const data = await generateDailyReport(date, { userId, search, statusFilter, activeOnly, orgId });
-      const filename = `Daily_Report_${data.date}`;
+      const filename = type === 'daily_leaves' ? `Daily_Status_Remarks_${data.date}` : `Daily_Report_${data.date}`;
       if (format === 'csv') {
         const csvData = generateDailyCsvString(data.records);
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -1410,6 +1435,7 @@ router.get('/employees/export', async (req, res) => {
         MAX(a.punch_time) as last_seen
       FROM employees e
       LEFT JOIN working_shifts s ON COALESCE(e.shift_id, 1) = s.id
+      LEFT JOIN leave_categories lc ON COALESCE(e.leave_category_id, 1) = lc.id
       LEFT JOIN attendance_records a ON e.user_id = a.user_id
       ${whereClause}
       GROUP BY e.user_id
@@ -1714,6 +1740,9 @@ router.get('/employees', async (req, res) => {
       SELECT 
         e.*,
         COALESCE(e.is_active, 1) as is_active,
+        COALESCE(e.leave_category_id, 1) as leave_category_id,
+        lc.name as leave_category_name,
+        lc.color as leave_category_color,
         s.name as shift_name,
         s.start_time as shift_start,
         s.end_time as shift_end,
@@ -1723,6 +1752,7 @@ router.get('/employees', async (req, res) => {
         MAX(a.punch_time) as last_seen
       FROM employees e
       LEFT JOIN working_shifts s ON COALESCE(e.shift_id, 1) = s.id
+      LEFT JOIN leave_categories lc ON COALESCE(e.leave_category_id, 1) = lc.id
       LEFT JOIN attendance_records a ON e.user_id = a.user_id
       ${whereClause}
       GROUP BY e.user_id
@@ -1766,6 +1796,9 @@ router.get(['/employees/:id', '/v1/users/:id', '/users/:id', '/v1/users/:userId'
       SELECT 
         e.*,
         COALESCE(e.is_active, 1) as is_active,
+        COALESCE(e.leave_category_id, 1) as leave_category_id,
+        lc.name as leave_category_name,
+        lc.color as leave_category_color,
         s.name as shift_name,
         s.start_time as shift_start,
         s.end_time as shift_end,
@@ -1775,6 +1808,7 @@ router.get(['/employees/:id', '/v1/users/:id', '/users/:id', '/v1/users/:userId'
         MAX(a.punch_time) as last_seen
       FROM employees e
       LEFT JOIN working_shifts s ON COALESCE(e.shift_id, 1) = s.id
+      LEFT JOIN leave_categories lc ON COALESCE(e.leave_category_id, 1) = lc.id
       LEFT JOIN attendance_records a ON e.user_id = a.user_id
       WHERE e.user_id = ?
       GROUP BY e.user_id
@@ -1829,6 +1863,7 @@ router.post('/employees', async (req, res) => {
 
     const employeeOrgId = org_id || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
     const activeVal = is_active !== undefined ? (is_active ? 1 : 0) : 1;
+    const leaveCatId = parseInt(req.body.leave_category_id ?? req.body.leaveCategoryId ?? 1, 10) || 1;
 
     let photoPath = null;
     let photoBuffer = null;
@@ -1859,8 +1894,8 @@ router.post('/employees', async (req, res) => {
       await dbRun(`
         INSERT INTO employees (
           user_id, name, department, role, email, phone, photo, shift_id,
-          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, org_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, leave_category_id, org_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
           name = excluded.name,
           department = excluded.department,
@@ -1880,16 +1915,17 @@ router.post('/employees', async (req, res) => {
           employment_status = COALESCE(excluded.employment_status, employees.employment_status),
           order_by_id = COALESCE(excluded.order_by_id, employees.order_by_id),
           is_active = excluded.is_active,
+          leave_category_id = excluded.leave_category_id,
           org_id = COALESCE(excluded.org_id, employees.org_id),
           updated_at = CURRENT_TIMESTAMP
       `, [user_id, name || '', department || 'General', role || 'Staff', email || '', phone || '', photoPath, sId,
-          employee_service_id || null, nic || null, title || null, first_name || null, last_name || null, gender || null, birthday || null, appointment_date || null, employment_status || null, order_by_id || null, activeVal, employeeOrgId]);
+          employee_service_id || null, nic || null, title || null, first_name || null, last_name || null, gender || null, birthday || null, appointment_date || null, employment_status || null, order_by_id || null, activeVal, leaveCatId, employeeOrgId]);
     } else {
       await dbRun(`
         INSERT INTO employees (
           user_id, name, department, role, email, phone, shift_id,
-          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, org_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, leave_category_id, org_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
           name = excluded.name,
           department = excluded.department,
@@ -1908,10 +1944,32 @@ router.post('/employees', async (req, res) => {
           employment_status = COALESCE(excluded.employment_status, employees.employment_status),
           order_by_id = COALESCE(excluded.order_by_id, employees.order_by_id),
           is_active = excluded.is_active,
+          leave_category_id = excluded.leave_category_id,
           org_id = COALESCE(excluded.org_id, employees.org_id),
           updated_at = CURRENT_TIMESTAMP
       `, [user_id, name || '', department || 'General', role || 'Staff', email || '', phone || '', sId,
-          employee_service_id || null, nic || null, title || null, first_name || null, last_name || null, gender || null, birthday || null, appointment_date || null, employment_status || null, order_by_id || null, activeVal, employeeOrgId]);
+          employee_service_id || null, nic || null, title || null, first_name || null, last_name || null, gender || null, birthday || null, appointment_date || null, employment_status || null, order_by_id || null, activeVal, leaveCatId, employeeOrgId]);
+    }
+
+    // Initialize/update employee leave balances for the assigned leave category
+    try {
+      await initializeEmployeeLeaveBalances(user_id, leaveCatId, new Date().getFullYear(), employeeOrgId);
+    } catch (lbErr) {
+      console.warn('[LEAVE] Failed to initialize leave balance for employee', user_id, lbErr.message);
+    }
+
+    // Push employee update and leave balances to Firebase Cloud in background
+    if (firebaseService) {
+      if (typeof firebaseService.syncEmployeeLeaves === 'function') {
+        firebaseService.syncEmployeeLeaves({ orgId: employeeOrgId }).catch(e => {
+          console.warn('[FIREBASE] Background employee leave balance push notice:', e.message);
+        });
+      }
+      if (typeof firebaseService.syncEmployees === 'function') {
+        firebaseService.syncEmployees({ orgId: employeeOrgId }).catch(e => {
+          console.warn('[FIREBASE] Background employee push notice:', e.message);
+        });
+      }
     }
 
     let deviceSynced = false;
@@ -3087,13 +3145,14 @@ router.get(['/v1/users', '/users'], async (req, res) => {
         e.birthday, e.appointment_date, e.employment_status, e.order_by_id,
         COALESCE(e.is_active, 1) as is_active,
         e.created_at, e.updated_at,
-        s.id as shift_id, s.name as shift_name, s.start_time as shift_start, s.end_time as shift_end,
+        e.leave_category_id, lc.name as leave_category_name, lc.color as leave_category_color, s.id as shift_id, s.name as shift_name, s.start_time as shift_start, s.end_time as shift_end,
         s.grace_period_mins, s.monthly_grace_days, s.half_day_hours, s.full_day_hours,
         s.monthly_short_leaves, s.work_days, s.color as shift_color, s.enable_overtime,
         COALESCE(att.total_punches, 0) as total_punches,
         att.first_punch, att.last_punch
       FROM employees e
       LEFT JOIN working_shifts s ON COALESCE(e.shift_id, 1) = s.id
+      LEFT JOIN leave_categories lc ON COALESCE(e.leave_category_id, 1) = lc.id
       LEFT JOIN (
         SELECT user_id, COUNT(*) as total_punches, MIN(punch_time) as first_punch, MAX(punch_time) as last_punch
         FROM attendance_records
@@ -3356,7 +3415,19 @@ router.post('/auth/login', async (req, res) => {
 
     const trimmedOrgId = String(orgId || '').trim();
     if (!trimmedOrgId) {
-      return res.status(400).json({ success: false, error: 'Organization Partition is required to sign in' });
+      return res.status(400).json({ success: false, error: 'Organization Partition ID is required to sign in' });
+    }
+
+    // Validate Organization Partition ID against recognized system partitions
+    const validOrgs = await getValidOrganizationIds();
+    const cleanInputOrg = trimmedOrgId.toUpperCase();
+    const isOrgKnown = validOrgs.map(o => o.toUpperCase()).includes(cleanInputOrg);
+
+    if (!isOrgKnown) {
+      return res.status(401).json({
+        success: false,
+        error: `Invalid Organization Partition ID: "${trimmedOrgId}". This organization partition does not exist in the system.`
+      });
     }
 
     // A. Firebase Auth Token Login
@@ -3368,6 +3439,15 @@ router.post('/auth/login', async (req, res) => {
         let existingUser = await getSystemUserByIdentifier(userEmail, trimmedOrgId);
 
         if (!existingUser) {
+          // Check if user is registered under a different partition
+          const globalUser = await getSystemUserByIdentifier(userEmail);
+          if (globalUser) {
+            return res.status(401).json({
+              success: false,
+              error: `Invalid Organization Partition ID. User "${userEmail}" is registered under partition "${globalUser.org_id}". Please enter partition "${globalUser.org_id}" to sign in.`
+            });
+          }
+
           // Auto-provision user under organization
           existingUser = await saveSystemUser({
             uid: decoded.uid,
@@ -3409,34 +3489,27 @@ router.post('/auth/login', async (req, res) => {
 
     let user = await getSystemUserByIdentifier(inputIdentifier, trimmedOrgId);
     if (!user) {
-      // Check if user exists across partitions or is an admin
+      // Check if user exists across other partitions
       const globalUser = await getSystemUserByIdentifier(inputIdentifier);
       if (globalUser) {
-        const isAdmin = (globalUser.role === 'admin');
-        const isPasswordCorrect = (globalUser.password_hash === password) ||
-          (isAdmin && (password === 'admin123' || password === globalUser.password_hash)) ||
-          (globalUser.role === 'manager' && password === 'manager123') ||
-          (globalUser.role === 'staff' && password === 'staff123');
-
-        if (isAdmin && isPasswordCorrect) {
-          // Administrators can sign in to manage any partition
-          user = { ...globalUser, org_id: trimmedOrgId };
-          await dbRun(`UPDATE system_users SET org_id = ?, updated_at = CURRENT_TIMESTAMP WHERE uid = ?`, [trimmedOrgId, globalUser.uid]);
-        } else if (isPasswordCorrect) {
-          return res.status(401).json({
-            success: false,
-            error: `User "${globalUser.username || inputIdentifier}" is registered under partition "${globalUser.org_id}". Please select partition "${globalUser.org_id}" to sign in.`
-          });
-        } else {
-          return res.status(401).json({ success: false, error: 'Invalid username or password' });
-        }
+        return res.status(401).json({
+          success: false,
+          error: `Invalid Organization Partition ID. User "${globalUser.username || inputIdentifier}" is registered under partition "${globalUser.org_id}". Please enter partition "${globalUser.org_id}" to sign in.`
+        });
       } else {
-        return res.status(401).json({ success: false, error: `Invalid credentials or user not found under partition "${trimmedOrgId}"` });
+        return res.status(401).json({
+          success: false,
+          error: `Invalid credentials or user "${inputIdentifier}" not found under partition "${trimmedOrgId}"`
+        });
       }
     }
 
     // Password verification (supports plain or pre-seeded passwords)
-    const valid = (user.password_hash === password) || (user.password_hash === 'admin123' && password === 'admin123') || (password === 'manager123' && user.role === 'manager') || (password === 'staff123' && user.role === 'staff');
+    const valid = (user.password_hash === password) ||
+      (user.password_hash === 'admin123' && password === 'admin123') ||
+      (password === 'manager123' && user.role === 'manager') ||
+      (password === 'staff123' && user.role === 'staff');
+
     if (!valid) {
       return res.status(401).json({ success: false, error: 'Invalid username or password' });
     }
@@ -3446,11 +3519,6 @@ router.post('/auth/login', async (req, res) => {
       ...user,
       org_id: trimmedOrgId
     }).catch(() => {});
-
-    // Update active org in settings if admin
-    if (user.role === 'admin') {
-      await dbRun(`INSERT INTO settings (key, value) VALUES ('firestore_org_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, [trimmedOrgId]);
-    }
 
     const orgNameSetting = await dbGet(`SELECT value FROM settings WHERE key = 'firestore_org_name'`);
     const activeOrgName = orgNameSetting ? orgNameSetting.value : trimmedOrgId;
@@ -3593,5 +3661,628 @@ router.post('/auth/sync-users', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+
+// ==========================================================================
+// Leave Management API Routes
+// ==========================================================================
+
+// Bulk or Single assign leave category to employees
+router.post('/employees/assign-leave-category', async (req, res) => {
+  try {
+    const { leave_category_id, user_ids = [], department = '', reinitialize_balances = true, year } = req.body;
+    if (!leave_category_id) {
+      return res.status(400).json({ success: false, error: 'Leave Category ID is required' });
+    }
+
+    const orgId = req.body.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const yr = parseInt(year, 10) || new Date().getFullYear();
+    const result = await assignLeaveCategoryToEmployees({
+      leaveCategoryId: leave_category_id,
+      userIds: user_ids,
+      department,
+      orgId,
+      reinitializeBalances: reinitialize_balances !== false,
+      year: yr
+    });
+
+    // Background push updated employee leave balances to Cloud
+    firebaseService.syncEmployeeLeaves({ orgId, year: yr }).catch(e => {
+      console.warn('[FIREBASE] Background employee leave balance push notice:', e.message);
+    });
+
+    res.json({
+      success: true,
+      count: result.count,
+      message: `Assigned Leave Category to ${result.count} employee(s) successfully!`
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 1. Get all Leave Categories
+router.get('/leave/categories', async (req, res) => {
+  try {
+    const orgId = req.query.orgId || req.headers['x-organization-id'];
+    const categories = await getLeaveCategories(orgId);
+    res.json({ success: true, categories });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 2. Get single Leave Category
+router.get('/leave/categories/:id', async (req, res) => {
+  try {
+    const category = await getLeaveCategoryById(req.params.id);
+    if (!category) {
+      return res.status(404).json({ success: false, error: 'Leave Category not found' });
+    }
+    res.json({ success: true, category });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3. Create Leave Category
+router.post('/leave/categories', async (req, res) => {
+  try {
+    const { name, description, color, is_default, org_id } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Category name is required' });
+    }
+    const targetOrg = org_id || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const saved = await saveLeaveCategory({ name, description, color, is_default }, targetOrg);
+
+    firebaseService.pushLeaveCategoryToCloud(saved, targetOrg).catch(e => {
+      console.warn('[FIREBASE] Background push leave category notice:', e.message);
+    });
+
+    res.json({ success: true, category: saved, message: 'Leave category created successfully' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 4. Update Leave Category
+router.put('/leave/categories/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { name, description, color, is_default, org_id } = req.body;
+    const targetOrg = org_id || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const saved = await saveLeaveCategory({ id, name, description, color, is_default }, targetOrg);
+
+    firebaseService.pushLeaveCategoryToCloud(saved, targetOrg).catch(e => {
+      console.warn('[FIREBASE] Background push updated leave category notice:', e.message);
+    });
+
+    res.json({ success: true, category: saved, message: 'Leave category updated successfully' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 5. Delete Leave Category
+router.delete('/leave/categories/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const orgId = req.query.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const result = await deleteLeaveCategory(id);
+
+    firebaseService.deleteLeaveCategoryFromCloud(id, orgId).catch(e => {
+      console.warn('[FIREBASE] Background delete leave category notice:', e.message);
+    });
+
+    res.json({ success: true, message: 'Leave category deleted, assigned employees moved to default category', ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// 6. Get Leave Types by Category
+router.get('/leave/categories/:id/types', async (req, res) => {
+  try {
+    const types = await getLeaveTypesByCategory(req.params.id);
+    res.json({ success: true, types });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 7. Create Leave Type
+router.post('/leave/types', async (req, res) => {
+  try {
+    const { category_id, name, code, days_allowed, carry_forward_days, is_paid, color, description, deduction_priority, deductionPriority, enable_auto_deduct, enableAutoDeduct, is_duty_leave, isDutyLeave, is_compensatory_leave, isCompensatoryLeave } = req.body;
+    if (!category_id) {
+      return res.status(400).json({ success: false, error: 'Category ID is required' });
+    }
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: 'Leave type name is required' });
+    }
+
+    const priority = deduction_priority ?? deductionPriority ?? 1;
+    const autoDeduct = enable_auto_deduct !== undefined ? (enable_auto_deduct ? 1 : 0) : (enableAutoDeduct !== undefined ? (enableAutoDeduct ? 1 : 0) : 1);
+    const dutyLeave = is_duty_leave !== undefined ? (is_duty_leave ? 1 : 0) : (isDutyLeave !== undefined ? (isDutyLeave ? 1 : 0) : 0);
+    const compLeave = is_compensatory_leave !== undefined ? (is_compensatory_leave ? 1 : 0) : (isCompensatoryLeave !== undefined ? (isCompensatoryLeave ? 1 : 0) : 0);
+
+    const saved = await saveLeaveType({
+      category_id, name, code, days_allowed, carry_forward_days, is_paid, color, description,
+      deduction_priority: priority, enable_auto_deduct: autoDeduct, is_duty_leave: dutyLeave,
+      is_compensatory_leave: compLeave
+    });
+
+    const orgId = req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    getLeaveCategoryById(category_id).then(cat => {
+      if (cat) firebaseService.pushLeaveCategoryToCloud(cat, orgId).catch(() => {});
+    }).catch(() => {});
+
+    res.json({ success: true, leave_type: saved, message: 'Leave type created successfully' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 8. Update Leave Type
+router.put('/leave/types/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { category_id, name, code, days_allowed, carry_forward_days, is_paid, color, description, deduction_priority, deductionPriority, enable_auto_deduct, enableAutoDeduct, is_duty_leave, isDutyLeave, is_compensatory_leave, isCompensatoryLeave } = req.body;
+    const priority = deduction_priority ?? deductionPriority ?? 1;
+    const autoDeduct = enable_auto_deduct !== undefined ? (enable_auto_deduct ? 1 : 0) : (enableAutoDeduct !== undefined ? (enableAutoDeduct ? 1 : 0) : 1);
+    const dutyLeave = is_duty_leave !== undefined ? (is_duty_leave ? 1 : 0) : (isDutyLeave !== undefined ? (isDutyLeave ? 1 : 0) : 0);
+    const compLeave = is_compensatory_leave !== undefined ? (is_compensatory_leave ? 1 : 0) : (isCompensatoryLeave !== undefined ? (isCompensatoryLeave ? 1 : 0) : 0);
+
+    const saved = await saveLeaveType({
+      id, category_id, name, code, days_allowed, carry_forward_days, is_paid, color, description,
+      deduction_priority: priority, enable_auto_deduct: autoDeduct, is_duty_leave: dutyLeave,
+      is_compensatory_leave: compLeave
+    });
+
+    const orgId = req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    getLeaveCategoryById(category_id).then(cat => {
+      if (cat) firebaseService.pushLeaveCategoryToCloud(cat, orgId).catch(() => {});
+    }).catch(() => {});
+
+    res.json({ success: true, leave_type: saved, message: 'Leave type updated successfully' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 9. Delete Leave Type
+router.delete('/leave/types/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const result = await deleteLeaveType(id);
+    res.json({ success: true, message: 'Leave type deleted successfully', ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 10. Get Employee Leave Balances
+router.get('/leave/balances/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+    const data = await getEmployeeLeaveBalances(userId, year);
+    if (!data) {
+      return res.status(404).json({ success: false, error: `Employee ${userId} not found` });
+    }
+    res.json({ success: true, ...data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 11. Get Yearly Leave Overview for all employees (tab view)
+router.get('/leave/yearly-overview', async (req, res) => {
+  try {
+    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+    const orgId = req.query.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const department = req.query.department || '';
+    const categoryId = req.query.categoryId || '';
+    const search = req.query.search || '';
+
+    const data = await getYearlyLeaveOverview({ year, orgId, department, categoryId, search });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 12. Calculate / Roll forward yearly leave balances for employees
+router.post('/leave/calculate-yearly', async (req, res) => {
+  try {
+    const { year, overwrite_manual = false, user_ids = [] } = req.body;
+    const orgId = req.body.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const yr = parseInt(year, 10) || new Date().getFullYear();
+
+    const result = await calculateYearlyLeaveBalances({
+      year: yr,
+      orgId,
+      overwriteManual: Boolean(overwrite_manual),
+      userIds: user_ids
+    });
+
+    // Background push to Firebase Cloud
+    if (firebaseService && typeof firebaseService.syncEmployeeLeaves === 'function') {
+      firebaseService.syncEmployeeLeaves({ orgId, year: yr }).catch(e => {
+        console.warn('[FIREBASE] Background employee leave balance push notice:', e.message);
+      });
+    }
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 13. Manually Adjust Employee Leave Balances (Previous balance, allocation, used, notes, cutoff till date, no-pay days)
+router.post('/leave/balances/adjust', async (req, res) => {
+  try {
+    const {
+      user_id, userId, year, balances = [], leave_type_id, allocated_days,
+      carried_forward_days, used_days, remaining_days, notes,
+      carried_fwd_cutoff_date, cutoffDate, no_pay_days, auto_deducted_days, request_deducted_days
+    } = req.body;
+    const targetUserId = user_id || userId;
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, error: 'User ID is required' });
+    }
+    const yr = parseInt(year, 10) || new Date().getFullYear();
+    const orgId = req.body.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const effectiveCutoff = carried_fwd_cutoff_date || cutoffDate || null;
+    const npDays = no_pay_days !== undefined ? (parseFloat(no_pay_days) || 0) : null;
+
+    const savedList = [];
+    if (Array.isArray(balances) && balances.length > 0) {
+      for (const b of balances) {
+        if (!b.leave_type_id) continue;
+        const saved = await saveEmployeeLeaveBalance({
+          userId: targetUserId,
+          leaveTypeId: b.leave_type_id,
+          year: yr,
+          allocatedDays: b.allocated_days,
+          carriedForwardDays: b.carried_forward_days ?? 0,
+          usedDays: b.used_days ?? 0,
+          remainingDays: b.remaining_days,
+          notes: b.notes || '',
+          orgId,
+          carriedFwdCutoffDate: b.carried_fwd_cutoff_date || effectiveCutoff,
+          noPayDays: b.no_pay_days !== undefined ? b.no_pay_days : (npDays !== null ? npDays : 0),
+          autoDeductedDays: b.auto_deducted_days ?? 0,
+          requestDeductedDays: b.request_deducted_days ?? 0
+        });
+        savedList.push(saved);
+      }
+    } else if (leave_type_id) {
+      const saved = await saveEmployeeLeaveBalance({
+        userId: targetUserId,
+        leaveTypeId: leave_type_id,
+        year: yr,
+        allocatedDays: allocated_days,
+        carriedForwardDays: carried_forward_days ?? 0,
+        usedDays: used_days ?? 0,
+        remainingDays: remaining_days,
+        notes: notes || '',
+        orgId,
+        carriedFwdCutoffDate: effectiveCutoff,
+        noPayDays: npDays !== null ? npDays : 0,
+        autoDeductedDays: auto_deducted_days ?? 0,
+        requestDeductedDays: request_deducted_days ?? 0
+      });
+      savedList.push(saved);
+    } else {
+      return res.status(400).json({ success: false, error: 'Either balances array or leave_type_id is required' });
+    }
+
+    // Background push to Firebase Cloud
+    if (firebaseService && typeof firebaseService.syncEmployeeLeaves === 'function') {
+      firebaseService.syncEmployeeLeaves({ orgId, year: yr }).catch(e => {
+        console.warn('[FIREBASE] Background employee leave balance push notice:', e.message);
+      });
+    }
+
+    res.json({
+      success: true,
+      user_id: targetUserId,
+      year: yr,
+      count: savedList.length,
+      balances: savedList,
+      carried_fwd_cutoff_date: effectiveCutoff,
+      no_pay_days: npDays !== null ? npDays : (savedList[0]?.no_pay_days || 0),
+      message: `Updated ${savedList.length} leave balance record(s) for User ${targetUserId}`
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 13B. Auto-Deduct Leaves From Attendance Logs for an Employee (post-cutoff till date)
+router.post('/leave/balances/calculate-from-attendance', async (req, res) => {
+  try {
+    const { userId, user_id, year, cutoffDate, cutoff_date, persist = false } = req.body;
+    const targetUserId = userId || user_id;
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, error: 'User ID is required' });
+    }
+    const yr = parseInt(year, 10) || new Date().getFullYear();
+    const targetCutoff = cutoffDate || cutoff_date || null;
+    const orgId = req.body.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+
+    const result = await calculateAttendanceLeavesForEmployee({
+      userId: targetUserId,
+      year: yr,
+      cutoffDate: targetCutoff,
+      orgId,
+      persist: Boolean(persist)
+    });
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 13C. Batch Auto-Deduct Leaves From Attendance for All Employees
+router.post('/leave/balances/calculate-all-attendance', async (req, res) => {
+  try {
+    const { year, defaultCutoffDate, default_cutoff_date, persist = true } = req.body;
+    const yr = parseInt(year, 10) || new Date().getFullYear();
+    const cutoff = defaultCutoffDate || default_cutoff_date || null;
+    const orgId = req.body.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+
+    const result = await calculateAllEmployeesAttendanceLeaves({
+      year: yr,
+      defaultCutoffDate: cutoff,
+      orgId,
+      persist: Boolean(persist)
+    });
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 14. Update Single Employee Leave Balance
+router.put('/leave/balances/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const { leave_type_id, year, allocated_days, carried_forward_days, used_days, remaining_days, notes } = req.body;
+    if (!leave_type_id) {
+      return res.status(400).json({ success: false, error: 'leave_type_id is required' });
+    }
+    const orgId = req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const yr = parseInt(year, 10) || new Date().getFullYear();
+    const updated = await saveEmployeeLeaveBalance({
+      userId,
+      leaveTypeId: leave_type_id,
+      year: yr,
+      allocatedDays: allocated_days,
+      carriedForwardDays: carried_forward_days ?? 0,
+      usedDays: used_days,
+      remainingDays: remaining_days,
+      notes: notes || '',
+      orgId
+    });
+
+    if (firebaseService && typeof firebaseService.syncEmployeeLeaves === 'function') {
+      firebaseService.syncEmployeeLeaves({ orgId, year: yr }).catch(e => {
+        console.warn('[FIREBASE] Background employee leave balance push notice:', e.message);
+      });
+    }
+
+    res.json({ success: true, balance: updated, message: 'Employee leave balance updated successfully' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 12. Trigger Cloud Sync for Leave Management (Two-way, Upload, or Download)
+router.post(['/leave/sync', '/firebase/sync-leave'], async (req, res) => {
+  try {
+    const orgId = req.body.orgId || req.query.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const direction = req.body.direction || req.query.direction || 'two_way';
+    const year = parseInt(req.body.year || req.query.year, 10) || new Date().getFullYear();
+
+    const result = await firebaseService.twoWaySyncLeaveSystem({ orgId, direction, year });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 13. Trigger Push for Employee Leave Balances
+router.post('/leave/sync-balances', async (req, res) => {
+  try {
+    const orgId = req.body.orgId || req.query.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const year = parseInt(req.body.year || req.query.year, 10) || new Date().getFullYear();
+
+    const result = await firebaseService.syncEmployeeLeaves({ orgId, year });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+// ============================================================================
+// Leave Requests & Approval API Endpoints
+// ============================================================================
+
+// 1. List Leave Requests (with filters for status, department, user, year, search)
+router.get('/leave/requests', async (req, res) => {
+  try {
+    const orgId = req.query.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const status = req.query.status || 'ALL';
+    const department = req.query.department || 'all';
+    const userId = req.query.userId || '';
+    const year = req.query.year || '';
+    const search = req.query.search || '';
+    const limit = parseInt(req.query.limit, 10) || 100;
+    const offset = parseInt(req.query.offset, 10) || 0;
+
+    const requests = await getLeaveRequests({ orgId, status, userId, department, year, search, limit, offset });
+    res.json({ success: true, count: requests.length, requests });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 2. Get Leave Request Statistics & KPI
+router.get('/leave/requests/stats', async (req, res) => {
+  try {
+    const orgId = req.query.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+    const stats = await getLeaveRequestStats(orgId, year);
+    res.json({ success: true, stats });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3. Get Single Leave Request
+router.get('/leave/requests/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const item = await getLeaveRequestById(id);
+    if (!item) return res.status(404).json({ success: false, error: `Leave request #${id} not found` });
+    res.json({ success: true, request: item });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3.5. Get Compensatory Leave eligible dates for an employee
+router.get('/leave/compensatory-eligible-dates', async (req, res) => {
+  try {
+    const userId = req.query.userId || req.query.user_id;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+    const orgId = req.headers['x-organization-id'] || req.query.orgId || 'DSOFFICE_LUNUGAMWEHERA';
+    const data = await getCompensatoryEligibleDates({ userId, year, orgId });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 4. Create New Leave Request (Staff, Manager, or Admin)
+router.post('/leave/requests', async (req, res) => {
+  try {
+    const orgId = req.headers['x-organization-id'] || req.body.orgId || 'DSOFFICE_LUNUGAMWEHERA';
+    const {
+      user_id, leave_type_id, start_date, end_date, days_requested, day_type, reason, emergency_contact,
+      qualifying_date, qualifyingDate, compensatory_source_type, compensatorySourceType
+    } = req.body;
+
+    if (!user_id || !leave_type_id || !start_date || !end_date) {
+      return res.status(400).json({
+        success: false,
+        error: 'Employee (user_id), Leave Type (leave_type_id), Start Date, and End Date are required.'
+      });
+    }
+
+    const created = await createLeaveRequest({
+      userId: user_id,
+      leaveTypeId: leave_type_id,
+      startDate: start_date,
+      endDate: end_date,
+      daysRequested: days_requested || 1.0,
+      dayType: day_type || 'FULL_DAY',
+      reason: reason || '',
+      emergencyContact: emergency_contact || '',
+      qualifyingDate: qualifying_date || qualifyingDate || null,
+      compensatorySourceType: compensatory_source_type || compensatorySourceType || null,
+      orgId
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `Leave request #${created.id} submitted successfully (Pending Approval).`,
+      request: created
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// 5. Action Leave Request (Approve / Reject / Cancel) - Admin and Manager ONLY!
+router.post('/leave/requests/:id/action', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { action, remarks } = req.body;
+    const orgId = req.headers['x-organization-id'] || req.body.orgId || 'DSOFFICE_LUNUGAMWEHERA';
+
+    // Verify caller role: Admin or Manager only
+    let callerRole = (req.headers['x-user-role'] || '').toLowerCase();
+    let callerName = req.body.actionBy || '';
+
+    // Check token if provided
+    if (req.headers.authorization) {
+      try {
+        const tokenStr = req.headers.authorization.replace(/^Bearer\s+/i, '');
+        const decoded = JSON.parse(Buffer.from(tokenStr, 'base64').toString('utf8'));
+        if (decoded?.role) callerRole = decoded.role.toLowerCase();
+        if (decoded?.displayName || decoded?.username) callerName = decoded.displayName || decoded.username;
+      } catch (e) {}
+    }
+
+    // Fallback to body role
+    if (!callerRole && req.body.role) callerRole = req.body.role.toLowerCase();
+
+    if (callerRole !== 'admin' && callerRole !== 'manager') {
+      return res.status(403).json({
+        success: false,
+        error: 'Permission denied: Only Administrators and Managers can approve or reject leave requests.'
+      });
+    }
+
+    let targetStatus = 'PENDING';
+    const act = (action || '').toLowerCase();
+    if (act === 'approve') targetStatus = 'APPROVED';
+    else if (act === 'reject') targetStatus = 'REJECTED';
+    else if (act === 'cancel') targetStatus = 'CANCELLED';
+    else {
+      return res.status(400).json({ success: false, error: `Invalid action "${action}". Allowed: approve, reject, cancel.` });
+    }
+
+    const reviewerDisplayName = callerName || (callerRole === 'admin' ? 'Administrator' : 'Attendance Manager');
+
+    const updated = await updateLeaveRequestStatus({
+      id,
+      status: targetStatus,
+      actionBy: reviewerDisplayName,
+      actionRemarks: remarks || '',
+      orgId
+    });
+
+    res.json({
+      success: true,
+      message: `Leave request #${id} ${targetStatus.toLowerCase()} successfully by ${reviewerDisplayName}.`,
+      request: updated
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// 6. Delete Leave Request
+router.delete('/leave/requests/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const deleted = await deleteLeaveRequest(id);
+    if (!deleted) return res.status(404).json({ success: false, error: `Leave request #${id} not found` });
+    res.json({ success: true, message: `Leave request #${id} deleted successfully.` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 
 module.exports = router;
