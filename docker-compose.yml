@@ -1,0 +1,36 @@
+services:
+  attendance-system:
+    container_name: attendance-system
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: attendance-system:latest
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - NODE_ENV=production
+      - DEVICE_IP=192.168.10.15
+      - DEVICE_PORT=4370
+      - AUTO_SYNC_INTERVAL=60
+      - DB_PATH=data/attendance.db
+      - BACKUP_DIR=data/backups
+      - LOG_DIR=logs
+      - TZ=Asia/Colombo
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./public:/app/public
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"

@@ -12,15 +12,22 @@
  */
 
 (function () {
-  const isCloudHost = !['localhost', '127.0.0.1'].includes(window.location.hostname) || 
-                      window.location.hostname.endsWith('.web.app') || 
-                      window.location.hostname.endsWith('.firebaseapp.com') || 
-                      window.__FORCE_CLOUD_MODE === true;
+  const hostname = (window.location.hostname || '').toLowerCase();
+
+  // Cloud mode is ONLY for static Firebase Hosting deployments (*.web.app / *.firebaseapp.com)
+  // or when explicitly forced via window.__FORCE_CLOUD_MODE.
+  // Local network / on-premise Docker servers (e.g. 192.168.x.x, 10.x.x.x, localhost, etc.) run the native Express backend.
+  const isFirebaseHost = hostname.endsWith('.web.app') || 
+                         hostname.endsWith('.firebaseapp.com') || 
+                         hostname.endsWith('.firebase.io');
+
+  const isCloudHost = isFirebaseHost || window.__FORCE_CLOUD_MODE === true;
 
   window.IS_CLOUD_MODE = isCloudHost;
 
   if (!isCloudHost) {
-    // Local machine mode: native local Express API connects to device on LAN
+    // Local network / on-premise / Docker mode: native Express API connects directly to device on LAN
+    console.log('[APP] Network / Server Mode active on ' + window.location.hostname + ' - Connecting directly to local Express backend & SpeedFace device.');
     return;
   }
 
