@@ -9,6 +9,7 @@ function formatRecordsForExport(rows) {
     'User ID': r.user_id,
     'Employee Name': r.employee_name || 'Unassigned',
     'Department': r.department || 'General',
+    'User Group': r.user_group || '-',
     'Punch Time': r.punch_time,
     'Shift': r.shift_name ? `${r.shift_name} (${r.shift_start || ''}-${r.shift_end || ''})` : 'General Shift',
     'Day Type': r.day_type_label || (r.day_type === 'WEEKEND' ? 'Weekend Off' : (r.day_type === 'HOLIDAY' ? 'Holiday' : 'Working Day')),
@@ -458,6 +459,7 @@ function generateMonthlyMatrixExcelBuffer(data) {
       'Employee Name': emp.employee_name || 'Unassigned',
       'Service ID': emp.employee_service_id || '',
       'Department': emp.department || 'General',
+      'User Group': emp.user_group || '-',
       'Shift': emp.shift_name || 'General Shift'
     };
 

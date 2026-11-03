@@ -213,6 +213,7 @@ const state = {
     weekDate: new Date().toISOString().split('T')[0],
     month: new Date().toISOString().slice(0, 7),
     search: '',
+    group: 'all',
     activeOnly: true,
     data: null,
     columns: {}
@@ -1698,7 +1699,10 @@ function prepareReportForPrint() {
     } else {
       const tot = repData.stats?.totalEnrolled || repData.records?.length || 0;
       const actFilter = state.report.activeOnly ? 'Active Personnel Only' : 'All Personnel (Active & Inactive)';
-      elSubtitle.textContent = `Roster Scope: ${actFilter} • Total Staff: ${tot} • Period: ${periodLabel}`;
+      const grpFilter = (state.report?.group && state.report.group !== 'all')
+        ? (state.report.group === 'unassigned' ? ' • Group: Unassigned' : ` • Group: ${state.report.group}`)
+        : '';
+      elSubtitle.textContent = `Roster Scope: ${actFilter}${grpFilter} • Total Staff: ${tot} • Period: ${periodLabel}`;
     }
   }
 
@@ -1712,6 +1716,11 @@ function prepareReportForPrint() {
 }
 
 async function initReports() {
+  if (!state.employeeGroups || state.employeeGroups.length === 0) {
+    if (typeof loadEmployeeGroups === 'function') await loadEmployeeGroups().catch(() => {});
+  }
+  populateReportGroupsDropdown();
+
   // Populate employee dropdown in background
   populateReportEmployeeDropdown();
 
@@ -1788,6 +1797,12 @@ async function initReports() {
 
   document.getElementById('selectReportLeaveFilter')?.addEventListener('change', (e) => {
     state.report.leaveFilter = e.target.value;
+    loadReportData();
+  });
+
+  document.getElementById('selectReportGroup')?.addEventListener('change', async (e) => {
+    state.report.group = e.target.value;
+    await populateReportEmployeeDropdown();
     loadReportData();
   });
 
@@ -2170,7 +2185,14 @@ async function populateReportEmployeeDropdown() {
     const data = await res.json();
     if (data.success && data.employees) {
       // Exclude all inactive employees from attendance reports dropdown
-      const activeStaff = data.employees.filter(e => e.is_active !== 0);
+      let activeStaff = data.employees.filter(e => e.is_active !== 0);
+      if (state.report?.group && state.report.group !== 'all') {
+        if (state.report.group === 'unassigned') {
+          activeStaff = activeStaff.filter(e => !e.user_group || !String(e.user_group).trim());
+        } else {
+          activeStaff = activeStaff.filter(e => String(e.user_group || '').toLowerCase() === state.report.group.toLowerCase());
+        }
+      }
       const sorted = [...activeStaff].sort((a, b) => {
         const idA = parseInt(a.user_id, 10);
         const idB = parseInt(b.user_id, 10);
@@ -2215,6 +2237,9 @@ async function loadReportData() {
       q.set('month', state.report.month);
     }
 
+    if (state.report.group && state.report.group !== 'all') {
+      q.set('group', state.report.group);
+    }
     if (state.report.scope === 'single') {
       if (state.report.userId) q.set('userId', state.report.userId);
     } else {
@@ -3368,7 +3393,12 @@ function renderMonthlyMatrixTable(data) {
   }
 
   const countBadge = document.getElementById('matrixStaffCountBadge');
-  if (countBadge) countBadge.textContent = `${records.length} Active Staff`;
+  if (countBadge) {
+    const grpBadge = (state.report?.group && state.report.group !== 'all')
+      ? (state.report.group === 'unassigned' ? ' (Unassigned)' : ` (🏷️ ${state.report.group})`)
+      : '';
+    countBadge.textContent = `${records.length} Active Staff${grpBadge}`;
+  }
 
   if (records.length === 0) {
     thead.innerHTML = '';
@@ -4126,6 +4156,9 @@ function triggerReportExport(format) {
     q.set('month', state.report.month);
   }
 
+  if (state.report.group && state.report.group !== 'all') {
+    q.set('group', state.report.group);
+  }
   if (state.report.scope === 'single') {
     if (state.report.userId) q.set('userId', state.report.userId);
   } else {
@@ -4141,6 +4174,20 @@ function triggerReportExport(format) {
 // ==========================================
 // USER DEFINED EMPLOYEE GROUPS UI LOGIC
 // ==========================================
+
+function populateReportGroupsDropdown() {
+  const select = document.getElementById('selectReportGroup');
+  if (!select) return;
+  const currentVal = state.report?.group || 'all';
+  let optHtml = '<option value="all">All Groups</option><option value="unassigned">-- Unassigned --</option>';
+  (state.employeeGroups || []).forEach(g => {
+    optHtml += `<option value="${escapeHtml(g.name)}" ${g.name.toLowerCase() === currentVal.toLowerCase() ? 'selected' : ''}>🏷️ ${escapeHtml(g.name)} (${g.member_count || 0})</option>`;
+  });
+  select.innerHTML = optHtml;
+  if (currentVal) select.value = currentVal;
+}
+window.populateReportGroupsDropdown = populateReportGroupsDropdown;
+
 
 async function loadEmployeeGroups() {
   try {
@@ -4189,6 +4236,9 @@ async function loadEmployeeGroups() {
     modalSelect.innerHTML = optHtml;
     if (curVal) modalSelect.value = curVal;
   }
+
+  // Populate #selectReportGroup in Reports tab
+  populateReportGroupsDropdown();
 }
 
 function renderGroupsList() {

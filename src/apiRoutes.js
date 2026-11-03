@@ -861,18 +861,18 @@ router.get('/records/daily/export', async (req, res) => {
 // GET /api/reports/data
 router.get('/reports/data', async (req, res) => {
   try {
-    const { type = 'daily', scope = 'all', userId, date, startDate, endDate, month, search, statusFilter } = req.query;
+    const { type = 'daily', scope = 'all', userId, date, startDate, endDate, month, search, statusFilter, group } = req.query;
     const orgId = req.query.orgId || req.headers['x-organization-id'];
     const activeOnly = (req.query.includeInactive === 'true' || req.query.activeOnly === 'false') ? false : true;
 
     let result;
     if (type === 'daily' || type === 'daily_leaves') {
-      result = await generateDailyReport(date, { userId, search, statusFilter, activeOnly, orgId });
+      result = await generateDailyReport(date, { userId, search, statusFilter, activeOnly, orgId, group });
       if (type === 'daily_leaves') result.type = 'daily_leaves';
     } else if (type === 'weekly') {
-      result = await generateWeeklyReport(startDate, endDate, { userId, search, scope, activeOnly, orgId });
+      result = await generateWeeklyReport(startDate, endDate, { userId, search, scope, activeOnly, orgId, group });
     } else if (type === 'monthly') {
-      result = await generateMonthlyReport(month, { userId, search, scope, activeOnly, orgId });
+      result = await generateMonthlyReport(month, { userId, search, scope, activeOnly, orgId, group });
     } else {
       return res.status(400).json({ success: false, error: 'Invalid report type. Expected daily, weekly, or monthly.' });
     }
@@ -886,12 +886,12 @@ router.get('/reports/data', async (req, res) => {
 // GET /api/reports/export
 router.get('/reports/export', async (req, res) => {
   try {
-    const { type = 'daily', scope = 'all', userId, date, startDate, endDate, month, search, statusFilter, format = 'xlsx' } = req.query;
+    const { type = 'daily', scope = 'all', userId, date, startDate, endDate, month, search, statusFilter, group, format = 'xlsx' } = req.query;
     const orgId = req.query.orgId || req.headers['x-organization-id'];
     const activeOnly = (req.query.includeInactive === 'true' || req.query.activeOnly === 'false') ? false : true;
 
     if (type === 'daily' || type === 'daily_leaves') {
-      const data = await generateDailyReport(date, { userId, search, statusFilter, activeOnly, orgId });
+      const data = await generateDailyReport(date, { userId, search, statusFilter, activeOnly, orgId, group });
       const filename = type === 'daily_leaves' ? `Daily_Status_Remarks_${data.date}` : `Daily_Report_${data.date}`;
       if (format === 'csv') {
         const csvData = generateDailyCsvString(data.records);
@@ -905,7 +905,7 @@ router.get('/reports/export', async (req, res) => {
         return res.send(buffer);
       }
     } else if (type === 'weekly') {
-      const data = await generateWeeklyReport(startDate, endDate, { userId, search, scope, activeOnly, orgId });
+      const data = await generateWeeklyReport(startDate, endDate, { userId, search, scope, activeOnly, orgId, group });
       if (scope === 'single') {
         const filename = `Timesheet_ID${userId}_Week_${data.startDate}_to_${data.endDate}`;
         if (format === 'csv') {

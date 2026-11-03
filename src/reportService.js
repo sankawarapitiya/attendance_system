@@ -20,7 +20,7 @@ function toYmd(d) {
 /**
  * Helper to fetch all enrolled employees with shift information
  */
-async function getEnrolledEmployees(userId = null, search = '', { activeOnly = true, orgId = null } = {}) {
+async function getEnrolledEmployees(userId = null, search = '', { activeOnly = true, orgId = null, group = null } = {}) {
   const conditions = [];
   const params = [];
 
@@ -40,12 +40,21 @@ async function getEnrolledEmployees(userId = null, search = '', { activeOnly = t
     conditions.push(`COALESCE(e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?`);
     params.push(String(orgId));
   }
+  if (group && group !== 'all') {
+    if (group === 'unassigned') {
+      conditions.push('(e.user_group IS NULL OR TRIM(e.user_group) = "")');
+    } else {
+      conditions.push('LOWER(TRIM(COALESCE(e.user_group, ""))) = LOWER(TRIM(?))');
+      params.push(String(group));
+    }
+  }
 
   const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const sql = `
     SELECT 
       e.user_id, e.name as employee_name, e.department, e.role, e.photo as employee_photo, e.shift_id,
+      e.user_group,
       e.employee_service_id, e.nic, e.title, e.first_name, e.last_name, e.gender, e.birthday, e.appointment_date, e.employment_status, e.order_by_id, e.phone, e.email,
       COALESCE(e.is_active, 1) as is_active,
       s.name as shift_name, s.start_time as shift_start, s.end_time as shift_end,
@@ -65,11 +74,11 @@ async function getEnrolledEmployees(userId = null, search = '', { activeOnly = t
 /**
  * Generates Daily Report for all users or a single employee
  */
-async function generateDailyReport(targetDate, { userId = null, search = '', statusFilter = 'all', activeOnly = true, orgId = null } = {}) {
+async function generateDailyReport(targetDate, { userId = null, search = '', statusFilter = 'all', activeOnly = true, orgId = null, group = null } = {}) {
   const dateStr = targetDate || toYmd(new Date());
   const monthStart = dateStr.slice(0, 7) + '-01';
   const holidays = await dbAll('SELECT * FROM holidays');
-  const allEmployees = await getEnrolledEmployees(userId, search, { activeOnly, orgId });
+  const allEmployees = await getEnrolledEmployees(userId, search, { activeOnly, orgId, group });
 
   const conds = [
     `strftime('%Y-%m-%d', a.punch_time) >= ?`,
@@ -88,6 +97,14 @@ async function generateDailyReport(targetDate, { userId = null, search = '', sta
     conds.push(`COALESCE(a.org_id, e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = ?`);
     params.push(String(orgId));
   }
+  if (group && group !== 'all') {
+    if (group === 'unassigned') {
+      conds.push('(e.user_group IS NULL OR TRIM(e.user_group) = "")');
+    } else {
+      conds.push('LOWER(TRIM(COALESCE(e.user_group, ""))) = LOWER(TRIM(?))');
+      params.push(String(group));
+    }
+  }
 
   const dataSql = `
     SELECT 
@@ -95,6 +112,7 @@ async function generateDailyReport(targetDate, { userId = null, search = '', sta
       a.verify_mode, a.verify_name, a.punch_state, a.punch_state_name,
       a.work_code, a.temperature, a.mask_status, a.device_ip, a.source,
       e.name as employee_name, e.department, e.role, e.photo as employee_photo, e.shift_id,
+      e.user_group,
       s.name as shift_name, s.start_time as shift_start, s.end_time as shift_end,
       s.grace_period_mins, s.monthly_grace_days, s.late_cover_end, s.half_day_hours, s.late_half_day_hours, s.full_day_hours,
       s.monthly_short_leaves, s.morning_short_leave_start, s.morning_short_leave_end, s.evening_short_leave_start, s.evening_short_leave_end, s.disallow_grace_and_short_leave_same_day,
@@ -178,7 +196,7 @@ async function generateDailyReport(targetDate, { userId = null, search = '', sta
 /**
  * Generates Weekly Report (Monday to Sunday)
  */
-async function generateWeeklyReport(startDateStr, endDateStr, { userId = null, search = '', scope = 'all', activeOnly = true, orgId = null } = {}) {
+async function generateWeeklyReport(startDateStr, endDateStr, { userId = null, search = '', scope = 'all', activeOnly = true, orgId = null, group = null } = {}) {
   let startD, endD;
   if (startDateStr && endDateStr) {
     startD = new Date(startDateStr);
@@ -210,7 +228,7 @@ async function generateWeeklyReport(startDateStr, endDateStr, { userId = null, s
   }
 
   const holidays = await dbAll('SELECT * FROM holidays');
-  const allEmployees = await getEnrolledEmployees(userId, search, { activeOnly, orgId });
+  const allEmployees = await getEnrolledEmployees(userId, search, { activeOnly, orgId, group });
 
   const monthStart = sYmd.slice(0, 7) + '-01';
   const conds = [
@@ -404,7 +422,7 @@ async function generateWeeklyReport(startDateStr, endDateStr, { userId = null, s
 /**
  * Generates Monthly Report (Full calendar month)
  */
-async function generateMonthlyReport(yearMonthStr, { userId = null, search = '', scope = 'all', activeOnly = true, orgId = null } = {}) {
+async function generateMonthlyReport(yearMonthStr, { userId = null, search = '', scope = 'all', activeOnly = true, orgId = null, group = null } = {}) {
   const now = new Date();
   const ym = yearMonthStr || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [year, month] = ym.split('-').map(n => parseInt(n, 10));
@@ -423,7 +441,7 @@ async function generateMonthlyReport(yearMonthStr, { userId = null, search = '',
   }
 
   const holidays = await dbAll('SELECT * FROM holidays');
-  const allEmployees = await getEnrolledEmployees(userId, search, { activeOnly, orgId });
+  const allEmployees = await getEnrolledEmployees(userId, search, { activeOnly, orgId, group });
 
   const conds = [
     `strftime('%Y-%m-%d', a.punch_time) >= ?`,

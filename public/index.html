@@ -800,6 +800,15 @@
                 </select>
               </div>
 
+              <!-- User Defined Employee Group Filter -->
+              <div id="ctrlReportGroupFilter" style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-main);">Group:</span>
+                <select id="selectReportGroup" style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.84rem; font-weight: 600; background: #fff; color: var(--text-main); cursor: pointer; min-width: 140px;">
+                  <option value="all">All Groups</option>
+                  <option value="unassigned">-- Unassigned --</option>
+                </select>
+              </div>
+
               <!-- Individual Employee Selector (Visible when Scope = Single) -->
               <div id="ctrlEmployeeSelector" style="display: none; align-items: center; gap: 8px;">
                 <span style="font-size: 0.82rem; font-weight: 600; color: var(--text-main);">Employee:</span>
