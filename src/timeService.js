@@ -82,15 +82,46 @@ async function getOnlineTime(timeZone = 'Asia/Colombo') {
 }
 
 /**
- * Checks current time across Terminal, Online Internet Server, and Local Host PC.
+ * Fetches authoritative cloud server time from Firebase / Google Cloud infrastructure.
+ */
+async function getCloudTime(timeZone = 'Asia/Colombo') {
+  for (const url of ['https://firestore.googleapis.com', 'https://www.googleapis.com', 'https://www.google.com']) {
+    try {
+      const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(2500) });
+      const headerDate = res.headers.get('date');
+      if (headerDate) {
+        const d = new Date(headerDate);
+        if (!isNaN(d.getTime())) {
+          const formatted = d.toLocaleString('sv-SE', { timeZone }).replace('T', ' ');
+          return {
+            success: true,
+            source: 'Firebase / Google Cloud RTC',
+            timeZone,
+            formatted,
+            iso: d.toISOString(),
+            epochMs: d.getTime(),
+            date: d
+          };
+        }
+      }
+    } catch (err) {}
+  }
+
+  // Fallback to getOnlineTime
+  return await getOnlineTime(timeZone);
+}
+
+/**
+ * Checks current time across Terminal, Server System, Cloud Server, and Online Atomic Time.
  */
 async function getDeviceTimeStatus({ ip = '192.168.10.15', port = 4370, localAddress = null, timeZone = 'Asia/Colombo' } = {}) {
-  const pcDate = new Date();
-  const pcFormatted = pcDate.toLocaleString('sv-SE', { timeZone }).replace('T', ' ');
+  const serverDate = new Date();
+  const serverFormatted = serverDate.toLocaleString('sv-SE', { timeZone }).replace('T', ' ');
 
-  // Fetch online time in parallel with device time
-  const [onlineResult, deviceResult] = await Promise.allSettled([
+  // Fetch online time, cloud time, and device time in parallel
+  const [onlineResult, cloudResult, deviceResult] = await Promise.allSettled([
     getOnlineTime(timeZone),
+    getCloudTime(timeZone),
     (async () => {
       const client = new SpeedFaceClient(ip, port, 4000, localAddress);
       return await client.getTime();
@@ -98,16 +129,19 @@ async function getDeviceTimeStatus({ ip = '192.168.10.15', port = 4370, localAdd
   ]);
 
   const online = onlineResult.status === 'fulfilled' ? onlineResult.value : { success: false, error: 'Failed to fetch online time' };
+  const cloud = cloudResult.status === 'fulfilled' ? cloudResult.value : { success: false, error: 'Failed to fetch cloud time' };
   const device = deviceResult.status === 'fulfilled' ? deviceResult.value : { success: false, error: deviceResult.reason?.message || 'Device unreachable' };
 
   let driftSeconds = null;
   let driftStatus = 'UNKNOWN';
 
-  if (device.success && device.deviceTime && online.success && online.formatted) {
+  // Compare device against authoritative online/cloud time, or server time
+  const compareTarget = (cloud.success && cloud.formatted) ? cloud.formatted : ((online.success && online.formatted) ? online.formatted : serverFormatted);
+  if (device.success && device.deviceTime && compareTarget) {
     const devEpoch = new Date(device.deviceTime.replace(' ', 'T')).getTime();
-    const onlineEpoch = new Date(online.formatted.replace(' ', 'T')).getTime();
-    if (!isNaN(devEpoch) && !isNaN(onlineEpoch)) {
-      driftSeconds = Math.round((devEpoch - onlineEpoch) / 1000);
+    const targetEpoch = new Date(compareTarget.replace(' ', 'T')).getTime();
+    if (!isNaN(devEpoch) && !isNaN(targetEpoch)) {
+      driftSeconds = Math.round((devEpoch - targetEpoch) / 1000);
       if (Math.abs(driftSeconds) <= 2) {
         driftStatus = 'IN_SYNC';
       } else if (driftSeconds > 2) {
@@ -121,13 +155,19 @@ async function getDeviceTimeStatus({ ip = '192.168.10.15', port = 4370, localAdd
   return {
     success: true,
     timeZone,
-    pcTime: {
-      formatted: pcFormatted,
-      iso: pcDate.toISOString(),
-      epochMs: pcDate.getTime()
+    serverTime: {
+      formatted: serverFormatted,
+      iso: serverDate.toISOString(),
+      epochMs: serverDate.getTime()
     },
+    pcTime: {
+      formatted: serverFormatted,
+      iso: serverDate.toISOString(),
+      epochMs: serverDate.getTime()
+    },
+    cloudTime: cloud.success ? cloud : null,
     onlineTime: online.success ? online : null,
-    isOnline: Boolean(online.success),
+    isOnline: Boolean(online.success || cloud.success),
     deviceTime: device.success ? device.deviceTime : null,
     isDeviceOnline: Boolean(device.success),
     deviceError: device.success ? null : device.error,
@@ -139,28 +179,37 @@ async function getDeviceTimeStatus({ ip = '192.168.10.15', port = 4370, localAdd
 /**
  * Synchronizes the SpeedFace terminal time.
  * @param {Object} opts
- * @param {'online'|'manual'|'pc'} opts.mode - Sync method
+ * @param {'server'|'cloud'|'manual'|'online'|'pc'} opts.mode - Sync method
  * @param {string} [opts.customTime] - Required for 'manual' mode (YYYY-MM-DD HH:mm:ss or ISO)
  * @param {string} [opts.ip]
  * @param {number} [opts.port]
  * @param {string} [opts.localAddress]
  * @param {string} [opts.timeZone]
  */
-async function syncDeviceTime({ mode = 'online', customTime = null, ip = '192.168.10.15', port = 4370, localAddress = null, timeZone = 'Asia/Colombo' } = {}) {
+async function syncDeviceTime({ mode = 'server', customTime = null, ip = '192.168.10.15', port = 4370, localAddress = null, timeZone = 'Asia/Colombo' } = {}) {
   let targetDate = null;
   let sourceDescription = '';
 
-  if (mode === 'online') {
+  if (mode === 'cloud') {
+    const cloud = await getCloudTime(timeZone);
+    if (!cloud.success) {
+      throw new Error(`Cannot update from cloud time: ${cloud.error || 'Cloud time servers unreachable'}`);
+    }
+    const [dPart, tPart] = cloud.formatted.split(' ');
+    const [yyyy, mm, dd] = dPart.split('-').map(Number);
+    const [hh, min, ss] = tPart.split(':').map(Number);
+    targetDate = new Date(yyyy, mm - 1, dd, hh, min, ss);
+    sourceDescription = `Cloud Atomic Time (${cloud.source} - ${timeZone})`;
+  } else if (mode === 'online') {
     const online = await getOnlineTime(timeZone);
     if (!online.success) {
       throw new Error(`Cannot update from online time: ${online.error || 'Internet time servers unreachable'}`);
     }
-    // Parse targetDate from the formatted online time in target timezone
     const [dPart, tPart] = online.formatted.split(' ');
     const [yyyy, mm, dd] = dPart.split('-').map(Number);
     const [hh, min, ss] = tPart.split(':').map(Number);
     targetDate = new Date(yyyy, mm - 1, dd, hh, min, ss);
-    sourceDescription = `Online Time (${online.source} - ${timeZone})`;
+    sourceDescription = `Online Atomic Time (${online.source} - ${timeZone})`;
   } else if (mode === 'manual') {
     if (!customTime) {
       throw new Error('Please select or specify a valid date and time for manual update.');
@@ -181,11 +230,11 @@ async function syncDeviceTime({ mode = 'online', customTime = null, ip = '192.16
     if (isNaN(targetDate.getTime())) {
       throw new Error('Invalid manual date/time values provided.');
     }
-    sourceDescription = 'Manual User Input';
+    sourceDescription = `Manual Adjustment (${targetDate.toLocaleString('sv-SE').replace('T', ' ')})`;
   } else {
-    // Mode: 'pc'
+    // Mode: 'server' or 'pc'
     targetDate = new Date();
-    sourceDescription = 'Local Host PC Clock';
+    sourceDescription = 'Attendance Server System Clock';
   }
 
   const client = new SpeedFaceClient(ip, port, 6000, localAddress);
@@ -203,6 +252,7 @@ async function syncDeviceTime({ mode = 'online', customTime = null, ip = '192.16
 
 module.exports = {
   getOnlineTime,
+  getCloudTime,
   getDeviceTimeStatus,
   syncDeviceTime
 };

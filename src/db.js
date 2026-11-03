@@ -507,6 +507,32 @@ async function initDatabase() {
     await dbRun(`ALTER TABLE system_users ADD COLUMN cloud_synced_at DATETIME DEFAULT NULL`);
   } catch (e) {}
 
+  // Multi-Terminal Management Table (SpeedFace / ZKTeco Terminals)
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS terminals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      ip TEXT NOT NULL UNIQUE,
+      port INTEGER NOT NULL DEFAULT 4370,
+      comm_key TEXT DEFAULT '0',
+      model TEXT DEFAULT 'SpeedFace-V5L',
+      serial_number TEXT,
+      firmware TEXT,
+      location TEXT,
+      is_enabled INTEGER DEFAULT 1,
+      auto_sync INTEGER DEFAULT 1,
+      status TEXT DEFAULT 'OFFLINE',
+      last_seen DATETIME,
+      last_sync DATETIME,
+      user_count INTEGER DEFAULT 0,
+      log_count INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_terminals_ip ON terminals(ip)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_terminals_status ON terminals(status)`);
+
   // Seed default organization system users if empty
   const userCount = await dbGet(`SELECT COUNT(*) as count FROM system_users`);
   if (!userCount || userCount.count === 0) {
@@ -603,6 +629,21 @@ async function initDatabase() {
 
   // Default device settings
   await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('device_ip', '192.168.10.15')`);
+
+  // Seed initial primary terminal if empty
+  const termCount = await dbGet(`SELECT COUNT(*) as count FROM terminals`);
+  if (!termCount || termCount.count === 0) {
+    const ipRow = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
+    const portRow = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
+    const defaultIp = ipRow ? ipRow.value : '192.168.10.15';
+    const defaultPort = portRow ? parseInt(portRow.value, 10) : 4370;
+
+    await dbRun(`
+      INSERT INTO terminals (name, ip, port, model, location, is_enabled, auto_sync, status)
+      VALUES (?, ?, ?, 'SpeedFace-V5L', 'Main Office Entrance', 1, 1, 'OFFLINE')
+    `, ['Main Entrance SpeedFace', defaultIp, defaultPort]);
+    console.log('[DB] Seeded initial SpeedFace terminal into terminals table.');
+  }
   await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('device_port', '4370')`);
   await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_sync_interval', '60')`);
   await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_sync_enabled', 'true')`);
@@ -3217,6 +3258,122 @@ async function upsertSettings(settingsMap = {}) {
   return count;
 }
 
+/**
+ * Terminal Management Helpers
+ */
+async function getAllTerminals() {
+  return dbAll(`SELECT * FROM terminals ORDER BY id ASC`);
+}
+
+async function getTerminalById(id) {
+  return dbGet(`SELECT * FROM terminals WHERE id = ?`, [id]);
+}
+
+async function getTerminalByIp(ip) {
+  return dbGet(`SELECT * FROM terminals WHERE ip = ?`, [ip]);
+}
+
+async function createTerminal(data = {}) {
+  const name = (data.name || 'SpeedFace Terminal').trim();
+  const ip = (data.ip || '').trim();
+  const port = parseInt(data.port, 10) || 4370;
+  const commKey = String(data.comm_key || data.commKey || '0').trim();
+  const model = (data.model || 'SpeedFace-V5L').trim();
+  const location = (data.location || '').trim();
+  const isEnabled = data.is_enabled !== undefined ? (data.is_enabled ? 1 : 0) : 1;
+  const autoSync = data.auto_sync !== undefined ? (data.auto_sync ? 1 : 0) : 1;
+
+  if (!ip) throw new Error('Terminal IP address is required');
+
+  const existing = await getTerminalByIp(ip);
+  if (existing) {
+    throw new Error(`A terminal with IP ${ip} already exists (${existing.name})`);
+  }
+
+  const res = await dbRun(`
+    INSERT INTO terminals (name, ip, port, comm_key, model, location, is_enabled, auto_sync, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OFFLINE')
+  `, [name, ip, port, commKey, model, location, isEnabled, autoSync]);
+
+  return getTerminalById(res.lastID);
+}
+
+async function updateTerminal(id, data = {}) {
+  const terminal = await getTerminalById(id);
+  if (!terminal) throw new Error(`Terminal ID ${id} not found`);
+
+  const name = data.name !== undefined ? String(data.name).trim() : terminal.name;
+  const ip = data.ip !== undefined ? String(data.ip).trim() : terminal.ip;
+  const port = data.port !== undefined ? parseInt(data.port, 10) || 4370 : terminal.port;
+  const commKey = data.comm_key !== undefined ? String(data.comm_key).trim() : (data.commKey !== undefined ? String(data.commKey).trim() : terminal.comm_key);
+  const model = data.model !== undefined ? String(data.model).trim() : terminal.model;
+  const location = data.location !== undefined ? String(data.location).trim() : terminal.location;
+  const isEnabled = data.is_enabled !== undefined ? (data.is_enabled ? 1 : 0) : terminal.is_enabled;
+  const autoSync = data.auto_sync !== undefined ? (data.auto_sync ? 1 : 0) : terminal.auto_sync;
+
+  if (ip !== terminal.ip) {
+    const existing = await getTerminalByIp(ip);
+    if (existing && existing.id !== terminal.id) {
+      throw new Error(`Another terminal with IP ${ip} already exists (${existing.name})`);
+    }
+  }
+
+  await dbRun(`
+    UPDATE terminals SET
+      name = ?, ip = ?, port = ?, comm_key = ?, model = ?, location = ?,
+      is_enabled = ?, auto_sync = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `, [name, ip, port, commKey, model, location, isEnabled, autoSync, id]);
+
+  return getTerminalById(id);
+}
+
+async function updateTerminalMetrics(id, metrics = {}) {
+  const updates = [];
+  const params = [];
+
+  if (metrics.status !== undefined) {
+    updates.push('status = ?');
+    params.push(metrics.status);
+  }
+  if (metrics.last_seen !== undefined) {
+    updates.push('last_seen = ?');
+    params.push(metrics.last_seen);
+  }
+  if (metrics.last_sync !== undefined) {
+    updates.push('last_sync = ?');
+    params.push(metrics.last_sync);
+  }
+  if (metrics.user_count !== undefined) {
+    updates.push('user_count = ?');
+    params.push(parseInt(metrics.user_count, 10) || 0);
+  }
+  if (metrics.log_count !== undefined) {
+    updates.push('log_count = ?');
+    params.push(parseInt(metrics.log_count, 10) || 0);
+  }
+  if (metrics.serial_number !== undefined) {
+    updates.push('serial_number = ?');
+    params.push(metrics.serial_number);
+  }
+  if (metrics.firmware !== undefined) {
+    updates.push('firmware = ?');
+    params.push(metrics.firmware);
+  }
+
+  if (updates.length === 0) return;
+  updates.push('updated_at = CURRENT_TIMESTAMP');
+  params.push(id);
+
+  await dbRun(`UPDATE terminals SET ${updates.join(', ')} WHERE id = ?`, params);
+}
+
+async function deleteTerminal(id) {
+  const terminal = await getTerminalById(id);
+  if (!terminal) throw new Error(`Terminal ID ${id} not found`);
+  return dbRun(`DELETE FROM terminals WHERE id = ?`, [id]);
+}
+
 module.exports = {
   db,
   dbRun,
@@ -3280,8 +3437,11 @@ module.exports = {
   upsertEmployeesFromCloud,
   upsertSystemUsersFromCloud,
   upsertLeaveRequestsFromCloud,
-  getSettingsMap,
-  upsertSettings,
-
-
+  getAllTerminals,
+  getTerminalById,
+  getTerminalByIp,
+  createTerminal,
+  updateTerminal,
+  updateTerminalMetrics,
+  deleteTerminal,
 };

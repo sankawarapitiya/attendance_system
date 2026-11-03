@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=3.4.0">
+  <link rel="stylesheet" href="css/style.css?v=3.5.6">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%231d4ed8'><path d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z'/></svg>">
   <script>
     // Immediate global handlers to ensure zero ReferenceError on early clicks
@@ -133,17 +133,7 @@
         }
       }
     };
-    window.toggleDeviceFitScreen = function() {
-      const tab = document.getElementById('tab-device');
-      const btn = document.getElementById('btnToggleDeviceFit');
-      const text = document.getElementById('btnToggleDeviceFitText');
-      if (!tab) return;
 
-      const isFit = tab.classList.toggle('fit-screen');
-      if (btn) btn.classList.toggle('active', isFit);
-      if (text) text.textContent = isFit ? 'Fit to Screen: ON' : 'Fit to Screen: OFF';
-      try { localStorage.setItem('device_fit_screen', isFit ? 'true' : 'false'); } catch (e) {}
-    };
   </script>
 </head>
 <body>
@@ -1648,318 +1638,173 @@
         </div>
       </section>
 
-      <!-- TAB 4: DEVICE CONTROL & SETTINGS -->
-      <section class="tab-content fit-screen" id="tab-device">
-        <!-- Device Control Viewport Toolbar & Section Filter Pills -->
+      <!-- TAB 4: DEVICE CONTROL & MULTI-TERMINAL MANAGEMENT -->
+      <section class="tab-content" id="tab-device">
+        <!-- Device Control Toolbar & Section Filter Pills -->
         <div class="device-toolbar">
           <div class="device-nav-pills" id="deviceNavPills">
             <button type="button" class="btn btn-chip active" onclick="window.filterDeviceSection('all', this)">🌐 All Panels</button>
-            <button type="button" class="btn btn-chip" onclick="window.filterDeviceSection('terminal', this)">📱 Terminal &amp; Settings</button>
-            <button type="button" class="btn btn-chip" onclick="window.filterDeviceSection('org', this)">🏛️ Organization Details</button>
-            <button type="button" class="btn btn-chip" onclick="window.filterDeviceSection('firebase', this)">🔥 Cloud Sync (Firestore)</button>
-            <button type="button" class="btn btn-chip" onclick="window.filterDeviceSection('logs', this)">📋 Sync Logs</button>
-            <button type="button" class="btn btn-chip" onclick="window.filterDeviceSection('diagnostics', this)">🛡️ Diagnostics &amp; Reset</button>
+            <button type="button" class="btn btn-chip" onclick="window.filterDeviceSection('terminals', this)">📱 Biometric Terminals Fleet</button>
+            <button type="button" class="btn btn-chip" onclick="window.filterDeviceSection('network', this)">⚙️ Fleet Network &amp; Sync</button>
+            <button type="button" class="btn btn-chip" onclick="window.filterDeviceSection('logs', this)">📋 Terminal Sync Logs</button>
           </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <button type="button" class="btn btn-sm btn-outline active" id="btnToggleDeviceFit" onclick="window.toggleDeviceFitScreen()" title="Toggle Screen-Fit Flexible Viewport Mode">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-              <span id="btnToggleDeviceFitText">Fit to Screen: ON</span>
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="btn btn-sm btn-outline" id="btnTestAllTerminals" title="Ping and verify connection to all registered terminals">
+              🔄 Test All Connections
+            </button>
+            <button type="button" class="btn btn-sm btn-outline" id="btnSyncAllTerminals" title="Run background download across all active terminals">
+              ⚡ Sync All Terminals
+            </button>
+            <button type="button" class="btn btn-sm btn-outline" id="btnOpenFleetTimeSyncModal" title="Adjust or synchronize clocks across terminals" style="display: flex; align-items: center; gap: 6px;">
+              <span>🕒 Adjust Clocks</span>
+            </button>
+            <button type="button" class="btn btn-sm btn-outline" id="btnOpenFleetPushEmployeesModal" title="Copy enrolled employees to terminals" style="display: flex; align-items: center; gap: 6px;">
+              <span>👥 Copy Employees</span>
+            </button>
+            <button type="button" class="btn btn-sm btn-outline" id="btnOpenFleetEraseLogsModal" title="Erase attendance punch buffer on terminals" style="display: flex; align-items: center; gap: 6px; color: #dc2626;">
+              <span>🧹 Erase Device Logs</span>
+            </button>
+            <button type="button" class="btn btn-sm btn-primary" id="btnOpenAddTerminalModal" style="display: flex; align-items: center; gap: 6px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              <span>Add Terminal</span>
             </button>
           </div>
         </div>
 
-        <!-- Two Balanced Flex Columns fitting viewport with independent scrolling -->
-        <div class="device-flex-columns" id="deviceFlexColumns">
-          <!-- LEFT COLUMN: Terminal Status, Settings, Organization Details -->
-          <div class="device-col" id="deviceColLeft">
-            <!-- Device Status Card -->
-          <div class="card device-card" id="cardTerminalStatus" data-section="terminal">
-            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <h3 style="margin-bottom: 0;">SpeedFace-V5L Terminal Status</h3>
-                <span class="badge badge-out" id="devOnlineBadge">🔴 OFFLINE</span>
-              </div>
-              <button class="btn btn-sm btn-outline" id="btnTestConn">Test Connection</button>
-            </div>
-            <div class="card-body device-scroll-body">
-              <div class="device-info-list" style="max-height: 240px; overflow-y: auto;">
-                <div class="info-row">
-                  <span class="info-key">Terminal IP Address</span>
-                  <span class="info-val font-mono" id="devIpVal">192.168.10.15</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-key">Active Network Interface</span>
-                  <span class="info-val font-mono" id="devInterfaceVal">Auto-Detect</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-key">Communication Port</span>
-                  <span class="info-val font-mono">4370 (TCP)</span>
-                </div>
-                <div class="info-row" style="align-items: center;">
-                  <span class="info-key">Device Time</span>
-                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                    <span class="info-val font-mono" id="devTimeVal">-</span>
-                    <span class="badge" id="devTimeDriftBadge" style="display:none; font-size: 0.72rem; padding: 2px 8px; font-weight: 700;"></span>
-                    <button class="btn btn-xs btn-outline" id="btnQuickTimeOptions" type="button" style="padding: 2px 8px; font-size: 0.74rem; font-weight: 600; border-radius: 4px;" title="Adjust or Sync Device Time">
-                      🕒 Time Options
-                    </button>
-                  </div>
-                </div>
-                <div class="info-row">
-                  <span class="info-key">Enrolled Users on Terminal</span>
-                  <span class="info-val" id="devUserCountVal">-</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-key">Stored Logs on Terminal</span>
-                  <span class="info-val" id="devLogCountVal">-</span>
-                </div>
-                <div class="info-row">
-                  <span class="info-key">Terminal Log Capacity</span>
-                  <span class="info-val" id="devCapVal">-</span>
-                </div>
-              </div>
-
-              <div class="device-actions-row">
-                <button class="btn btn-primary" id="btnActionSync">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                  Download All Records Now
-                </button>
-                <button class="btn btn-danger-outline" id="btnActionStopSync" style="display: inline-flex; align-items: center; gap: 6px;" title="Stop or cancel active machine synchronization">
-                  <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
-                  <span id="btnActionStopSyncText">Stop Machine Sync</span>
-                </button>
-                <button class="btn btn-outline" id="btnActionOnlineSyncTime" type="button" title="Synchronize SpeedFace terminal clock directly to official Online Atomic Time">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-                  <span>🌐 Online Time Update</span>
-                </button>
-                <button class="btn btn-outline" id="btnActionOpenTimeModal" type="button" title="Open Manual Date/Time Adjustment & Clock Drift Monitor">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                  <span>✍️ Manual Time Update...</span>
-                </button>
-                <button class="btn btn-danger-outline" id="btnActionReboot">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
-                  Reboot Terminal
-                </button>
-              </div>
-            </div>
-          </div>
-
-            <!-- Settings Card -->
-          <div class="card device-card" id="cardConnectionSettings" data-section="terminal">
-            <div class="card-header">
-              <h3>Connection & Sync Settings</h3>
-            </div>
-            <div class="card-body device-scroll-body">
-              <form id="settingsForm">
-                <div class="form-group">
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                    <label for="settingNetworkInterface" style="font-weight: 600; margin-bottom: 0;">
-                      🌐 Network Interface (Adapter for Device Comm.)
-                    </label>
-                    <button type="button" class="btn btn-sm btn-outline" id="btnRefreshInterfaces" style="font-size: 0.75rem; padding: 2px 8px;" title="Re-scan local network adapters">
-                      🔄 Refresh Adapters
-                    </button>
-                  </div>
-                  <select id="settingNetworkInterface" class="form-control font-mono">
-                    <option value="">-- Auto-Detect (System Default Route) --</option>
-                  </select>
-                  <input type="hidden" id="settingNetworkInterfaceIp" value="">
-                  <div id="interfaceSubnetBadge" style="margin-top: 6px; font-size: 0.82rem;"></div>
-                  <small class="form-hint">Select the specific network adapter (e.g. Ethernet) physically connected to the SpeedFace device.</small>
-                </div>
-
-                <div class="form-group">
-                  <label>SpeedFace Device IP Address</label>
-                  <input type="text" id="settingIp" class="form-control" value="192.168.10.15">
-                  <small class="form-hint">Must be reachable on your local network (e.g. 192.168.10.15)</small>
-                </div>
-
-                <div class="form-group">
-                  <label>ZKTeco TCP Port</label>
-                  <input type="number" id="settingPort" class="form-control" value="4370">
-                  <small class="form-hint">Standard port is 4370</small>
-                </div>
-
-                <div class="form-group">
-                  <label>Auto-Sync Interval (Seconds)</label>
-                  <input type="number" id="settingInterval" class="form-control" value="60" min="15">
-                  <small class="form-hint">How often the server pulls new records from the device in background</small>
-                </div>
-
-                <div class="form-group form-check">
-                  <input type="checkbox" id="settingAutoSyncEnabled" checked>
-                  <label for="settingAutoSyncEnabled">Enable Automated Background Sync</label>
-                </div>
-
-                <button type="submit" class="btn btn-primary">Save Settings</button>
-              </form>
-            </div>
-        </div>
-
-            
-          </div>
-
-          <!-- RIGHT COLUMN: Firebase Sync, Sync Logs, System Health, Data Reset -->
-          <div class="device-col" id="deviceColRight">
-            <!-- Firebase Firestore Cloud Sync & Multi-Organization Card -->
-            <!-- Recent Sync Log Card -->
-        <div class="card device-card" id="cardRecentSyncLogs" data-section="logs">
-          <div class="card-header">
-            <h3>Recent Synchronization Logs</h3>
-          </div>
-          <div class="card-body table-responsive device-table-scroll">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Timestamp</th>
-                  <th>Sync Type</th>
-                  <th>Status</th>
-                  <th>New Records Inserted</th>
-                  <th>Total Logs on Device</th>
-                  <th>Message</th>
-                </tr>
-              </thead>
-              <tbody id="syncLogsTableBody">
-                <tr><td colspan="6" class="text-center py-4">No sync logs yet</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-            <!-- Production System Diagnostics, Health & Rolling Backups Card -->
-        <div class="card device-card" id="cardSystemHealth" data-section="diagnostics">
+        <!-- 1. FULL WIDTH CARD: Multi-Terminal Fleet Status Monitor -->
+        <div class="card device-card" id="cardMultiTerminalFleet" data-section="terminals">
           <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <div style="display: flex; align-items: center; gap: 10px;">
-              <span style="font-size: 1.4rem;">🛡️</span>
+              <span style="font-size: 1.4rem;">📱</span>
               <div>
-                <h3 style="margin-bottom: 2px;">Production System Health & Diagnostics</h3>
-                <p class="subtitle" style="margin-bottom: 0;">Live memory metrics, SQLite WAL status, automated rolling backups, and live server logs</p>
+                <h3 style="margin-bottom: 2px;">Biometric Terminals Fleet &amp; Live Status Monitor</h3>
+                <p class="subtitle" style="margin-bottom: 0;">Monitor, test, and sync multiple SpeedFace-V5L and ZKTeco biometric terminals across entrances</p>
               </div>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
-              <button type="button" class="btn btn-sm btn-outline" id="btnRefreshHealth" title="Refresh system metrics">
-                🔄 Refresh Metrics
+              <button class="btn btn-sm btn-outline" id="btnRefreshTerminalsList">
+                🔄 Refresh Fleet
               </button>
             </div>
           </div>
-          <div class="card-body device-scroll-body">
-            <!-- Production Health Metric Boxes -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px;">
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
-                <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">System Uptime</div>
-                <div id="healthUptime" style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
-                <div style="font-size: 0.75rem; color: #16a34a; font-weight: 600;">🟢 Process Running</div>
+          <div class="card-body">
+            <!-- Fleet KPI Summary Row -->
+            <div class="terminal-kpi-grid">
+              <div class="terminal-kpi-card">
+                <span class="terminal-kpi-label">Configured Terminals</span>
+                <div class="terminal-kpi-val" id="fleetStatTotal">0</div>
+                <div style="font-size: 0.75rem; color: #64748b;">Registered machines</div>
               </div>
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
-                <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">RAM / Memory (RSS)</div>
-                <div id="healthMemory" style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
-                <div id="healthHeap" style="font-size: 0.75rem; color: #64748b;">Heap: -</div>
+              <div class="terminal-kpi-card" style="border-left: 3px solid #16a34a;">
+                <span class="terminal-kpi-label">Online &amp; Reachable</span>
+                <div class="terminal-kpi-val" style="color: #16a34a;" id="fleetStatOnline">0</div>
+                <div style="font-size: 0.75rem; color: #16a34a; font-weight: 600;">Active communication</div>
               </div>
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
-                <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Database Engine</div>
-                <div id="healthDbSize" style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
-                <div style="font-size: 0.75rem; color: #0284c7; font-weight: 600;">⚡ SQLite WAL Active</div>
+              <div class="terminal-kpi-card" style="border-left: 3px solid #ef4444;">
+                <span class="terminal-kpi-label">Offline / Attention</span>
+                <div class="terminal-kpi-val" style="color: #ef4444;" id="fleetStatOffline">0</div>
+                <div style="font-size: 0.75rem; color: #64748b;">Needs verification</div>
               </div>
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
-                <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Connected Clients</div>
-                <div id="healthWsClients" style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
-                <div style="font-size: 0.75rem; color: #64748b;">Live WebSockets</div>
+              <div class="terminal-kpi-card" style="border-left: 3px solid #0284c7;">
+                <span class="terminal-kpi-label">Automated Sync Schedule</span>
+                <div class="terminal-kpi-val" style="font-size: 1.05rem; color: #0284c7;" id="fleetStatAutoSync">Active (60s)</div>
+                <div style="font-size: 0.75rem; color: #64748b;">Background auto-poll</div>
               </div>
             </div>
 
-            <!-- Automated Rolling Backups Management Section -->
-            <div style="margin-bottom: 24px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 16px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
-                <div>
-                  <h4 style="margin: 0; color: #166534; font-size: 0.95rem; display: flex; align-items: center; gap: 6px;">
-                    <span>💾</span> Automated Rolling Database Snapshots (.DB)
-                  </h4>
-                  <div style="font-size: 0.8rem; color: #15803d; margin-top: 2px;">
-                    Daily zero-downtime snapshots saved to <code class="font-mono" style="background:#dcfce7; padding:1px 4px; border-radius:3px;">data/backups/</code> with automatic rotation.
+            <!-- Terminals Cards Grid (Dynamic Render) -->
+            <div class="terminals-grid" id="terminalsGrid">
+              <!-- Dynamically populated by loadTerminals() in app.js -->
+              <div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: #64748b;">
+                <div class="spin" style="width:28px;height:28px;border:3px solid #cbd5e1;border-top-color:#0284c7;border-radius:50%;display:inline-block;margin-bottom:12px;"></div>
+                <div>Loading biometric terminals fleet...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. TWO BALANCED COLUMNS: Settings & Health (Left) | Logs & Danger Zone (Right) -->
+        <div class="device-flex-columns" id="deviceFlexColumns">
+          <!-- LEFT COLUMN: Global Network & Connection Settings, System Health -->
+          <div class="device-col" id="deviceColLeft">
+            <!-- Global Connection & Sync Settings Card -->
+            <div class="card device-card" id="cardConnectionSettings" data-section="network">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span>🌐</span>
+                  <h3 style="margin-bottom: 0;">Global Network &amp; Sync Settings</h3>
+                </div>
+              </div>
+              <div class="card-body">
+                <form id="settingsForm">
+                  <div class="form-group">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                      <label for="settingNetworkInterface" style="font-weight: 600; margin-bottom: 0;">
+                        🌐 Network Interface (Local Adapter for Device Comm.)
+                      </label>
+                      <button type="button" class="btn btn-sm btn-outline" id="btnRefreshInterfaces" style="font-size: 0.75rem; padding: 2px 8px;" title="Re-scan local network adapters">
+                        🔄 Refresh Adapters
+                      </button>
+                    </div>
+                    <select id="settingNetworkInterface" class="form-control font-mono">
+                      <option value="">-- Auto-Detect (System Default Route) --</option>
+                    </select>
+                    <input type="hidden" id="settingNetworkInterfaceIp" value="">
+                    <div id="interfaceSubnetBadge" style="margin-top: 6px; font-size: 0.82rem;"></div>
+                    <small class="form-hint">Select the local network card (e.g. Ethernet) physically connected to the terminals switch/subnet.</small>
                   </div>
-                </div>
-                <button type="button" class="btn btn-sm btn-outline" id="btnCreateSnapshotNow" style="background:#fff; font-weight:600; font-size:0.8rem;">
-                  ⚡ Create Snapshot Now
-                </button>
-              </div>
-              <div id="backupSnapshotsList" style="display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.82rem;">
-                <span class="text-muted">Loading snapshots...</span>
-              </div>
-            </div>
 
-            <!-- Live Server Logs Viewer -->
-            <div>
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <label style="font-weight: 700; font-size: 0.88rem; margin: 0;">📋 Live Server & Biometric Activity Log</label>
-                <div style="display: flex; gap: 8px; align-items: center;">
-                  <button type="button" class="btn btn-sm btn-outline" id="btnRefreshServerLogs" style="font-size: 0.75rem; padding: 2px 8px;">
-                    🔄 Refresh Log
+                  <div class="form-group">
+                    <label>Automated Fleet Sync Interval (Seconds)</label>
+                    <input type="number" id="settingInterval" class="form-control" value="60" min="15">
+                    <small class="form-hint">How often the server automatically queries all enabled terminals in the background</small>
+                  </div>
+
+                  <div class="form-group form-check" style="margin-top: 10px; margin-bottom: 18px;">
+                    <input type="checkbox" id="settingAutoSyncEnabled" checked>
+                    <label for="settingAutoSyncEnabled" style="font-weight: 600;">Enable Automated Background Sync across Terminals</label>
+                  </div>
+
+                  <button type="submit" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 6px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                    <span>Save Global Network Settings</span>
                   </button>
-                  <button type="button" class="btn btn-sm btn-outline" id="btnClearLogView" style="font-size: 0.75rem; padding: 2px 8px;">
-                    Clear View
-                  </button>
+                </form>
+              </div>
+            </div>
+
+            </div>
+
+          <!-- RIGHT COLUMN: Recent Sync Logs, Data Reset -->
+          <div class="device-col" id="deviceColRight">
+            <!-- Recent Sync Log Card -->
+            <div class="card device-card" id="cardRecentSyncLogs" data-section="logs">
+              <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span>📋</span>
+                  <h3 style="margin-bottom: 0;">Recent Synchronization Logs</h3>
                 </div>
               </div>
-              <div id="serverLogsConsole" class="font-mono" style="background: #0f172a; color: #f8fafc; border-radius: 6px; padding: 12px 14px; font-size: 0.78rem; line-height: 1.5; max-height: 220px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;">
-Loading application logs...
-              </div>
-            </div>
-          </div>
-        </div>
-
-            <!-- Data Management & System Reset Card (Danger Zone) -->
-        <div class="card card-danger-zone device-card" id="cardDataReset" data-section="diagnostics">
-          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <span style="font-size: 1.4rem;">⚠️</span>
-              <div>
-                <h3 style="margin-bottom: 2px; color: #b91c1c;">Data Management & System Reset</h3>
-                <p class="subtitle" style="margin-bottom: 0;">Safely download database backups, purge attendance records, or wipe employee directories</p>
-              </div>
-            </div>
-            <span class="badge" style="background:#fee2e2; color:#b91c1c; font-weight:700; border: 1px solid #fca5a5;">
-              DANGER ZONE
-            </span>
-          </div>
-          <div class="card-body device-scroll-body">
-            <!-- Warning & Information Banner -->
-            <div style="background: #fff5f5; border: 1px solid #fed7d7; border-left: 4px solid #ef4444; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; font-size: 0.9rem; color: #7f1d1d;">
-              <strong>Notice:</strong> Reset operations permanently delete data from the local SQLite database. They cannot be undone unless you have a backup. It is strongly advised to download a complete JSON backup prior to performing any reset.
-            </div>
-
-            <!-- Current Database Summary Stats -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
-                <div style="font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Attendance Punches</div>
-                <div id="resetStatAttCount" style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
-                <div style="font-size: 0.75rem; color: #94a3b8;">Stored in attendance_records</div>
-              </div>
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
-                <div style="font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Enrolled Employees</div>
-                <div id="resetStatEmpCount" style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
-                <div style="font-size: 0.75rem; color: #94a3b8;">Stored in employees table</div>
-              </div>
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
-                <div style="font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Sync & Audit Logs</div>
-                <div id="resetStatLogCount" style="font-size: 1.5rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
-                <div style="font-size: 0.75rem; color: #94a3b8;">Stored in sync_logs table</div>
+              <div class="card-body table-responsive">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Timestamp</th>
+                      <th>Sync Type</th>
+                      <th>Status</th>
+                      <th>New Records Inserted</th>
+                      <th>Total Logs on Device</th>
+                      <th>Message</th>
+                    </tr>
+                  </thead>
+                  <tbody id="syncLogsTableBody">
+                    <tr><td colspan="6" class="text-center py-4">No sync logs yet</td></tr>
+                  </tbody>
+                </table>
               </div>
             </div>
 
-            <!-- Action Controls -->
-            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: flex-start;">
-              <button type="button" class="btn btn-outline" id="btnDownloadBackup" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                Download Full Database Backup (.JSON)
-              </button>
-              <button type="button" class="btn btn-danger-outline" id="btnOpenResetModal" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                Reset Attendance & Employees...
-              </button>
             </div>
-          </div>
-        </div>
-          </div>
         </div>
       </section>
 
@@ -6926,6 +6771,87 @@ Loading application logs...
 
 
 
+        <!-- Production System Diagnostics, Health & Rolling Backups Card -->
+            <div class="card" id="cardSystemHealth" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border); margin-bottom: 24px; overflow: hidden;">
+              <div class="card-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; background: #fff;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="font-size: 1.4rem;">🛡️</span>
+                  <div>
+                    <h3 style="margin-bottom: 2px; font-size: 1.15rem; font-weight: 700; color: #1e293b;">Production System Health &amp; Diagnostics</h3>
+                    <p class="subtitle" style="margin-bottom: 0; font-size: 0.82rem; color: #64748b;">Live memory metrics, SQLite WAL status, automated rolling backups, and live server logs</p>
+                  </div>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <button type="button" class="btn btn-sm btn-outline" id="btnRefreshHealth" title="Refresh system metrics">
+                    🔄 Refresh Metrics
+                  </button>
+                </div>
+              </div>
+              <div class="card-body" style="padding: 20px;">
+                <!-- Production Health Metric Boxes -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px;">
+                  <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                    <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">System Uptime</div>
+                    <div id="healthUptime" style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                    <div style="font-size: 0.75rem; color: #16a34a; font-weight: 600;">🟢 Process Running</div>
+                  </div>
+                  <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                    <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">RAM / Memory (RSS)</div>
+                    <div id="healthMemory" style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                    <div id="healthHeap" style="font-size: 0.75rem; color: #64748b;">Heap: -</div>
+                  </div>
+                  <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                    <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Database Engine</div>
+                    <div id="healthDbSize" style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                    <div style="font-size: 0.75rem; color: #0284c7; font-weight: 600;">⚡ SQLite WAL Active</div>
+                  </div>
+                  <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                    <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Connected Clients</div>
+                    <div id="healthWsClients" style="font-size: 1.25rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                    <div style="font-size: 0.75rem; color: #64748b;">Live WebSockets</div>
+                  </div>
+                </div>
+
+                <!-- Automated Rolling Backups Management Section -->
+                <div style="margin-bottom: 24px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 16px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
+                    <div>
+                      <h4 style="margin: 0; color: #166534; font-size: 0.95rem; display: flex; align-items: center; gap: 6px;">
+                        <span>💾</span> Automated Rolling Database Snapshots (.DB)
+                      </h4>
+                      <div style="font-size: 0.8rem; color: #15803d; margin-top: 2px;">
+                        Daily zero-downtime snapshots saved to <code class="font-mono" style="background:#dcfce7; padding:1px 4px; border-radius:3px;">data/backups/</code> with automatic rotation.
+                      </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline" id="btnCreateSnapshotNow" style="background:#fff; font-weight:600; font-size:0.8rem;">
+                      ⚡ Create Snapshot Now
+                    </button>
+                  </div>
+                  <div id="backupSnapshotsList" style="display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.82rem;">
+                    <span class="text-muted">Loading snapshots...</span>
+                  </div>
+                </div>
+
+                <!-- Live Server Logs Viewer -->
+                <div>
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <label style="font-weight: 700; font-size: 0.88rem; margin: 0;">📋 Live Server &amp; Biometric Activity Log</label>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                      <button type="button" class="btn btn-sm btn-outline" id="btnRefreshServerLogs" style="font-size: 0.75rem; padding: 2px 8px;">
+                        🔄 Refresh Log
+                      </button>
+                      <button type="button" class="btn btn-sm btn-outline" id="btnClearLogView" style="font-size: 0.75rem; padding: 2px 8px;">
+                        Clear View
+                      </button>
+                    </div>
+                  </div>
+                  <div id="serverLogsConsole" class="font-mono" style="background: #0f172a; color: #f8fafc; border-radius: 6px; padding: 12px 14px; font-size: 0.78rem; line-height: 1.5; max-height: 220px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;">
+Loading application logs...
+                  </div>
+                </div>
+              </div>
+            </div>
+
         <!-- 1. Organization User Management Card -->
         <div class="card" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border); margin-bottom: 24px;">
           <div class="card-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
@@ -7064,6 +6990,59 @@ Loading application logs...
             </form>
           </div>
         </div>
+
+        <!-- Data Management & System Reset Card (Danger Zone) -->
+            <div class="card card-danger-zone" id="cardDataReset" style="box-shadow: var(--shadow-sm); border: 1px solid #fca5a5; margin-bottom: 24px; overflow: hidden;">
+              <div class="card-header" style="padding: 16px 20px; border-bottom: 1px solid #fca5a5; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; background: #fff5f5;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="font-size: 1.4rem;">⚠️</span>
+                  <div>
+                    <h3 style="margin-bottom: 2px; color: #b91c1c; font-size: 1.15rem; font-weight: 700;">Data Management &amp; System Reset</h3>
+                    <p class="subtitle" style="margin-bottom: 0; font-size: 0.82rem; color: #991b1b;">Safely download database backups, purge attendance records, or wipe employee directories</p>
+                  </div>
+                </div>
+                <span class="badge" style="background:#fee2e2; color:#b91c1c; font-weight:700; border: 1px solid #fca5a5;">
+                  DANGER ZONE
+                </span>
+              </div>
+              <div class="card-body" style="padding: 20px;">
+                <!-- Warning & Information Banner -->
+                <div style="background: #fff5f5; border: 1px solid #fed7d7; border-left: 4px solid #ef4444; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; font-size: 0.9rem; color: #7f1d1d;">
+                  <strong>Notice:</strong> Reset operations permanently delete data from the local SQLite database. They cannot be undone unless you have a backup. It is strongly advised to download a complete JSON backup prior to performing any reset.
+                </div>
+
+                <!-- Current Database Summary Stats -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px;">
+                  <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                    <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Attendance Punches</div>
+                    <div id="resetStatAttCount" style="font-size: 1.4rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                    <div style="font-size: 0.75rem; color: #94a3b8;">Stored in attendance_records</div>
+                  </div>
+                  <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                    <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Enrolled Employees</div>
+                    <div id="resetStatEmpCount" style="font-size: 1.4rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                    <div style="font-size: 0.75rem; color: #94a3b8;">Stored in employees table</div>
+                  </div>
+                  <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                    <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 600;">Sync &amp; Audit Logs</div>
+                    <div id="resetStatLogCount" style="font-size: 1.4rem; font-weight: 700; color: #0f172a; margin-top: 4px;">-</div>
+                    <div style="font-size: 0.75rem; color: #94a3b8;">Stored in sync_logs table</div>
+                  </div>
+                </div>
+
+                <!-- Action Controls -->
+                <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: flex-start;">
+                  <button type="button" class="btn btn-outline" id="btnDownloadBackup" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    <span>Download Full Database Backup (.JSON)</span>
+                  </button>
+                  <button type="button" class="btn btn-danger-outline" id="btnOpenResetModal" style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                    <span>Reset Attendance &amp; Employees...</span>
+                  </button>
+                </div>
+              </div>
+            </div>
 
         <!-- 3. Role Permissions Reference Card -->
         <div class="card" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border); margin-bottom: 24px;">
@@ -8328,13 +8307,33 @@ Loading application logs...
           </label>
 
           <div style="border-top: 1px dashed #cbd5e1; margin-top: 6px; padding-top: 10px;">
-            <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 0.9rem; color: #b91c1c;">
+            <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 0.9rem; color: #b91c1c; margin-bottom: 0;">
               <input type="checkbox" id="chkClearTerminalLogs" style="margin-top: 3px; cursor: pointer;">
               <div>
                 <strong>Wipe Punch Logs on Physical SpeedFace Terminal <span class="badge" style="background:#fee2e2;color:#b91c1c;font-size:0.7rem;margin-left:4px;">HARDWARE</span></strong>
-                <div style="font-size: 0.78rem; color: #b91c1c;">Sends command to connected terminal (<span id="modalDevIp">192.168.10.15</span>) to clear its internal attendance log buffer</div>
+                <div style="font-size: 0.78rem; color: #b91c1c;">Transmits hardware command to purge on-device attendance punch buffers</div>
               </div>
             </label>
+
+            <!-- Multi-Terminal Selection Panel for Reset -->
+            <div id="resetTerminalSelectionPanel" style="display: none; margin-top: 10px; margin-left: 26px; padding: 12px 14px; background: #fff5f5; border: 1px solid #fecaca; border-radius: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+                <label style="font-weight: 700; font-size: 0.8rem; color: #991b1b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0;">
+                  Select Hardware Terminal(s) to Wipe:
+                </label>
+                <div style="display: flex; gap: 6px;">
+                  <button type="button" class="btn btn-xs btn-outline" id="btnResetSelectAllTerminals" style="font-size: 0.72rem; padding: 2px 8px; background: #fff;">Select All</button>
+                  <button type="button" class="btn btn-xs btn-outline" id="btnResetDeselectAllTerminals" style="font-size: 0.72rem; padding: 2px 8px; background: #fff;">Deselect All</button>
+                </div>
+              </div>
+
+              <!-- Terminals Checkbox List (populated dynamically by app.js) -->
+              <div id="resetTerminalsList" style="display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; padding-right: 4px;">
+                <div style="font-size: 0.8rem; color: #64748b;">Loading biometric fleet terminals...</div>
+              </div>
+
+              <div id="resetTerminalsCountNotice" style="margin-top: 8px; font-size: 0.78rem; color: #b91c1c; font-weight: 600;"></div>
+            </div>
           </div>
         </div>
 
@@ -8441,105 +8440,166 @@ Loading application logs...
     </div>
   </div>
 
-  <!-- Time Synchronization Modal (Manual and Online Update) -->
+  <!-- Time Synchronization Modal (Multi-Terminal, Server, Cloud, and Manual Update) -->
   <div class="modal" id="timeSyncModal" style="z-index: 2100;">
     <div class="modal-backdrop" id="timeSyncModalBackdrop"></div>
-    <div class="modal-content" style="max-width: 720px; width: 95%; z-index: 2101;">
-      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
+    <div class="modal-content" style="max-width: 760px; width: 95%; z-index: 2101;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #fff; padding: 16px 22px;">
         <div style="display: flex; align-items: center; gap: 10px;">
-          <div style="width: 40px; height: 40px; border-radius: 8px; background: #e0f2fe; color: #0284c7; display: flex; align-items: center; justify-content: center; font-size: 1.3rem;">
+          <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
             🕒
           </div>
           <div>
-            <h3 style="margin: 0; font-size: 1.15rem; color: #1e293b;">SpeedFace Terminal Time Synchronization</h3>
-            <p style="margin: 0; font-size: 0.8rem; color: var(--text-muted);">Sync device clock with Online Atomic Time or enter a custom manual timestamp</p>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #fff;">Terminal Clock Time Adjustment &amp; Sync</h3>
+            <p style="margin: 2px 0 0; font-size: 0.78rem; color: #94a3b8;">Synchronize or adjust hardware real-time clock (RTC) registers across biometric fleet terminals</p>
           </div>
         </div>
-        <button type="button" class="btn-close" id="btnCloseTimeSyncModal">&times;</button>
+        <button type="button" class="btn-close" id="btnCloseTimeSyncModal" style="color: #fff; font-size: 1.5rem;">&times;</button>
       </div>
 
-      <div class="modal-body" style="padding: 20px 24px; display: flex; flex-direction: column; gap: 18px;">
+      <div class="modal-body" style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px;">
         
-        <!-- Live Clock Cards Grid (3 Columns) -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px;">
+        <!-- Target Terminal Selection Row -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 280px;">
+            <label for="timeSyncTerminalSelect" style="font-weight: 700; font-size: 0.85rem; color: #1e293b; margin: 0; white-space: nowrap;">Target Terminal:</label>
+            <select id="timeSyncTerminalSelect" class="form-control" style="font-size: 0.85rem; height: 36px; font-weight: 600; flex: 1;">
+              <option value="all">🌐 All Active Terminals (Fleet Broadcast)</option>
+            </select>
+          </div>
+          <div id="timeSyncTerminalMeta" style="font-size: 0.8rem; color: #0284c7; font-weight: 600;">
+            <!-- e.g. SpeedFace-V5L @ 192.168.10.15:4370 -->
+          </div>
+        </div>
+
+        <!-- Live Clock Cards Grid (4 Columns) -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;">
           <!-- 1. Device Clock -->
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; text-align: center;">
-            <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 10px; text-align: center;">
+            <div style="font-size: 0.72rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">
               📟 Terminal Clock
             </div>
-            <div id="modalDevTimeLive" class="font-mono" style="font-size: 1.25rem; font-weight: 700; color: #0f172a;">
+            <div id="modalDevTimeLive" class="font-mono" style="font-size: 1.15rem; font-weight: 700; color: #0f172a; margin-top: 4px;">
               Loading...
             </div>
-            <div id="modalDriftBadgeWrap" style="margin-top: 6px;">
-              <span class="badge" id="modalDriftBadge" style="background:#f1f5f9; color:#475569; font-size: 0.73rem;">Checking drift...</span>
+            <div id="modalDriftBadgeWrap" style="margin-top: 4px;">
+              <span class="badge" id="modalDriftBadge" style="background:#f1f5f9; color:#475569; font-size: 0.68rem;">Checking drift...</span>
             </div>
           </div>
 
-          <!-- 2. Online Atomic Clock -->
-          <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; padding: 14px; text-align: center;">
-            <div style="font-size: 0.75rem; font-weight: 700; color: #0369a1; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
-              🌐 Online Atomic Time
+          <!-- 2. Server System Clock -->
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 10px; text-align: center;">
+            <div style="font-size: 0.72rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">
+              🖥️ Server Time
             </div>
-            <div id="modalOnlineTimeLive" class="font-mono" style="font-size: 1.25rem; font-weight: 700; color: #0284c7;">
-              Loading...
-            </div>
-            <div id="modalOnlineSource" style="font-size: 0.73rem; color: #0284c7; margin-top: 6px; font-weight: 600;">
-              Asia/Colombo (UTC+5:30)
-            </div>
-          </div>
-
-          <!-- 3. Local Computer Clock -->
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; text-align: center;">
-            <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
-              💻 Computer / PC Time
-            </div>
-            <div id="modalPcTimeLive" class="font-mono" style="font-size: 1.25rem; font-weight: 700; color: #334155;">
+            <div id="modalServerTimeLive" class="font-mono" style="font-size: 1.15rem; font-weight: 700; color: #0f172a; margin-top: 4px;">
               --:--:--
             </div>
-            <div style="font-size: 0.73rem; color: #64748b; margin-top: 6px;">
-              Local Host OS Clock
+            <div style="font-size: 0.7rem; color: #64748b; margin-top: 4px;">
+              Host Node.js Clock
+            </div>
+            <span id="modalPcTimeLive" style="display:none;"></span>
+          </div>
+
+          <!-- 3. Cloud Server Clock -->
+          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 10px; text-align: center;">
+            <div style="font-size: 0.72rem; font-weight: 700; color: #166534; text-transform: uppercase; letter-spacing: 0.5px;">
+              ☁️ Cloud Server Time
+            </div>
+            <div id="modalCloudTimeLive" class="font-mono" style="font-size: 1.15rem; font-weight: 700; color: #15803d; margin-top: 4px;">
+              --:--:--
+            </div>
+            <div style="font-size: 0.7rem; color: #15803d; margin-top: 4px;" id="modalCloudSource">
+              Google Cloud RTC
+            </div>
+          </div>
+
+          <!-- 4. Online Atomic Clock -->
+          <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 12px 10px; text-align: center;">
+            <div style="font-size: 0.72rem; font-weight: 700; color: #0369a1; text-transform: uppercase; letter-spacing: 0.5px;">
+              🌐 Online Atomic Time
+            </div>
+            <div id="modalOnlineTimeLive" class="font-mono" style="font-size: 1.15rem; font-weight: 700; color: #0284c7; margin-top: 4px;">
+              --:--:--
+            </div>
+            <div id="modalOnlineSource" style="font-size: 0.7rem; color: #0284c7; margin-top: 4px; font-weight: 600;">
+              NTP Stratum-1
             </div>
           </div>
         </div>
 
         <!-- Mode Toggle Navigation Pills -->
         <div style="display: flex; gap: 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; flex-wrap: wrap;">
-          <button type="button" class="btn btn-sm btn-primary" id="tabBtnTimeOnline" style="font-weight: 600; border-radius: 20px; padding: 6px 16px;">
-            🌐 Online Atomic Sync (Recommended)
+          <button type="button" class="btn btn-sm btn-primary" id="tabBtnTimeServer" style="font-weight: 600; border-radius: 20px; padding: 6px 14px;">
+            🖥️ Server Time Sync
           </button>
-          <button type="button" class="btn btn-sm btn-outline" id="tabBtnTimeManual" style="font-weight: 600; border-radius: 20px; padding: 6px 16px;">
-            ✍️ Manual Time Update
+          <button type="button" class="btn btn-sm btn-outline" id="tabBtnTimeCloud" style="font-weight: 600; border-radius: 20px; padding: 6px 14px;">
+            ☁️ Sync with Cloud
           </button>
-          <button type="button" class="btn btn-sm btn-outline" id="tabBtnTimePc" style="font-weight: 600; border-radius: 20px; padding: 6px 16px;">
-            💻 Sync with PC Time
+          <button type="button" class="btn btn-sm btn-outline" id="tabBtnTimeManual" style="font-weight: 600; border-radius: 20px; padding: 6px 14px;">
+            ✍️ Adjust Manually
           </button>
+          <button type="button" class="btn btn-sm btn-outline" id="tabBtnTimeOnline" style="font-weight: 600; border-radius: 20px; padding: 6px 14px;">
+            🌐 Online Atomic Time (NTP)
+          </button>
+          <!-- Backward Compatibility hidden buttons -->
+          <button type="button" id="tabBtnTimePc" style="display:none;"></button>
         </div>
 
-        <!-- Section 1: Online Sync Pane -->
-        <div id="timePaneOnline" style="display: block;">
-          <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 16px; margin-bottom: 14px;">
-            <h4 style="margin: 0 0 6px 0; color: #0369a1; font-size: 0.95rem;">Official Internet Atomic Time Sync</h4>
-            <p style="margin: 0 0 10px 0; font-size: 0.84rem; color: #334155; line-height: 1.45;">
-              Synchronize the SpeedFace device clock with certified atomic internet time servers (NTP Stratum-1 / TimeAPI / Google Atomic HTTP). Ensures punch timestamps are legally accurate, synchronized with government time, and never drift.
-            </p>
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 8px; border-top: 1px solid #e0f2fe;">
-              <div style="font-size: 0.82rem; color: #475569;">
-                Target Timezone: <strong id="modalTimezoneDisplay">Asia/Colombo (UTC+05:30)</strong>
+        <!-- Mode 1: Server Time Sync Pane -->
+        <div id="timePaneServer" style="display: block;">
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap;">
+              <div>
+                <h4 style="margin: 0 0 4px 0; color: #0f172a; font-size: 0.95rem;">Attendance Server Operating System Clock</h4>
+                <p style="margin: 0; font-size: 0.84rem; color: #64748b; line-height: 1.45;">
+                  Synchronize the terminal hardware RTC register directly with this Attendance Server's local operating system time. Ideal for on-premise local networks without internet connectivity.
+                </p>
               </div>
-              <button type="button" class="btn btn-primary" id="btnExecuteOnlineSync" style="font-weight: 700; display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                Sync Terminal to Online Time Now
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
+              <div style="font-size: 0.85rem; color: #334155;">
+                Current Server Time: <strong id="modalServerTimeSummary" class="font-mono">--:--:--</strong>
+                <span id="modalPcTimeSummary" style="display:none;"></span>
+              </div>
+              <button type="button" class="btn btn-primary" id="btnExecuteServerSync" style="font-weight: 700; display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                Sync Terminal to Server Time Now
+              </button>
+              <button type="button" id="btnExecutePcSync" style="display:none;"></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mode 2: Cloud Time Sync Pane -->
+        <div id="timePaneCloud" style="display: none;">
+          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap;">
+              <div>
+                <h4 style="margin: 0 0 4px 0; color: #166534; font-size: 0.95rem;">Authoritative Cloud RTC Timestamp</h4>
+                <p style="margin: 0; font-size: 0.84rem; color: #15803d; line-height: 1.45;">
+                  Synchronize the terminal clock with Google Cloud &amp; Firebase Firestore atomic infrastructure. Guarantees uniform, legally auditable punch timestamps across multiple branches, gates, and regional locations.
+                </p>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid #dcfce7;">
+              <div style="font-size: 0.85rem; color: #166534;">
+                Cloud Source: <strong id="modalCloudSourceDetail">Firebase / Google Cloud RTC</strong> &bull; <strong id="modalCloudTimeSummary">--:--:--</strong>
+              </div>
+              <button type="button" class="btn btn-success" id="btnExecuteCloudSync" style="font-weight: 700; display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; background: #16a34a; border-color: #16a34a; color: #fff;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path></svg>
+                Sync Terminal with Cloud Time Now
               </button>
             </div>
           </div>
         </div>
 
-        <!-- Section 2: Manual Update Pane -->
+        <!-- Mode 3: Manual Adjustment Pane -->
         <div id="timePaneManual" style="display: none;">
           <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
-            <h4 style="margin: 0 0 6px 0; color: #1e293b; font-size: 0.95rem;">Manual Custom Date &amp; Time</h4>
+            <h4 style="margin: 0 0 6px 0; color: #1e293b; font-size: 0.95rem;">Manual Custom Date &amp; Time Adjustment</h4>
             <p style="margin: 0 0 12px 0; font-size: 0.84rem; color: #64748b;">
-              Specify exact date and time values to manually encode into the SpeedFace hardware registers.
+              Specify exact date and time values or fine-tune with quick offset steps to encode directly into the terminal hardware registers.
             </p>
 
             <div class="form-group" style="margin-bottom: 12px;">
@@ -8548,11 +8608,14 @@ Loading application logs...
               </label>
               <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                 <input type="datetime-local" step="1" id="inputManualDateTime" class="form-control font-mono" style="font-size: 1.05rem; font-weight: 700; max-width: 320px; padding: 8px 12px;">
-                <button type="button" class="btn btn-sm btn-outline" id="btnManualFillNow" style="font-size: 0.8rem; padding: 6px 12px;">
-                  Set to Now
+                <button type="button" class="btn btn-sm btn-outline" id="btnManualFillNow" style="font-size: 0.8rem; padding: 6px 12px;" title="Fill with Server Current Time">
+                  🖥️ Use Server Time
                 </button>
-                <button type="button" class="btn btn-sm btn-outline" id="btnManualFillOnline" style="font-size: 0.8rem; padding: 6px 12px;">
-                  Set to Online Time
+                <button type="button" class="btn btn-sm btn-outline" id="btnManualFillCloud" style="font-size: 0.8rem; padding: 6px 12px;" title="Fill with Cloud Time">
+                  ☁️ Use Cloud Time
+                </button>
+                <button type="button" class="btn btn-sm btn-outline" id="btnManualFillOnline" style="font-size: 0.8rem; padding: 6px 12px;" title="Fill with Online Atomic Time">
+                  🌐 Use Online Time
                 </button>
               </div>
             </div>
@@ -8566,6 +8629,8 @@ Loading application logs...
               <button type="button" class="btn btn-xs btn-outline" id="btnAdjustPlus5m">+5 Mins</button>
               <button type="button" class="btn btn-xs btn-outline" id="btnAdjustMinus1m">-1 Min</button>
               <button type="button" class="btn btn-xs btn-outline" id="btnAdjustPlus1m">+1 Min</button>
+              <button type="button" class="btn btn-xs btn-outline" id="btnAdjustMinus10s">-10 Sec</button>
+              <button type="button" class="btn btn-xs btn-outline" id="btnAdjustPlus10s">+10 Sec</button>
             </div>
 
             <div style="display: flex; justify-content: flex-end;">
@@ -8577,20 +8642,20 @@ Loading application logs...
           </div>
         </div>
 
-        <!-- Section 3: PC Time Sync Pane -->
-        <div id="timePanePc" style="display: none;">
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
-            <h4 style="margin: 0 0 6px 0; color: #1e293b; font-size: 0.95rem;">Synchronize with Local Computer Clock</h4>
-            <p style="margin: 0 0 12px 0; font-size: 0.84rem; color: #64748b;">
-              Copies the server computer's operating system clock directly into the SpeedFace hardware clock.
+        <!-- Mode 4: Online Atomic Sync Pane -->
+        <div id="timePaneOnline" style="display: none;">
+          <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 16px;">
+            <h4 style="margin: 0 0 6px 0; color: #0369a1; font-size: 0.95rem;">Official Internet Atomic Time Sync (NTP Stratum-1)</h4>
+            <p style="margin: 0 0 10px 0; font-size: 0.84rem; color: #334155; line-height: 1.45;">
+              Synchronize the SpeedFace device clock with certified atomic internet time servers (NTP Stratum-1 / TimeAPI / Cloudflare HTTP Date). Ensures punch timestamps are legally accurate, synchronized with government time, and never drift.
             </p>
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
-              <div style="font-size: 0.85rem; color: #334155;">
-                Current PC Time: <strong id="modalPcTimeSummary" class="font-mono">--:--:--</strong>
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 8px; border-top: 1px solid #e0f2fe;">
+              <div style="font-size: 0.82rem; color: #475569;">
+                Target Timezone: <strong id="modalTimezoneDisplay">Asia/Colombo (UTC+05:30)</strong>
               </div>
-              <button type="button" class="btn btn-primary" id="btnExecutePcSync" style="font-weight: 700; display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                Sync Device Clock with PC
+              <button type="button" class="btn btn-primary" id="btnExecuteOnlineSync" style="font-weight: 700; display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                Sync Terminal to Online Atomic Time Now
               </button>
             </div>
           </div>
@@ -8977,14 +9042,223 @@ Loading application logs...
   </div>
 
   <!-- Toast Notification Container -->
+  
+  <!-- Modal: Add / Edit Biometric Terminal -->
+  <div class="modal" id="modalTerminalForm">
+    <div class="modal-backdrop" id="modalTerminalFormBackdrop"></div>
+    <div class="modal-content" style="max-width: 580px;">
+      <div class="modal-header" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #fff;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.3rem;">📱</span>
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #fff;" id="modalTerminalTitle">Add Biometric Terminal</h3>
+            <p style="margin: 2px 0 0; font-size: 0.78rem; color: #94a3b8;">Configure connection parameters for SpeedFace or ZKTeco device</p>
+          </div>
+        </div>
+        <button class="btn-close" id="btnCloseTerminalModal" type="button" style="color: #fff; font-size: 1.5rem;">&times;</button>
+      </div>
+      <form id="formTerminal">
+        <div class="modal-body" style="padding: 20px;">
+          <input type="hidden" id="terminalFormId" value="">
+
+          <div class="form-group" style="margin-bottom: 14px;">
+            <label for="terminalFormName" style="font-weight: 700; margin-bottom: 4px; display: block;">Terminal Name / Label *</label>
+            <input type="text" id="terminalFormName" class="form-control" placeholder="e.g. Main Entrance SpeedFace" required>
+            <small class="form-hint">A descriptive name to distinguish this machine in reports and logs.</small>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-bottom: 14px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="terminalFormIp" style="font-weight: 700; margin-bottom: 4px; display: block;">IP Address *</label>
+              <input type="text" id="terminalFormIp" class="form-control font-mono" placeholder="192.168.10.15" required>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="terminalFormPort" style="font-weight: 700; margin-bottom: 4px; display: block;">TCP Port</label>
+              <input type="number" id="terminalFormPort" class="form-control font-mono" value="4370" required>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="terminalFormModel" style="font-weight: 700; margin-bottom: 4px; display: block;">Device Model</label>
+              <select id="terminalFormModel" class="form-control">
+                <option value="SpeedFace-V5L">SpeedFace-V5L (Facial &amp; RFID)</option>
+                <option value="SpeedFace-V4L">SpeedFace-V4L</option>
+                <option value="ProFace X">ProFace X</option>
+                <option value="SenseFace 7">SenseFace 7</option>
+                <option value="Horus TL1">Horus TL1 / TL2</option>
+                <option value="Generic ZKTeco">Generic ZKTeco Standalone TCP</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label for="terminalFormCommKey" style="font-weight: 700; margin-bottom: 4px; display: block;">Comm Key / Password</label>
+              <input type="text" id="terminalFormCommKey" class="form-control font-mono" value="0">
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label for="terminalFormLocation" style="font-weight: 700; margin-bottom: 4px; display: block;">Location / Physical Placement</label>
+            <input type="text" id="terminalFormLocation" class="form-control" placeholder="e.g. Ground Floor Main Entrance Gate">
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 12px;">
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 0.88rem; cursor: pointer; margin: 0;">
+              <input type="checkbox" id="terminalFormIsEnabled" checked>
+              <span><strong>Enable this terminal</strong> (Active in system)</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 0.88rem; cursor: pointer; margin: 0;">
+              <input type="checkbox" id="terminalFormAutoSync" checked>
+              <span><strong>Include in automated background sync</strong> (Scheduled poll)</span>
+            </label>
+          </div>
+
+          <!-- In-Modal Test Status Badge -->
+          <div id="terminalModalTestResult" style="display: none; padding: 8px 12px; border-radius: 6px; font-size: 0.82rem; margin-top: 10px;"></div>
+        </div>
+        <div class="modal-footer" style="padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border-top: 1px solid #e2e8f0;">
+          <button type="button" class="btn btn-outline" id="btnModalTestTerminal" style="font-size: 0.82rem;">
+            📡 Test Connection
+          </button>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-outline" id="btnCancelTerminalModal">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btnSaveTerminal">
+              <span>Save Terminal</span>
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  
+  <!-- Modal: Copy Employees to Biometric Terminal -->
+  <div class="modal" id="modalPushEmployeesTerminal" style="z-index: 2150;">
+    <div class="modal-backdrop" id="modalPushEmployeesBackdrop"></div>
+    <div class="modal-content" style="max-width: 620px; width: 95%; z-index: 2151;">
+      <div class="modal-header" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #fff; padding: 16px 22px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(56, 189, 248, 0.2); color: #38bdf8; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+            👥
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #fff;">Copy Employees to Biometric Terminal</h3>
+            <p style="margin: 2px 0 0; font-size: 0.78rem; color: #94a3b8;">Push enrolled system employees directly into SpeedFace / ZKTeco device memory</p>
+          </div>
+        </div>
+        <button type="button" class="btn-close" id="btnClosePushEmployeesModal" style="color: #fff; font-size: 1.5rem;">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px;">
+        <!-- Target Terminal Selection -->
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="pushEmpTargetSelect" style="font-weight: 700; font-size: 0.85rem; color: #1e293b; margin-bottom: 6px; display: block;">
+            Select Target Terminal:
+          </label>
+          <select id="pushEmpTargetSelect" class="form-control" style="font-size: 0.9rem; font-weight: 600; height: 38px;">
+            <option value="all">🌐 All Active Terminals (Fleet Broadcast)</option>
+          </select>
+          <div id="pushEmpTargetMeta" style="font-size: 0.8rem; color: #0284c7; font-weight: 600; margin-top: 4px;"></div>
+        </div>
+
+        <!-- Information & Stats Banner -->
+        <div style="background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 14px 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-weight: 700; font-size: 0.88rem; color: #0369a1;">Employees in Local System:</span>
+            <span id="pushEmpCountBadge" class="badge badge-in" style="font-size: 0.85rem; font-weight: 700; padding: 4px 10px;">Loading...</span>
+          </div>
+          <p style="margin: 0; font-size: 0.82rem; color: #075985; line-height: 1.45;">
+            Employees will be registered in the biometric terminal hardware with their User ID, full name, role (Admin/User), and RFID card number. Existing user accounts on the device will be updated with matching system records.
+          </p>
+        </div>
+
+        <!-- Progress / Status Box -->
+        <div id="pushEmpStatusBox" style="display: none; padding: 12px 14px; border-radius: 8px; font-size: 0.85rem;"></div>
+      </div>
+
+      <div class="modal-footer" style="padding: 12px 24px; display: flex; justify-content: flex-end; gap: 10px; background: #f8fafc; border-top: 1px solid #e2e8f0;">
+        <button type="button" class="btn btn-outline" id="btnCancelPushEmployees">Cancel</button>
+        <button type="button" class="btn btn-primary" id="btnExecutePushEmployees" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 700; padding: 8px 18px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          <span>Copy Employees Now</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Erase Terminal Records / Attendance Logs -->
+  <div class="modal" id="modalEraseTerminalLogs" style="z-index: 2200;">
+    <div class="modal-backdrop" id="modalEraseLogsBackdrop"></div>
+    <div class="modal-content" style="max-width: 620px; width: 95%; z-index: 2201;">
+      <div class="modal-header" style="background: linear-gradient(135deg, #7f1d1d 0%, #450a0a 100%); color: #fff; padding: 16px 22px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 38px; height: 38px; border-radius: 8px; background: rgba(239, 68, 68, 0.25); color: #fca5a5; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+            🧹
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #fff;">Erase Terminal Hardware Records</h3>
+            <p style="margin: 2px 0 0; font-size: 0.78rem; color: #fca5a5;">Purge stored attendance punch buffer on physical biometric device memory</p>
+          </div>
+        </div>
+        <button type="button" class="btn-close" id="btnCloseEraseLogsModal" style="color: #fff; font-size: 1.5rem;">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 20px 24px; display: flex; flex-direction: column; gap: 16px;">
+        <!-- Target Terminal Selection -->
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="eraseLogsTargetSelect" style="font-weight: 700; font-size: 0.85rem; color: #1e293b; margin-bottom: 6px; display: block;">
+            Select Target Terminal:
+          </label>
+          <select id="eraseLogsTargetSelect" class="form-control" style="font-size: 0.9rem; font-weight: 600; height: 38px;">
+            <option value="all">🌐 All Active Terminals (Fleet Wipe)</option>
+          </select>
+          <div id="eraseLogsTargetMeta" style="font-size: 0.8rem; color: #b91c1c; font-weight: 600; margin-top: 4px;"></div>
+        </div>
+
+        <!-- Warning Callout Box -->
+        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 14px 16px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <span style="font-size: 1.2rem;">⚠️</span>
+            <strong style="color: #991b1b; font-size: 0.9rem;">Caution: Irreversible Hardware Memory Wipe</strong>
+          </div>
+          <p style="margin: 0 0 10px 0; font-size: 0.82rem; color: #7f1d1d; line-height: 1.45;">
+            This operation sends the TCP protocol command <code>CMD_CLEAR_ATTLOG</code> to the selected device hardware. It will permanently clear all clock-in and clock-out attendance records currently stored in the terminal's internal memory buffer.
+          </p>
+          <div style="font-size: 0.8rem; color: #15803d; font-weight: 600; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 8px 12px; border-radius: 6px;">
+            🛡️ <strong>Database Safety:</strong> Attendance records already synchronized and stored in this server's attendance database will <u>NOT</u> be deleted or affected.
+          </div>
+        </div>
+
+        <!-- Safety Confirmation Checkbox -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; margin: 0; font-size: 0.86rem; color: #0f172a; font-weight: 600;">
+            <input type="checkbox" id="chkConfirmEraseTerminalLogs" style="width: 16px; height: 16px; cursor: pointer;">
+            <span>I confirm I want to wipe hardware attendance records from the physical device memory</span>
+          </label>
+        </div>
+
+        <!-- Progress / Status Box -->
+        <div id="eraseLogsStatusBox" style="display: none; padding: 12px 14px; border-radius: 8px; font-size: 0.85rem;"></div>
+      </div>
+
+      <div class="modal-footer" style="padding: 12px 24px; display: flex; justify-content: flex-end; gap: 10px; background: #f8fafc; border-top: 1px solid #e2e8f0;">
+        <button type="button" class="btn btn-outline" id="btnCancelEraseLogs">Cancel</button>
+        <button type="button" class="btn btn-danger" id="btnExecuteEraseLogs" disabled style="display: inline-flex; align-items: center; gap: 6px; font-weight: 700; padding: 8px 18px; background: #dc2626; border-color: #dc2626; opacity: 0.5;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          <span>Wipe Terminal Records Now</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-container" id="toastContainer"></div>
 
 <script src="js/cloudAdapter.js?v=2.9.8"></script>
-  <script src="js/app.js?v=3.4.0"></script>
+  <script src="js/app.js?v=3.5.6"></script>
 
   <!-- Modal: Cloud Disaster Recovery & Database Restore -->
-  <div class="modal-backdrop" id="modalCloudRestore" style="display: none;">
-    <div class="modal" style="max-width: 600px;">
+  <div class="modal" id="modalCloudRestore">
+    <div class="modal-backdrop" id="modalCloudRestoreBackdrop"></div>
+    <div class="modal-content" style="max-width: 600px;">
       <div class="modal-header" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff;">
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="font-size: 1.3rem;">🛡️</span>
@@ -8993,7 +9267,7 @@ Loading application logs...
             <p style="margin: 2px 0 0; font-size: 0.78rem; color: #e0f2fe;">Restore system metadata and attendance logs from your cloud partition</p>
           </div>
         </div>
-        <button class="modal-close" id="btnCloseCloudRestoreModal" type="button" style="color: #fff;">&times;</button>
+        <button class="btn-close" id="btnCloseCloudRestoreModal" type="button" style="color: #fff; font-size: 1.5rem;">&times;</button>
       </div>
       <div class="modal-body" style="padding: 20px;">
         <div style="margin-bottom: 16px; padding: 12px 16px; border-radius: 8px; background: #f0f9ff; border: 1px solid #bae6fd; font-size: 0.85rem; color: #0369a1;">

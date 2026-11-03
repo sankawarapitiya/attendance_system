@@ -126,8 +126,15 @@ class SpeedFaceClient {
             cbClose && cbClose('tcp');
           });
 
+          socket.removeAllListeners('timeout');
           if (this.timeout) {
             socket.setTimeout(this.timeout);
+            socket.once('timeout', () => {
+              const err = new Error(`Connection to ${this.ip}:${this.port} timed out after ${this.timeout}ms`);
+              err.code = 'ETIMEDOUT';
+              try { socket.destroy(); } catch (e) {}
+              if (!hasResolved) reject(err);
+            });
           }
 
           const connectOpts = { port: this.port, host: this.ip };

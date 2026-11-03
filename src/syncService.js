@@ -1,6 +1,17 @@
 const os = require('os');
+const config = require('./config');
 const { SpeedFaceClient } = require('./zktProtocol');
-const { insertAttendanceBatch, upsertEmployees, dbRun, dbGet } = require('./db');
+const { 
+  insertAttendanceBatch, 
+  upsertEmployees, 
+  dbRun, 
+  dbGet,
+  dbAll,
+  getAllTerminals,
+  getTerminalById,
+  getTerminalByIp,
+  updateTerminalMetrics
+} = require('./db');
 const { broadcastLivePunch, getConnectedAdmsDevices } = require('./admsServer');
 const { firebaseService } = require('./firebaseService');
 
@@ -86,6 +97,124 @@ function notifyWs(type, payload) {
  * Actively checks whether the SpeedFace device is online & reachable.
  * Updates lastSyncStatus.deviceOnline and broadcasts DEVICE_STATUS over WebSocket.
  */
+/**
+ * Checks health of a single terminal and updates its database record.
+ */
+async function checkTerminalHealth(termOrId, localAddress = null) {
+  let terminal;
+  if (typeof termOrId === 'object' && termOrId !== null) {
+    terminal = termOrId;
+  } else {
+    terminal = await getTerminalById(termOrId);
+  }
+  if (!terminal) return { success: false, error: 'Terminal not found' };
+
+  const deviceIp = terminal.ip;
+  const devicePort = terminal.port || 4370;
+
+  try {
+    if (!localAddress) {
+      try {
+        const netSetting = await dbGet(`SELECT value FROM settings WHERE key = 'network_interface_ip'`);
+        if (netSetting && netSetting.value) localAddress = netSetting.value;
+      } catch (e) {}
+    }
+    localAddress = await getOrDetectLocalAddress(localAddress, deviceIp);
+    const client = new SpeedFaceClient(deviceIp, devicePort, 4000, localAddress);
+    const connInfo = await client.testConnection();
+
+    if (connInfo && connInfo.success) {
+      const now = new Date().toISOString();
+      await updateTerminalMetrics(terminal.id, {
+        status: 'ONLINE',
+        last_seen: now,
+        user_count: connInfo.userCounts || terminal.user_count,
+        log_count: connInfo.logCounts || terminal.log_count,
+        serial_number: connInfo.serialNumber || terminal.serial_number,
+        firmware: connInfo.firmware || terminal.firmware
+      });
+
+      notifyWs('TERMINAL_STATUS', {
+        terminalId: terminal.id,
+        name: terminal.name,
+        ip: deviceIp,
+        port: devicePort,
+        online: true,
+        deviceInfo: connInfo
+      });
+
+      return { success: true, online: true, terminalId: terminal.id, ...connInfo };
+    } else {
+      throw new Error(connInfo ? connInfo.error : 'Connection test failed');
+    }
+  } catch (err) {
+    // Check ADMS push
+    const admsDevices = getConnectedAdmsDevices();
+    const matchedAdms = admsDevices.find(d => d.ip === deviceIp || d.sn === terminal.serial_number);
+    if (matchedAdms) {
+      const now = new Date().toISOString();
+      await updateTerminalMetrics(terminal.id, {
+        status: 'ONLINE',
+        last_seen: now
+      });
+      notifyWs('TERMINAL_STATUS', {
+        terminalId: terminal.id,
+        name: terminal.name,
+        ip: deviceIp,
+        port: devicePort,
+        online: true,
+        source: 'ADMS_PUSH',
+        matchedAdms
+      });
+      return { success: true, online: true, source: 'ADMS_PUSH', terminalId: terminal.id };
+    }
+
+    await updateTerminalMetrics(terminal.id, { status: 'OFFLINE' });
+    notifyWs('TERMINAL_STATUS', {
+      terminalId: terminal.id,
+      name: terminal.name,
+      ip: deviceIp,
+      port: devicePort,
+      online: false,
+      error: err.message
+    });
+    return { success: false, online: false, terminalId: terminal.id, error: err.message };
+  }
+}
+
+/**
+ * Checks health of all enabled terminals in fleet.
+ */
+async function checkAllTerminalsHealth() {
+  try {
+    const terminals = await getAllTerminals();
+    const enabledTerms = terminals.filter(t => t.is_enabled);
+    const results = [];
+
+    for (const t of enabledTerms) {
+      const res = await checkTerminalHealth(t);
+      results.push(res);
+    }
+
+    const updatedTerminals = await getAllTerminals();
+    const total = updatedTerminals.length;
+    const online = updatedTerminals.filter(t => t.status === 'ONLINE').length;
+    const offline = total - online;
+
+    notifyWs('FLEET_STATUS', {
+      total,
+      online,
+      offline,
+      terminals: updatedTerminals
+    });
+
+    return { total, online, offline, terminals: updatedTerminals };
+  } catch (err) {
+    console.warn('[SYNC] Fleet health check error:', err.message);
+    return { error: err.message };
+  }
+}
+
 async function checkDeviceHealth(deviceIp = '192.168.10.15', devicePort = 4370, localAddress = null) {
   if (isSyncing || isHealthChecking) {
     return {
@@ -171,7 +300,238 @@ async function checkDeviceHealth(deviceIp = '192.168.10.15', devicePort = 4370, 
 /**
  * Performs a full or incremental sync from the SpeedFace device.
  */
-async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, localAddress = null) {
+/**
+ * Synchronize attendance and users from a single terminal by ID.
+ */
+async function syncTerminal(termId) {
+  const terminal = await getTerminalById(termId);
+  if (!terminal) throw new Error(`Terminal ID ${termId} not found`);
+  if (!terminal.is_enabled) throw new Error(`Terminal "${terminal.name}" is currently disabled`);
+  return syncFromDevice(terminal.ip, terminal.port, null, terminal.id, terminal.name);
+}
+
+/**
+ * Synchronize all enabled terminals in the fleet where auto_sync = 1.
+ */
+async function syncAllTerminals() {
+  if (isSyncing) return { success: false, message: 'A synchronization is already in progress' };
+  const terminals = await getAllTerminals();
+  const activeTerms = terminals.filter(t => t.is_enabled && t.auto_sync);
+  if (activeTerms.length === 0) {
+    return { success: true, message: 'No enabled terminals configured for auto-sync', syncedCount: 0 };
+  }
+
+  const results = [];
+  for (const term of activeTerms) {
+    if (stopSyncRequested) break;
+    try {
+      const r = await syncFromDevice(term.ip, term.port, null, term.id, term.name);
+      results.push({ terminalId: term.id, name: term.name, ...r });
+    } catch (err) {
+      results.push({ terminalId: term.id, name: term.name, success: false, error: err.message });
+    }
+  }
+
+  return { success: true, results };
+}
+
+
+/**
+ * Pushes active employees from database to a biometric terminal (or all terminals).
+ * @param {string|number} terminalId - specific terminal ID or 'all'
+ * @param {Array<string>} userIds - optional array of specific user_ids to push
+ * @param {string} overrideLocalAddress - optional local network adapter IP
+ */
+async function pushEmployeesToTerminal(terminalId, userIds = null, overrideLocalAddress = null) {
+  if (config.isCloudDeploy) {
+    return {
+      success: false,
+      cloudMode: true,
+      message: 'Direct hardware terminal push is disabled in Cloud Deploy mode. Attendance and employee records are managed via Google Cloud Firestore.'
+    };
+  }
+
+  // 1. Fetch active employees from local database
+  let employeesQuery = "SELECT user_id, name, role, card_no, employee_service_id FROM employees WHERE (name IS NOT NULL AND name != '') OR (user_id IS NOT NULL)";
+  const params = [];
+  if (Array.isArray(userIds) && userIds.length > 0) {
+    employeesQuery += " AND user_id IN (" + userIds.map(() => '?').join(',') + ")";
+    params.push(...userIds);
+  } else {
+    employeesQuery += " AND (is_active = 1 OR is_active IS NULL)";
+  }
+  employeesQuery += " ORDER BY user_id ASC";
+
+  const employees = await dbAll(employeesQuery, params);
+  if (!employees || employees.length === 0) {
+    return {
+      success: true,
+      count: 0,
+      total: 0,
+      message: 'No active employees found to copy to terminal.'
+    };
+  }
+
+  // Map employees for SpeedFace terminal registration
+  const formattedUsers = employees.map(e => ({
+    user_id: String(e.user_id).trim(),
+    name: (e.name || ('User ' + e.user_id)).trim(),
+    role: (e.role === 'Admin' || e.role === '14' || e.role === 14) ? 14 : 0,
+    card_no: e.card_no ? (parseInt(e.card_no, 10) || 0) : 0
+  }));
+
+  // If terminalId is 'all', sync across all enabled terminals in fleet
+  if (terminalId === 'all') {
+    const terminals = await getAllTerminals();
+    const activeTerms = terminals.filter(t => t.is_enabled);
+    if (activeTerms.length === 0) {
+      return { success: false, error: 'No enabled biometric terminals found in fleet.' };
+    }
+
+    const results = [];
+    for (const term of activeTerms) {
+      try {
+        const localAddress = await getOrDetectLocalAddress(overrideLocalAddress, term.ip);
+        const client = new SpeedFaceClient(term.ip, term.port || 4370, 6000, localAddress);
+        const res = await client.setUsersBatch(formattedUsers);
+
+        await updateTerminalMetrics(term.id, {
+          user_count: formattedUsers.length,
+          last_seen: new Date().toISOString()
+        });
+
+        await dbRun(
+          "INSERT INTO sync_logs (sync_type, status, records_synced, total_records, message) VALUES (?, ?, ?, ?, ?)",
+          ['EMPLOYEE_PUSH', 'SUCCESS', res.count, formattedUsers.length, 'Copied ' + res.count + ' employees to terminal "' + term.name + '" (' + term.ip + ')']
+        );
+
+        results.push({ id: term.id, name: term.name, ip: term.ip, success: true, count: res.count });
+      } catch (tErr) {
+        results.push({ id: term.id, name: term.name, ip: term.ip, success: false, error: tErr.message });
+      }
+    }
+
+    const successful = results.filter(r => r.success);
+    return {
+      success: successful.length > 0,
+      totalEmployees: formattedUsers.length,
+      terminalsUpdated: successful.length,
+      totalTerminals: activeTerms.length,
+      message: 'Copied ' + formattedUsers.length + ' employee(s) to ' + successful.length + '/' + activeTerms.length + ' active terminal(s)',
+      results
+    };
+  }
+
+  // Single terminal target
+  const terminal = await getTerminalById(terminalId);
+  if (!terminal) throw new Error('Terminal ID ' + terminalId + ' not found');
+
+  const localAddress = await getOrDetectLocalAddress(overrideLocalAddress, terminal.ip);
+  const client = new SpeedFaceClient(terminal.ip, terminal.port || 4370, 6000, localAddress);
+  const res = await client.setUsersBatch(formattedUsers);
+
+  await updateTerminalMetrics(terminal.id, {
+    user_count: formattedUsers.length,
+    last_seen: new Date().toISOString()
+  });
+
+  await dbRun(
+    "INSERT INTO sync_logs (sync_type, status, records_synced, total_records, message) VALUES (?, ?, ?, ?, ?)",
+    ['EMPLOYEE_PUSH', 'SUCCESS', res.count, formattedUsers.length, 'Copied ' + res.count + ' employees to terminal "' + terminal.name + '" (' + terminal.ip + ')']
+  );
+
+  return {
+    success: true,
+    terminalId: terminal.id,
+    terminalName: terminal.name,
+    count: res.count,
+    total: formattedUsers.length,
+    message: 'Successfully copied ' + res.count + ' employee(s) to ' + terminal.name + '!'
+  };
+}
+
+/**
+ * Clears attendance punch logs stored in the physical terminal hardware buffer.
+ * @param {string|number} terminalId - specific terminal ID or 'all'
+ * @param {string} overrideLocalAddress - optional local network adapter IP
+ */
+async function clearTerminalLogs(terminalId, overrideLocalAddress = null) {
+  if (config.isCloudDeploy) {
+    return {
+      success: false,
+      cloudMode: true,
+      message: 'Direct hardware terminal clearing is disabled in Cloud Deploy mode.'
+    };
+  }
+
+  // If terminalId is 'all', clear across all active terminals
+  if (terminalId === 'all') {
+    const terminals = await getAllTerminals();
+    const activeTerms = terminals.filter(t => t.is_enabled);
+    if (activeTerms.length === 0) {
+      return { success: false, error: 'No enabled biometric terminals found in fleet.' };
+    }
+
+    const results = [];
+    for (const term of activeTerms) {
+      try {
+        const localAddress = await getOrDetectLocalAddress(overrideLocalAddress, term.ip);
+        const client = new SpeedFaceClient(term.ip, term.port || 4370, 6000, localAddress);
+        await client.clearAttendanceLogs();
+
+        await updateTerminalMetrics(term.id, {
+          log_count: 0,
+          last_seen: new Date().toISOString()
+        });
+
+        await dbRun(
+          "INSERT INTO sync_logs (sync_type, status, records_synced, total_records, message) VALUES (?, ?, ?, ?, ?)",
+          ['TERMINAL_PURGE', 'SUCCESS', 0, 0, 'Erased hardware punch logs on terminal "' + term.name + '" (' + term.ip + ')']
+        );
+
+        results.push({ id: term.id, name: term.name, ip: term.ip, success: true });
+      } catch (tErr) {
+        results.push({ id: term.id, name: term.name, ip: term.ip, success: false, error: tErr.message });
+      }
+    }
+
+    const successful = results.filter(r => r.success);
+    return {
+      success: successful.length > 0,
+      terminalsCleared: successful.length,
+      totalTerminals: activeTerms.length,
+      message: 'Erased attendance records on ' + successful.length + '/' + activeTerms.length + ' terminal(s)',
+      results
+    };
+  }
+
+  // Single terminal target
+  const terminal = await getTerminalById(terminalId);
+  if (!terminal) throw new Error('Terminal ID ' + terminalId + ' not found');
+
+  const localAddress = await getOrDetectLocalAddress(overrideLocalAddress, terminal.ip);
+  const client = new SpeedFaceClient(terminal.ip, terminal.port || 4370, 6000, localAddress);
+  await client.clearAttendanceLogs();
+
+  await updateTerminalMetrics(terminal.id, {
+    log_count: 0,
+    last_seen: new Date().toISOString()
+  });
+
+  await dbRun(
+    "INSERT INTO sync_logs (sync_type, status, records_synced, total_records, message) VALUES (?, ?, ?, ?, ?)",
+    ['TERMINAL_PURGE', 'SUCCESS', 0, 0, 'Erased hardware punch logs on terminal "' + terminal.name + '" (' + terminal.ip + ')']
+  );
+
+  return {
+    success: true,
+    terminalId: terminal.id,
+    terminalName: terminal.name,
+    message: 'Attendance records successfully erased on "' + terminal.name + '". Device punch buffer reset to 0.'
+  };
+}
+
+async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, localAddress = null, terminalId = null, terminalName = null) {
   if (isSyncing) {
     return { success: false, message: 'A synchronization is already in progress' };
   }
@@ -260,6 +620,26 @@ async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, loc
     lastSyncStatus.status = 'SUCCESS';
     lastSyncStatus.totalSynced = insertResult.inserted;
     lastSyncStatus.error = null;
+
+    // Update terminal metrics in database
+    let matchedTermId = terminalId;
+    if (!matchedTermId) {
+      try {
+        const mTerm = await getTerminalByIp(deviceIp);
+        if (mTerm) matchedTermId = mTerm.id;
+      } catch (e) {}
+    }
+    if (matchedTermId) {
+      try {
+        await updateTerminalMetrics(matchedTermId, {
+          status: 'ONLINE',
+          last_sync: lastSyncStatus.lastSyncTime,
+          last_seen: lastSyncStatus.lastSyncTime,
+          log_count: records.length,
+          user_count: users ? users.length : undefined
+        });
+      } catch (e) {}
+    }
 
     console.log(`[SYNC] Done! Total logs on device: ${records.length}. New records inserted: ${insertResult.inserted}. Took ${duration}s.`);
 
@@ -412,22 +792,21 @@ function startAutoSync(intervalSeconds = 60, getSettingsFn) {
     checkDeviceHealth(ip, port, localAddress);
   });
 
-  // 2. Health check / fast watcher every 5 seconds
+  // 2. Health check / fast watcher every 10 seconds for all terminals
   healthCheckTimer = setInterval(async () => {
     try {
-      const { ip, port, localAddress } = await resolveTarget();
-      await checkDeviceHealth(ip, port, localAddress);
+      await checkAllTerminalsHealth();
     } catch (err) {}
-  }, 5000);
+  }, 10000);
 
-  // 3. Periodic full sync
+  // 3. Periodic full sync across all active terminals
   syncTimer = setInterval(async () => {
     try {
-      const { ip, port, localAddress, enabled } = await resolveTarget();
+      const { enabled } = await resolveTarget();
       if (!enabled) return;
-      await syncFromDevice(ip, port, localAddress);
+      await syncAllTerminals();
     } catch (err) {
-      console.warn('[SYNC] Scheduled sync cycle error:', err.message);
+      console.warn('[SYNC] Scheduled fleet sync cycle error:', err.message);
     }
   }, ms);
 
@@ -505,6 +884,12 @@ module.exports = {
   syncFromDevice,
   cancelDeviceSync,
   checkDeviceHealth,
+  checkTerminalHealth,
+  checkAllTerminalsHealth,
+  syncTerminal,
+  syncAllTerminals,
+  pushEmployeesToTerminal,
+  clearTerminalLogs,
   startAutoSync,
   stopAutoSync,
   getSyncStatus,

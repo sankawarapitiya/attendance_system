@@ -37,9 +37,28 @@ const {
   getLeaveRequestStats,
   updateLeaveRequestStatus,
   deleteLeaveRequest,
-  getCompensatoryEligibleDates
+  getCompensatoryEligibleDates,
+  getAllTerminals,
+  getTerminalById,
+  getTerminalByIp,
+  createTerminal,
+  updateTerminal,
+  deleteTerminal
 } = require('./db');
-const { syncFromDevice, cancelDeviceSync, checkDeviceHealth, getSyncStatus, startAutoSync, stopAutoSync } = require('./syncService');
+const { 
+  syncFromDevice, 
+  cancelDeviceSync, 
+  checkDeviceHealth, 
+  checkTerminalHealth,
+  checkAllTerminalsHealth,
+  syncTerminal,
+  syncAllTerminals,
+  pushEmployeesToTerminal,
+  clearTerminalLogs: purgeTerminalLogsHardware,
+  getSyncStatus, 
+  startAutoSync, 
+  stopAutoSync 
+} = require('./syncService');
 const { SpeedFaceClient } = require('./zktProtocol');
 const { firebaseService } = require('./firebaseService');
 const timeService = require('./timeService');
@@ -1052,6 +1071,277 @@ router.get('/user-login/timesheet', async (req, res) => {
   }
 });
 
+// ==========================================
+// MULTI-TERMINAL FLEET MANAGEMENT & STATUS MONITOR ROUTES
+// ==========================================
+
+// GET /api/terminals - List all terminals with live status and fleet summary
+router.get('/terminals', async (req, res) => {
+  try {
+    const terminals = await getAllTerminals();
+    const total = terminals.length;
+    const online = terminals.filter(t => t.status === 'ONLINE').length;
+    const offline = total - online;
+    const autoSyncRow = await dbGet(`SELECT value FROM settings WHERE key = 'auto_sync_enabled'`);
+    const intervalRow = await dbGet(`SELECT value FROM settings WHERE key = 'auto_sync_interval'`);
+
+    res.json({
+      success: true,
+      count: total,
+      kpi: {
+        total,
+        online,
+        offline,
+        autoSyncEnabled: autoSyncRow ? autoSyncRow.value !== 'false' : true,
+        autoSyncInterval: intervalRow ? parseInt(intervalRow.value, 10) : 60
+      },
+      terminals
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/terminals - Register a new biometric terminal
+router.post('/terminals', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.ip) {
+      return res.status(400).json({ success: false, error: 'Terminal IP address is required' });
+    }
+    const newTerm = await createTerminal(body);
+    // Optionally test connection asynchronously
+    checkTerminalHealth(newTerm).catch(() => {});
+    res.json({ success: true, message: `Terminal "${newTerm.name}" registered successfully!`, terminal: newTerm });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/terminals/:id - Get details of a single terminal
+router.get('/terminals/:id', async (req, res) => {
+  try {
+    const terminal = await getTerminalById(req.params.id);
+    if (!terminal) return res.status(404).json({ success: false, error: 'Terminal not found' });
+    res.json({ success: true, terminal });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /api/terminals/:id - Update terminal configuration
+router.put('/terminals/:id', async (req, res) => {
+  try {
+    const updated = await updateTerminal(req.params.id, req.body || {});
+    // Trigger health test
+    checkTerminalHealth(updated).catch(() => {});
+    res.json({ success: true, message: `Terminal "${updated.name}" updated successfully!`, terminal: updated });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/terminals/:id - Remove a terminal
+router.delete('/terminals/:id', async (req, res) => {
+  try {
+    await deleteTerminal(req.params.id);
+    res.json({ success: true, message: 'Terminal removed successfully' });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/terminals/:id/test - Ping / test connection to a single terminal
+router.post('/terminals/:id/test', async (req, res) => {
+  try {
+    const terminal = await getTerminalById(req.params.id);
+    if (!terminal) return res.status(404).json({ success: false, error: 'Terminal not found' });
+    const result = await checkTerminalHealth(terminal);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/terminals/:id/sync - Sync attendance from a specific terminal
+router.post('/terminals/:id/sync', async (req, res) => {
+  try {
+    const terminal = await getTerminalById(req.params.id);
+    if (!terminal) return res.status(404).json({ success: false, error: 'Terminal not found' });
+    const result = await syncTerminal(terminal.id);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/terminals/:id/time-sync - Sync terminal time (supports individual or 'all', server/cloud/manual/online)
+router.post('/terminals/:id/time-sync', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const body = req.body || {};
+    const mode = body.mode || 'server'; // 'server' | 'cloud' | 'manual' | 'online'
+    const customTime = body.customTime || body.time || null;
+    const timeZoneSetting = await dbGet(`SELECT value FROM settings WHERE key = 'time_zone'`);
+    const timeZone = body.timeZone || (timeZoneSetting ? timeZoneSetting.value : 'Asia/Colombo');
+    const ifaceIpSetting = await dbGet(`SELECT value FROM settings WHERE key = 'network_interface_ip'`);
+    const localAddress = body.interfaceIp || (ifaceIpSetting ? ifaceIpSetting.value : null);
+
+    if (id === 'all') {
+      const terminals = await getAllTerminals();
+      const activeTerminals = terminals.filter(t => t.is_enabled);
+      const results = [];
+      for (const term of activeTerminals) {
+        try {
+          const syncRes = await timeService.syncDeviceTime({
+            mode,
+            customTime,
+            ip: term.ip,
+            port: term.port || 4370,
+            localAddress,
+            timeZone
+          });
+          results.push({ id: term.id, name: term.name, success: true, ...syncRes });
+        } catch (tErr) {
+          results.push({ id: term.id, name: term.name, success: false, error: tErr.message });
+        }
+      }
+      return res.json({
+        success: true,
+        message: `Synchronized clocks across ${results.filter(r => r.success).length}/${activeTerminals.length} terminals`,
+        results
+      });
+    }
+
+    const terminal = await getTerminalById(id);
+    if (!terminal) return res.status(404).json({ success: false, error: 'Terminal not found' });
+
+    const syncRes = await timeService.syncDeviceTime({
+      mode,
+      customTime,
+      ip: terminal.ip,
+      port: terminal.port || 4370,
+      localAddress,
+      timeZone
+    });
+
+    res.json(syncRes);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/terminals/test-all - Ping all active terminals
+router.post('/terminals/test-all', async (req, res) => {
+  try {
+    const result = await checkAllTerminalsHealth();
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/terminals/sync-all - Sync all active terminals
+router.post('/terminals/sync-all', async (req, res) => {
+  try {
+    const result = await syncAllTerminals();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/terminals/:id/push-employees - Push/copy employees to a specific terminal or all terminals
+router.post('/terminals/:id/push-employees', async (req, res) => {
+  try {
+    if (config.isCloudDeploy) {
+      return res.json({
+        success: false,
+        cloudMode: true,
+        message: 'Direct terminal hardware push is disabled in Cloud Deploy mode. Attendance and employee records are managed via Google Cloud Firestore.'
+      });
+    }
+
+    const { id } = req.params;
+    const { userIds, interfaceIp } = req.body || {};
+    const ifaceIpSetting = await dbGet("SELECT value FROM settings WHERE key = 'network_interface_ip'");
+    const localAddress = interfaceIp || (ifaceIpSetting ? ifaceIpSetting.value : null);
+
+    const result = await pushEmployeesToTerminal(id, userIds, localAddress);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/terminals/push-employees-all - Push employees across all enabled terminals
+router.post('/terminals/push-employees-all', async (req, res) => {
+  try {
+    if (config.isCloudDeploy) {
+      return res.json({
+        success: false,
+        cloudMode: true,
+        message: 'Direct terminal hardware push is disabled in Cloud Deploy mode.'
+      });
+    }
+
+    const { userIds, interfaceIp } = req.body || {};
+    const ifaceIpSetting = await dbGet("SELECT value FROM settings WHERE key = 'network_interface_ip'");
+    const localAddress = interfaceIp || (ifaceIpSetting ? ifaceIpSetting.value : null);
+
+    const result = await pushEmployeesToTerminal('all', userIds, localAddress);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/terminals/:id/clear-logs - Erase attendance punch buffer on terminal hardware
+router.post('/terminals/:id/clear-logs', async (req, res) => {
+  try {
+    if (config.isCloudDeploy) {
+      return res.json({
+        success: false,
+        cloudMode: true,
+        message: 'Direct terminal hardware clearing is disabled in Cloud Deploy mode.'
+      });
+    }
+
+    const { id } = req.params;
+    const { interfaceIp } = req.body || {};
+    const ifaceIpSetting = await dbGet("SELECT value FROM settings WHERE key = 'network_interface_ip'");
+    const localAddress = interfaceIp || (ifaceIpSetting ? ifaceIpSetting.value : null);
+
+    const result = await purgeTerminalLogsHardware(id, localAddress);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/terminals/clear-logs-all - Erase attendance punch buffer across all active terminals
+router.post('/terminals/clear-logs-all', async (req, res) => {
+  try {
+    if (config.isCloudDeploy) {
+      return res.json({
+        success: false,
+        cloudMode: true,
+        message: 'Direct terminal hardware clearing is disabled in Cloud Deploy mode.'
+      });
+    }
+
+    const { interfaceIp } = req.body || {};
+    const ifaceIpSetting = await dbGet("SELECT value FROM settings WHERE key = 'network_interface_ip'");
+    const localAddress = interfaceIp || (ifaceIpSetting ? ifaceIpSetting.value : null);
+
+    const result = await purgeTerminalLogsHardware('all', localAddress);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
 // 4. Trigger manual device sync
 router.post('/device/sync', async (req, res) => {
   try {
@@ -1167,12 +1457,25 @@ router.get('/device/time-status', async (req, res) => {
         success: true,
         cloudMode: true,
         deviceTime: nowIso,
-        pcTime: nowIso,
-        onlineTime: nowIso,
+        serverTime: { formatted: nowIso, iso: new Date().toISOString() },
+        cloudTime: { formatted: nowIso, iso: new Date().toISOString() },
+        pcTime: { formatted: nowIso, iso: new Date().toISOString() },
+        onlineTime: { formatted: nowIso, iso: new Date().toISOString() },
         driftSeconds: 0,
         inSync: true,
         message: 'Cloud Deploy Mode: Terminal clock managed by Edge Server.'
       });
+    }
+
+    let ip = req.query.ip;
+    let port = req.query.port ? parseInt(req.query.port, 10) : null;
+
+    if (req.query.terminalId && req.query.terminalId !== 'all') {
+      const term = await getTerminalById(req.query.terminalId);
+      if (term) {
+        ip = term.ip;
+        port = term.port || 4370;
+      }
     }
 
     const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
@@ -1180,8 +1483,8 @@ router.get('/device/time-status', async (req, res) => {
     const ifaceIpSetting = await dbGet(`SELECT value FROM settings WHERE key = 'network_interface_ip'`);
     const timeZoneSetting = await dbGet(`SELECT value FROM settings WHERE key = 'time_zone'`);
 
-    const ip = req.query.ip || (ipSetting ? ipSetting.value : '192.168.10.15');
-    const port = parseInt(req.query.port || (portSetting ? portSetting.value : 4370), 10);
+    if (!ip) ip = ipSetting ? ipSetting.value : '192.168.10.15';
+    if (!port) port = parseInt(portSetting ? portSetting.value : 4370, 10);
     const localAddress = req.query.interfaceIp || (ifaceIpSetting ? ifaceIpSetting.value : null);
     const timeZone = req.query.timeZone || (timeZoneSetting ? timeZoneSetting.value : 'Asia/Colombo');
 
@@ -1204,7 +1507,7 @@ router.get('/time/online', async (req, res) => {
   }
 });
 
-// 6c. Synchronize device clock (Supports 'online', 'manual', and 'pc' modes)
+// 6c. Synchronize device clock (Supports 'server', 'cloud', 'manual', and 'online' modes)
 router.post('/device/sync-time', async (req, res) => {
   try {
     if (config.isCloudDeploy) {
@@ -1216,17 +1519,57 @@ router.post('/device/sync-time', async (req, res) => {
     }
 
     const body = req.body || {};
-    const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
-    const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
+    const mode = body.mode || 'server'; // 'server' | 'cloud' | 'manual' | 'online'
+    const customTime = body.customTime || body.time || null;
+
     const ifaceIpSetting = await dbGet(`SELECT value FROM settings WHERE key = 'network_interface_ip'`);
     const timeZoneSetting = await dbGet(`SELECT value FROM settings WHERE key = 'time_zone'`);
-
-    const ip = body.ip || (ipSetting ? ipSetting.value : '192.168.10.15');
-    const port = parseInt(body.port || (portSetting ? portSetting.value : 4370), 10);
     const localAddress = body.interfaceIp || (ifaceIpSetting ? ifaceIpSetting.value : null);
     const timeZone = body.timeZone || (timeZoneSetting ? timeZoneSetting.value : 'Asia/Colombo');
-    const mode = body.mode || 'online'; // 'online' | 'manual' | 'pc'
-    const customTime = body.customTime || body.time || null;
+
+    // Multi-terminal support: if terminalId === 'all', sync all enabled terminals
+    if (body.terminalId === 'all') {
+      const terminals = await getAllTerminals();
+      const activeTerminals = terminals.filter(t => t.is_enabled);
+      const results = [];
+      for (const term of activeTerminals) {
+        try {
+          const syncRes = await timeService.syncDeviceTime({
+            mode,
+            customTime,
+            ip: term.ip,
+            port: term.port || 4370,
+            localAddress,
+            timeZone
+          });
+          results.push({ id: term.id, name: term.name, success: true, ...syncRes });
+        } catch (tErr) {
+          results.push({ id: term.id, name: term.name, success: false, error: tErr.message });
+        }
+      }
+      return res.json({
+        success: true,
+        message: `Synchronized clocks across ${results.filter(r => r.success).length}/${activeTerminals.length} terminals`,
+        results
+      });
+    }
+
+    let ip = body.ip;
+    let port = body.port ? parseInt(body.port, 10) : null;
+
+    if (body.terminalId) {
+      const term = await getTerminalById(body.terminalId);
+      if (term) {
+        ip = term.ip;
+        port = term.port || 4370;
+      }
+    }
+
+    const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
+    const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
+
+    if (!ip) ip = ipSetting ? ipSetting.value : '192.168.10.15';
+    if (!port) port = parseInt(portSetting ? portSetting.value : 4370, 10);
 
     const result = await timeService.syncDeviceTime({
       mode,
@@ -1364,24 +1707,57 @@ router.post('/device/reset-data', async (req, res) => {
       await dbRun(`DELETE FROM sync_logs`);
     }
 
-    // Optional clearing of punch records on physical hardware terminal
+    // Multi-terminal clearing of punch records on physical hardware terminal(s)
     if (clearTerminalLogs) {
       if (config.isCloudDeploy) {
         terminalResult = { success: false, cloudMode: true, error: 'Direct terminal log clearing is disabled in Cloud Deploy mode' };
       } else {
-        const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
-        const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
+        const { terminalIds } = req.body || {};
         const ifaceIpSetting = await dbGet(`SELECT value FROM settings WHERE key = 'network_interface_ip'`);
-
-        const ip = ipSetting ? ipSetting.value : '192.168.10.15';
-        const port = parseInt(portSetting ? portSetting.value : 4370, 10);
         const localAddress = ifaceIpSetting ? ifaceIpSetting.value : null;
 
-        try {
-          const client = new SpeedFaceClient(ip, port, 8000, localAddress);
-          terminalResult = await client.clearAttendanceLogs();
-        } catch (tErr) {
-          terminalResult = { success: false, error: tErr.message };
+        let targets = [];
+        if (Array.isArray(terminalIds) && terminalIds.length > 0) {
+          targets = terminalIds;
+        } else if (terminalIds === 'all') {
+          const allT = await getAllTerminals();
+          targets = allT.filter(t => t.is_enabled).map(t => t.id);
+        } else {
+          // Fallback: all enabled terminals, or terminal ID 1 if available
+          const allT = await getAllTerminals();
+          if (allT.length > 0) {
+            targets = allT.filter(t => t.is_enabled).map(t => t.id);
+          }
+        }
+
+        if (targets.length === 0) {
+          // If no terminals registered in fleet, fallback to legacy device_ip
+          const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
+          const portSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
+          const ip = ipSetting ? ipSetting.value : '192.168.10.15';
+          const port = parseInt(portSetting ? portSetting.value : 4370, 10);
+          try {
+            const client = new SpeedFaceClient(ip, port, 6000, localAddress);
+            terminalResult = await client.clearAttendanceLogs();
+          } catch (tErr) {
+            terminalResult = { success: false, error: tErr.message };
+          }
+        } else {
+          const results = [];
+          for (const tid of targets) {
+            try {
+              const resClear = await purgeTerminalLogsHardware(tid, localAddress);
+              results.push({ id: tid, success: true, ...resClear });
+            } catch (tErr) {
+              results.push({ id: tid, success: false, error: tErr.message });
+            }
+          }
+          terminalResult = {
+            success: results.some(r => r.success),
+            count: results.filter(r => r.success).length,
+            total: targets.length,
+            details: results
+          };
         }
       }
     }

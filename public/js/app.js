@@ -398,10 +398,10 @@ function switchTab(tabId) {
     'tab-employees': ['Employee Registry', 'Assign names, departments, and working shifts to User IDs'],
     'tab-leave': ['Leave Management & Policies', 'Configure leave categories, quotas, carry-forward policies, and employee leave allocations'],
     'tab-shifts': ['Working Shifts & Holidays Schedule', 'Define shifts, work schedules, grace periods, and official company holidays'],
-    'tab-device': ['SpeedFace Device Control', 'Hardware status, connection settings, diagnostics, and system reset'],
+    'tab-device': ['Biometric Terminals Fleet & Device Control', 'Monitor, test, and sync biometric terminals and manage hardware communication parameters'],
     'tab-guide': ['SpeedFace Setup Assistant', 'Step-by-step terminal network and ADMS push setup'],
     'tab-api': ['API Service & Integration Gateway', 'REST API endpoints for third-party ERP, Payroll, and HR software integration'],
-    'tab-settings': ['System Settings & Cloud Sync', 'Manage organization partition, Firestore cloud sync, system license, users, and permissions']
+    'tab-settings': ['System Settings, Diagnostics & Cloud Sync', 'Organization partition, cloud sync, system health, backups, database reset, and user access']
   };
 
   if (titleMap[tabId]) {
@@ -5564,30 +5564,494 @@ function closeDeleteEmployeeModal() {
   currentDeleteEmp = null;
 }
 
+// ==========================================
+// MULTI-TERMINAL MANAGEMENT & FLEET STATUS MONITOR
+// ==========================================
+
+let terminalsCache = [];
+
+async function loadTerminals() {
+  const container = document.getElementById('terminalsGrid');
+  const statTotal = document.getElementById('fleetStatTotal');
+  const statOnline = document.getElementById('fleetStatOnline');
+  const statOffline = document.getElementById('fleetStatOffline');
+  const statAutoSync = document.getElementById('fleetStatAutoSync');
+
+  try {
+    const res = await fetch('/api/terminals');
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'Failed to load terminals');
+
+    terminalsCache = data.terminals || [];
+    const kpi = data.kpi || {};
+
+    if (statTotal) statTotal.textContent = `${kpi.total || 0} Machine${(kpi.total || 0) === 1 ? '' : 's'}`;
+    if (statOnline) statOnline.textContent = `${kpi.online || 0} Online`;
+    if (statOffline) statOffline.textContent = `${kpi.offline || 0} Offline`;
+    if (statAutoSync) {
+      statAutoSync.textContent = kpi.autoSyncEnabled ? `Every ${kpi.autoSyncInterval || 60}s (Active)` : 'Disabled';
+      statAutoSync.style.color = kpi.autoSyncEnabled ? '#0284c7' : '#94a3b8';
+    }
+
+    if (!container) return;
+
+    if (terminalsCache.length === 0) {
+      container.innerHTML = `
+        <div style="grid-column: 1 / -1; text-align: center; padding: 40px; background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 8px;">
+          <div style="font-size: 2rem; margin-bottom: 8px;">📱</div>
+          <h4 style="margin: 0 0 6px; color: #1e293b;">No Biometric Terminals Registered</h4>
+          <p style="color: #64748b; font-size: 0.88rem; margin: 0 0 16px;">Add your SpeedFace-V5L or ZKTeco devices to monitor and sync attendance.</p>
+          <button type="button" class="btn btn-sm btn-primary" onclick="window.openAddTerminalModal()">
+            ➕ Add First Terminal
+          </button>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = terminalsCache.map(t => {
+      const isOnline = t.status === 'ONLINE';
+      const isSyncing = t.status === 'SYNCING';
+      const badgeClass = isOnline ? 'badge-in' : (isSyncing ? 'badge-warning' : 'badge-out');
+      const badgeText = isOnline ? '🟢 ONLINE' : (isSyncing ? '🟡 SYNCING' : '🔴 OFFLINE');
+      const dotPulse = isOnline ? '<span class="status-dot-pulse"></span> ' : '';
+
+      let lastSeenStr = 'Never';
+      if (t.last_seen) {
+        try {
+          const d = new Date(t.last_seen);
+          lastSeenStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' (' + d.toLocaleDateString() + ')';
+        } catch (e) {}
+      }
+
+      let lastSyncStr = 'Never';
+      if (t.last_sync) {
+        try {
+          const d = new Date(t.last_sync);
+          lastSyncStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' (' + d.toLocaleDateString() + ')';
+        } catch (e) {}
+      }
+
+      return `
+        <div class="terminal-card" data-terminal-id="${t.id}" style="${!t.is_enabled ? 'opacity: 0.65;' : ''}">
+          <div class="terminal-card-header">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 1.25rem;">📱</span>
+              <div>
+                <strong style="font-size: 0.95rem; color: #0f172a; display: block;">${escapeHtml(t.name)}</strong>
+                <div style="font-size: 0.74rem; color: #64748b;">${escapeHtml(t.location || 'Location Not Specified')}</div>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              ${!t.is_enabled ? '<span class="badge" style="background:#e2e8f0; color:#475569; font-size: 0.7rem;">DISABLED</span>' : ''}
+              <span class="badge ${badgeClass}" style="font-weight: 700; font-size: 0.75rem;">${dotPulse}${badgeText}</span>
+            </div>
+          </div>
+          <div class="terminal-card-body">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem;">
+              <span style="color: #64748b; font-weight: 600;">IP &amp; TCP Port:</span>
+              <span class="font-mono" style="font-weight: 700; background: #e0f2fe; color: #0369a1; padding: 2px 8px; border-radius: 4px;">${escapeHtml(t.ip)}:${t.port}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem;">
+              <span style="color: #64748b; font-weight: 600;">Hardware Model:</span>
+              <span><strong>${escapeHtml(t.model || 'SpeedFace-V5L')}</strong> ${t.serial_number ? '<span class="font-mono text-muted" style="font-size: 0.72rem;">(' + escapeHtml(t.serial_number) + ')</span>' : ''}</span>
+            </div>
+            <div class="terminal-metrics-row">
+              <div>
+                <div style="color: #64748b; font-size: 0.72rem; text-transform: uppercase; font-weight: 600;">Enrolled Users</div>
+                <div style="font-size: 1.15rem; font-weight: 700; color: #0f172a;">${Number(t.user_count || 0).toLocaleString()}</div>
+              </div>
+              <div>
+                <div style="color: #64748b; font-size: 0.72rem; text-transform: uppercase; font-weight: 600;">Stored Logs</div>
+                <div style="font-size: 1.15rem; font-weight: 700; color: #0f172a;">${Number(t.log_count || 0).toLocaleString()}</div>
+              </div>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.76rem; color: #64748b; border-top: 1px dashed #e2e8f0; padding-top: 8px;">
+              <span>Last Synced: <strong>${lastSyncStr}</strong></span>
+              <span>Auto-Sync: <strong>${t.auto_sync ? 'Yes' : 'No'}</strong></span>
+            </div>
+          </div>
+          <div class="terminal-card-footer" style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 6px; flex-wrap: wrap;">
+              <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button class="btn btn-xs btn-primary btn-sync-term" data-id="${t.id}" title="Download records immediately">
+                  ⚡ Sync Now
+                </button>
+                <button class="btn btn-xs btn-outline btn-test-term" data-id="${t.id}" title="Test connection">
+                  📡 Test
+                </button>
+                <button class="btn btn-xs btn-outline btn-time-term" data-id="${t.id}" title="Sync terminal clock">
+                  🕒 Time
+                </button>
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <button class="btn btn-xs btn-outline btn-edit-term" data-id="${t.id}" title="Edit terminal configuration">
+                  ✏️ Edit
+                </button>
+                <button class="btn btn-xs btn-danger-outline btn-del-term" data-id="${t.id}" title="Delete terminal">
+                  🗑️
+                </button>
+              </div>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; gap: 6px; border-top: 1px dashed #e2e8f0; padding-top: 6px;">
+              <button class="btn btn-xs btn-outline btn-copy-emp-term" data-id="${t.id}" data-name="${escapeHtml(t.name)}" title="Copy enrolled employees from system database to this terminal">
+                👥 Copy Employees
+              </button>
+              <button class="btn btn-xs btn-outline btn-clear-logs-term" data-id="${t.id}" data-name="${escapeHtml(t.name)}" data-logs="${t.log_count || 0}" style="border-color: #fca5a5; color: #dc2626;" title="Erase stored attendance records on this terminal's hardware buffer">
+                🧹 Erase Device Logs
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Wire action buttons on cards
+    container.querySelectorAll('.btn-sync-term').forEach(btn => {
+      btn.addEventListener('click', () => syncSingleTerminal(btn.dataset.id));
+    });
+    container.querySelectorAll('.btn-test-term').forEach(btn => {
+      btn.addEventListener('click', () => testSingleTerminal(btn.dataset.id));
+    });
+    container.querySelectorAll('.btn-time-term').forEach(btn => {
+      btn.addEventListener('click', () => timeSyncTerminal(btn.dataset.id));
+    });
+    container.querySelectorAll('.btn-edit-term').forEach(btn => {
+      btn.addEventListener('click', () => openEditTerminalModal(btn.dataset.id));
+    });
+    container.querySelectorAll('.btn-del-term').forEach(btn => {
+      btn.addEventListener('click', () => deleteSingleTerminal(btn.dataset.id));
+    });
+    container.querySelectorAll('.btn-copy-emp-term').forEach(btn => {
+      btn.addEventListener('click', () => openPushEmployeesModal(btn.dataset.id));
+    });
+    container.querySelectorAll('.btn-clear-logs-term').forEach(btn => {
+      btn.addEventListener('click', () => openEraseLogsModal(btn.dataset.id));
+    });
+
+  } catch (err) {
+    if (container) {
+      container.innerHTML = `<div class="alert alert-danger" style="grid-column:1/-1;">Failed to load biometric terminals: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+}
+
+// Modal open/close handlers
+function openAddTerminalModal() {
+  const modal = document.getElementById('modalTerminalForm');
+  if (!modal) return;
+  const title = document.getElementById('modalTerminalTitle');
+  const form = document.getElementById('formTerminal');
+  const testBadge = document.getElementById('terminalModalTestResult');
+
+  if (form) form.reset();
+  const idEl = document.getElementById('terminalFormId');
+  if (idEl) idEl.value = '';
+  const portEl = document.getElementById('terminalFormPort');
+  if (portEl) portEl.value = '4370';
+  const commEl = document.getElementById('terminalFormCommKey');
+  if (commEl) commEl.value = '0';
+  const enEl = document.getElementById('terminalFormIsEnabled');
+  if (enEl) enEl.checked = true;
+  const autoEl = document.getElementById('terminalFormAutoSync');
+  if (autoEl) autoEl.checked = true;
+  if (title) title.textContent = 'Add Biometric Terminal';
+  if (testBadge) testBadge.style.display = 'none';
+
+  modal.classList.add('active');
+}
+
+async function openEditTerminalModal(id) {
+  const modal = document.getElementById('modalTerminalForm');
+  if (!modal) return;
+  const title = document.getElementById('modalTerminalTitle');
+  const testBadge = document.getElementById('terminalModalTestResult');
+
+  let t = terminalsCache.find(x => String(x.id) === String(id));
+  if (!t) {
+    try {
+      const res = await fetch(`/api/terminals/${id}`);
+      const data = await res.json();
+      if (data.success && data.terminal) {
+        t = data.terminal;
+      }
+    } catch (e) {}
+  }
+
+  if (!t) {
+    showToast('Terminal not found in cache', 'error');
+    return;
+  }
+
+  const idEl = document.getElementById('terminalFormId');
+  if (idEl) idEl.value = t.id;
+  const nameEl = document.getElementById('terminalFormName');
+  if (nameEl) nameEl.value = t.name || '';
+  const ipEl = document.getElementById('terminalFormIp');
+  if (ipEl) ipEl.value = t.ip || '';
+  const portEl = document.getElementById('terminalFormPort');
+  if (portEl) portEl.value = t.port || 4370;
+  const commEl = document.getElementById('terminalFormCommKey');
+  if (commEl) commEl.value = t.comm_key || '0';
+  const modelEl = document.getElementById('terminalFormModel');
+  if (modelEl) modelEl.value = t.model || 'SpeedFace-V5L';
+  const locEl = document.getElementById('terminalFormLocation');
+  if (locEl) locEl.value = t.location || '';
+  const enEl = document.getElementById('terminalFormIsEnabled');
+  if (enEl) enEl.checked = t.is_enabled ? true : false;
+  const autoEl = document.getElementById('terminalFormAutoSync');
+  if (autoEl) autoEl.checked = t.auto_sync ? true : false;
+  if (title) title.textContent = `Edit Terminal: ${t.name}`;
+  if (testBadge) testBadge.style.display = 'none';
+
+  modal.classList.add('active');
+}
+
+function closeTerminalModal() {
+  const modal = document.getElementById('modalTerminalForm');
+  if (modal) modal.classList.remove('active');
+}
+
+window.openAddTerminalModal = openAddTerminalModal;
+window.openEditTerminalModal = openEditTerminalModal;
+window.closeTerminalModal = closeTerminalModal;
+
+async function testSingleTerminal(id) {
+  const term = terminalsCache.find(x => String(x.id) === String(id));
+  const name = term ? term.name : `Terminal #${id}`;
+  try {
+    showToast(`Testing connection to ${name}...`, 'info', 2500);
+    const res = await fetch(`/api/terminals/${id}/test`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success && data.online) {
+      showToast(`✓ Connected to ${name} successfully! (IP: ${data.ip || term?.ip})`, 'success', 4000);
+    } else {
+      showToast(`❌ Connection to ${name} failed: ${data.error || 'Reachable test failed'}`, 'error', 5000);
+    }
+    await loadTerminals();
+  } catch (err) {
+    showToast(`Test error: ${err.message}`, 'error');
+  }
+}
+
+async function syncSingleTerminal(id) {
+  const term = terminalsCache.find(x => String(x.id) === String(id));
+  const name = term ? term.name : `Terminal #${id}`;
+  try {
+    showToast(`Downloading attendance records from ${name}...`, 'info', 4000);
+    const res = await fetch(`/api/terminals/${id}/sync`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`✓ Synced ${name}! ${data.newRecords || 0} new records inserted. (Total on device: ${data.totalDeviceLogs || 0})`, 'success', 6000);
+      await loadTerminals();
+      if (typeof loadRecentSyncLogs === 'function') loadRecentSyncLogs();
+      if (typeof loadAttendanceRecords === 'function') loadAttendanceRecords();
+      if (typeof loadDashboardStats === 'function') loadDashboardStats();
+    } else {
+      showToast(`Sync failed for ${name}: ${data.error || data.message || 'Error'}`, 'error', 6000);
+    }
+  } catch (err) {
+    showToast(`Sync error: ${err.message}`, 'error');
+  }
+}
+
+async function timeSyncTerminal(id) {
+  const term = terminalsCache.find(x => String(x.id) === String(id));
+  const name = term ? term.name : `Terminal #${id}`;
+  try {
+    showToast(`Synchronizing clock on ${name}...`, 'info', 3000);
+    const res = await fetch(`/api/terminals/${id}/time-sync`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`✓ Clock synchronized successfully on ${name}!`, 'success', 4000);
+      await loadTerminals();
+    } else {
+      showToast(`Failed to sync time on ${name}: ${data.error || 'Error'}`, 'error', 5000);
+    }
+  } catch (err) {
+    showToast(`Time sync error: ${err.message}`, 'error');
+  }
+}
+
+async function deleteSingleTerminal(id) {
+  const term = terminalsCache.find(x => String(x.id) === String(id));
+  const name = term ? term.name : `Terminal #${id}`;
+  if (!confirm(`Are you sure you want to remove "${name}" from the system?\n\nRecorded attendance logs will remain preserved in the database.`)) return;
+
+  try {
+    const res = await fetch(`/api/terminals/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`✓ Terminal "${name}" removed`, 'success');
+      await loadTerminals();
+    } else {
+      showToast(data.error || 'Failed to remove terminal', 'error');
+    }
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function syncAllFleetTerminals() {
+  try {
+    showToast('Starting fleet-wide synchronization across all active terminals...', 'info', 4000);
+    const res = await fetch('/api/terminals/sync-all', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('✓ Fleet synchronization complete!', 'success', 5000);
+      await loadTerminals();
+      if (typeof loadRecentSyncLogs === 'function') loadRecentSyncLogs();
+      if (typeof loadAttendanceRecords === 'function') loadAttendanceRecords();
+      if (typeof loadDashboardStats === 'function') loadDashboardStats();
+    } else {
+      showToast(data.error || data.message || 'Fleet sync failed', 'error');
+    }
+  } catch (err) {
+    showToast('Fleet sync error: ' + err.message, 'error');
+  }
+}
+
+async function testAllFleetTerminals() {
+  try {
+    showToast('Pinging all registered biometric terminals...', 'info', 3000);
+    const res = await fetch('/api/terminals/test-all', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`✓ Fleet ping complete: ${data.online || 0} online, ${data.offline || 0} offline`, 'success', 4000);
+      await loadTerminals();
+    } else {
+      showToast(data.error || 'Fleet ping failed', 'error');
+    }
+  } catch (err) {
+    showToast('Ping error: ' + err.message, 'error');
+  }
+}
+
+function initTerminalManagement() {
+  document.getElementById('btnRefreshTerminalsList')?.addEventListener('click', loadTerminals);
+  document.getElementById('btnOpenAddTerminalModal')?.addEventListener('click', openAddTerminalModal);
+  document.getElementById('btnCloseTerminalModal')?.addEventListener('click', closeTerminalModal);
+  document.getElementById('btnCancelTerminalModal')?.addEventListener('click', closeTerminalModal);
+  document.getElementById('modalTerminalFormBackdrop')?.addEventListener('click', closeTerminalModal);
+  document.getElementById('modalTerminalForm')?.addEventListener('click', (e) => {
+    if (e.target.id === 'modalTerminalForm' || e.target.classList.contains('modal-backdrop')) closeTerminalModal();
+  });
+
+  document.getElementById('btnTestAllTerminals')?.addEventListener('click', testAllFleetTerminals);
+  document.getElementById('btnSyncAllTerminals')?.addEventListener('click', syncAllFleetTerminals);
+
+  // Form submit handler
+  document.getElementById('formTerminal')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = document.getElementById('terminalFormId')?.value;
+    const name = document.getElementById('terminalFormName')?.value.trim();
+    const ip = document.getElementById('terminalFormIp')?.value.trim();
+    const port = parseInt(document.getElementById('terminalFormPort')?.value, 10) || 4370;
+    const commKey = document.getElementById('terminalFormCommKey')?.value.trim() || '0';
+    const model = document.getElementById('terminalFormModel')?.value;
+    const location = document.getElementById('terminalFormLocation')?.value.trim();
+    const isEnabled = document.getElementById('terminalFormIsEnabled')?.checked;
+    const autoSync = document.getElementById('terminalFormAutoSync')?.checked;
+
+    const payload = { name, ip, port, comm_key: commKey, model, location, is_enabled: isEnabled, auto_sync: autoSync };
+    const btnSave = document.getElementById('btnSaveTerminal');
+    const origHtml = btnSave ? btnSave.innerHTML : 'Save';
+
+    try {
+      if (btnSave) {
+        btnSave.disabled = true;
+        btnSave.innerHTML = '<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;"></span> Saving...';
+      }
+
+      const url = id ? `/api/terminals/${id}` : '/api/terminals';
+      const method = id ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        showToast(data.message || 'Terminal saved successfully!', 'success');
+        closeTerminalModal();
+        await loadTerminals();
+      } else {
+        showToast(data.error || 'Failed to save terminal', 'error');
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      if (btnSave) {
+        btnSave.disabled = false;
+        btnSave.innerHTML = origHtml;
+      }
+    }
+  });
+
+  // Modal in-form connection test
+  document.getElementById('btnModalTestTerminal')?.addEventListener('click', async () => {
+    const ip = document.getElementById('terminalFormIp')?.value.trim();
+    const port = parseInt(document.getElementById('terminalFormPort')?.value, 10) || 4370;
+    const badge = document.getElementById('terminalModalTestResult');
+
+    if (!ip) {
+      showToast('Please enter an IP address to test', 'warning');
+      return;
+    }
+
+    if (badge) {
+      badge.style.display = 'block';
+      badge.style.background = '#eff6ff';
+      badge.style.color = '#1d4ed8';
+      badge.style.border = '1px solid #bfdbfe';
+      badge.innerHTML = '<span class="spin" style="width:10px;height:10px;border:2px solid #1d4ed8;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Testing TCP connection to ' + ip + ':' + port + '...';
+    }
+
+    try {
+      const res = await fetch('/api/device/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip, port })
+      });
+      const data = await res.json();
+
+      if (data.success && data.online) {
+        if (badge) {
+          badge.style.background = '#dcfce7';
+          badge.style.color = '#15803d';
+          badge.style.border = '1px solid #bbf7d0';
+          badge.textContent = `✓ Connection Successful! Machine reachable at ${ip}:${port}`;
+        }
+      } else {
+        if (badge) {
+          badge.style.background = '#fee2e2';
+          badge.style.color = '#991b1b';
+          badge.style.border = '1px solid #fecaca';
+          badge.textContent = `❌ Connection Failed: ${data.error || 'Machine unreachable'}`;
+        }
+      }
+    } catch (err) {
+      if (badge) {
+        badge.style.background = '#fee2e2';
+        badge.style.color = '#991b1b';
+        badge.textContent = '❌ Test Error: ' + err.message;
+      }
+    }
+  });
+}
+
+
 // 5. Device Control & Diagnostics
 async function initDeviceControl() {
-  // Screen-Fit Viewport Preference restoration
-  try {
-    const savedFitScreen = localStorage.getItem('device_fit_screen');
-    const tabDev = document.getElementById('tab-device');
-    const fitBtn = document.getElementById('btnToggleDeviceFit');
-    const fitText = document.getElementById('btnToggleDeviceFitText');
-    if (savedFitScreen === 'false') {
-      tabDev?.classList.remove('fit-screen');
-      fitBtn?.classList.remove('active');
-      if (fitText) fitText.textContent = 'Fit to Screen: OFF';
-    } else {
-      tabDev?.classList.add('fit-screen');
-      fitBtn?.classList.add('active');
-      if (fitText) fitText.textContent = 'Fit to Screen: ON';
-    }
-  } catch (e) {}
-
+  initTerminalManagement();
   initFirebaseSync();
   document.getElementById('btnTestConn')?.addEventListener('click', testDeviceConnection);
   document.getElementById('btnActionSync')?.addEventListener('click', triggerManualSync);
   document.getElementById('btnActionStopSync')?.addEventListener('click', stopDeviceSync);
   initTimeSync();
+  initFleetEmployeeAndLogManagement();
   document.getElementById('btnActionReboot')?.addEventListener('click', rebootDevice);
 
   // Network Interface change & refresh handlers
@@ -5608,13 +6072,15 @@ async function initDeviceControl() {
     const selectedIfaceName = ifaceSelect ? ifaceSelect.value : '';
     const selectedIfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || '';
 
+    const elSettingIp = document.getElementById('settingIp');
+    const elSettingPort = document.getElementById('settingPort');
     const payload = {
-      device_ip: document.getElementById('settingIp').value,
-      device_port: document.getElementById('settingPort').value,
+      device_ip: elSettingIp ? elSettingIp.value : undefined,
+      device_port: elSettingPort ? elSettingPort.value : undefined,
       network_interface: selectedIfaceName,
       network_interface_ip: selectedIfaceIp,
-      auto_sync_interval: document.getElementById('settingInterval').value,
-      auto_sync_enabled: document.getElementById('settingAutoSyncEnabled').checked
+      auto_sync_interval: document.getElementById('settingInterval')?.value || '60',
+      auto_sync_enabled: document.getElementById('settingAutoSyncEnabled')?.checked !== false
     };
 
     try {
@@ -5680,6 +6146,72 @@ async function initDeviceControl() {
   const chkEmp = document.getElementById('chkResetEmployees');
   const chkLog = document.getElementById('chkResetSyncLogs');
   const chkTerm = document.getElementById('chkClearTerminalLogs');
+  const panelTermReset = document.getElementById('resetTerminalSelectionPanel');
+  const listTermReset = document.getElementById('resetTerminalsList');
+  const noticeTermReset = document.getElementById('resetTerminalsCountNotice');
+
+  function populateResetTerminalsList() {
+    if (!listTermReset) return;
+    if (!terminalsCache || terminalsCache.length === 0) {
+      const devIp = document.getElementById('settingIp')?.value || '192.168.10.15';
+      listTermReset.innerHTML = `
+        <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.82rem; padding: 6px 10px; border-radius: 6px; background: #fff; border: 1px solid #fed7d7; cursor: pointer; margin: 0;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" class="chk-reset-term-item" value="1" data-name="Default Terminal" checked style="cursor: pointer;">
+            <span><strong>Default SpeedFace Terminal</strong> <span class="font-mono text-muted" style="font-size: 0.74rem;">(${escapeHtml(devIp)}:4370)</span></span>
+          </div>
+          <span class="badge" style="font-size: 0.7rem; background: #fee2e2; color: #991b1b;">Single Terminal</span>
+        </label>
+      `;
+    } else {
+      listTermReset.innerHTML = terminalsCache.map(t => {
+        const logCount = Number(t.log_count || 0).toLocaleString();
+        return `
+          <label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.82rem; padding: 6px 10px; border-radius: 6px; background: #fff; border: 1px solid #fed7d7; cursor: pointer; margin: 0;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <input type="checkbox" class="chk-reset-term-item" value="${t.id}" data-name="${escapeHtml(t.name)}" checked style="cursor: pointer;">
+              <span><strong>${escapeHtml(t.name)}</strong> <span class="font-mono text-muted" style="font-size: 0.74rem;">(${escapeHtml(t.ip)}:${t.port})</span></span>
+            </div>
+            <span class="badge" style="font-size: 0.7rem; background: #fee2e2; color: #991b1b;">${logCount} logs</span>
+          </label>
+        `;
+      }).join('');
+    }
+
+    listTermReset.querySelectorAll('.chk-reset-term-item').forEach(cb => {
+      cb.addEventListener('change', () => {
+        updateResetTerminalsCountNotice();
+        updateResetModalValidation();
+      });
+    });
+
+    updateResetTerminalsCountNotice();
+  }
+
+  function updateResetTerminalsCountNotice() {
+    if (!noticeTermReset) return;
+    const checkedItems = Array.from(document.querySelectorAll('.chk-reset-term-item:checked'));
+    const totalCount = document.querySelectorAll('.chk-reset-term-item').length;
+    if (checkedItems.length === 0) {
+      noticeTermReset.textContent = '⚠️ No terminals selected. Select at least 1 terminal, or uncheck "Wipe Punch Logs".';
+      noticeTermReset.style.color = '#dc2626';
+    } else {
+      noticeTermReset.textContent = `✓ ${checkedItems.length} of ${totalCount} terminal(s) selected for hardware buffer wipe.`;
+      noticeTermReset.style.color = '#15803d';
+    }
+  }
+
+  document.getElementById('btnResetSelectAllTerminals')?.addEventListener('click', () => {
+    document.querySelectorAll('.chk-reset-term-item').forEach(cb => cb.checked = true);
+    updateResetTerminalsCountNotice();
+    updateResetModalValidation();
+  });
+
+  document.getElementById('btnResetDeselectAllTerminals')?.addEventListener('click', () => {
+    document.querySelectorAll('.chk-reset-term-item').forEach(cb => cb.checked = false);
+    updateResetTerminalsCountNotice();
+    updateResetModalValidation();
+  });
 
   function updateResetModalValidation() {
     if (!confirmBtn || !confirmInput) return;
@@ -5693,6 +6225,18 @@ async function initDeviceControl() {
         hintEl.style.color = '#dc2626';
       }
       return;
+    }
+
+    if (chkTerm && chkTerm.checked) {
+      const checkedTermCount = document.querySelectorAll('.chk-reset-term-item:checked').length;
+      if (checkedTermCount === 0) {
+        confirmBtn.disabled = true;
+        if (hintEl) {
+          hintEl.textContent = '⚠️ Please select at least one physical terminal to wipe, or uncheck Wipe Punch Logs.';
+          hintEl.style.color = '#dc2626';
+        }
+        return;
+      }
     }
 
     if (!isTextMatch) {
@@ -5720,11 +6264,10 @@ async function initDeviceControl() {
     if (chkEmp) chkEmp.checked = true;
     if (chkLog) chkLog.checked = false;
     if (chkTerm) chkTerm.checked = false;
+    if (panelTermReset) panelTermReset.style.display = 'none';
 
-    // Set device IP in modal terminal prompt
-    const devIp = document.getElementById('settingIp')?.value || '192.168.10.15';
-    const modalDevIpEl = document.getElementById('modalDevIp');
-    if (modalDevIpEl) modalDevIpEl.textContent = devIp;
+    // Populate multiple terminals list
+    populateResetTerminalsList();
 
     // Refresh summary counts
     await loadDataResetSummary();
@@ -5746,7 +6289,13 @@ async function initDeviceControl() {
   chkAtt?.addEventListener('change', updateResetModalValidation);
   chkEmp?.addEventListener('change', updateResetModalValidation);
   chkLog?.addEventListener('change', updateResetModalValidation);
-  chkTerm?.addEventListener('change', updateResetModalValidation);
+  chkTerm?.addEventListener('change', () => {
+    if (panelTermReset) {
+      panelTermReset.style.display = chkTerm.checked ? 'block' : 'none';
+    }
+    updateResetTerminalsCountNotice();
+    updateResetModalValidation();
+  });
 
   confirmBtn?.addEventListener('click', async () => {
     const isTextMatch = (confirmInput?.value.trim().toUpperCase() === 'RESET');
@@ -5755,11 +6304,16 @@ async function initDeviceControl() {
       return;
     }
 
+    const selectedTermCheckboxes = Array.from(document.querySelectorAll('.chk-reset-term-item:checked'));
+    const selectedTermIds = selectedTermCheckboxes.map(cb => cb.value);
+    const selectedTermNames = selectedTermCheckboxes.map(cb => cb.dataset.name || `Terminal #${cb.value}`).join(', ');
+
     const payload = {
       resetAttendance: Boolean(chkAtt?.checked),
       resetEmployees: Boolean(chkEmp?.checked),
       resetSyncLogs: Boolean(chkLog?.checked),
       clearTerminalLogs: Boolean(chkTerm?.checked),
+      terminalIds: selectedTermIds,
       confirmText: confirmInput.value.trim()
     };
 
@@ -5770,7 +6324,11 @@ async function initDeviceControl() {
 
     // Hardware wipe confirmation
     if (payload.clearTerminalLogs) {
-      const hwConfirm = confirm('WARNING: You have chosen to WIPE attendance logs from the PHYSICAL SpeedFace-V5L hardware terminal as well. Are you absolutely certain?');
+      if (selectedTermIds.length === 0) {
+        showToast('Please select at least one physical terminal to wipe.', 'warning');
+        return;
+      }
+      const hwConfirm = confirm(`WARNING: You have chosen to WIPE attendance logs from ${selectedTermIds.length} PHYSICAL hardware terminal(s):\n\n[ ${selectedTermNames} ]\n\nThis permanently clears the internal punch buffer via CMD_CLEAR_ATTLOG. Are you absolutely certain?`);
       if (!hwConfirm) return;
     }
 
@@ -5797,7 +6355,7 @@ async function initDeviceControl() {
       showToast(data.message || 'System data reset completed successfully!', 'success', 6000);
 
       if (data.terminalResult && data.terminalResult.success === false) {
-        showToast(`Note: Hardware wipe warning: ${data.terminalResult.error || 'Terminal unreachable'}`, 'warning', 7000);
+        showToast(`Note: Hardware wipe warning: ${data.terminalResult.error || 'Terminal(s) unreachable'}`, 'warning', 7000);
       }
 
       // Reload relevant parts of the app
@@ -5805,7 +6363,8 @@ async function initDeviceControl() {
         loadDashboardStats(),
         loadRecords(),
         loadEmployees(),
-        loadDeviceControlData()
+        loadDeviceControlData(),
+        loadTerminals()
       ]);
     } catch (err) {
       showToast(err.message, 'error');
@@ -5927,6 +6486,9 @@ function updateInterfaceSubnetBadge() {
 }
 
 async function loadDeviceControlData() {
+  // 0. Load Multi-Terminal Fleet
+  await loadTerminals();
+
   // 1. Load available network interfaces
   await loadNetworkInterfaces();
 
@@ -5937,11 +6499,17 @@ async function loadDeviceControlData() {
     if (sData.success && sData.settings) {
       const s = sData.settings;
       if (s.device_ip) {
-        document.getElementById('settingIp').value = s.device_ip;
-        document.getElementById('devIpVal').textContent = s.device_ip;
-        document.getElementById('miniDeviceIp').textContent = s.device_ip;
+        const elSettingIp = document.getElementById('settingIp');
+        if (elSettingIp) elSettingIp.value = s.device_ip;
+        const elDevIpVal = document.getElementById('devIpVal');
+        if (elDevIpVal) elDevIpVal.textContent = s.device_ip;
+        const elMiniDeviceIp = document.getElementById('miniDeviceIp');
+        if (elMiniDeviceIp) elMiniDeviceIp.textContent = s.device_ip;
       }
-      if (s.device_port) document.getElementById('settingPort').value = s.device_port;
+      if (s.device_port) {
+        const elSettingPort = document.getElementById('settingPort');
+        if (elSettingPort) elSettingPort.value = s.device_port;
+      }
       if (s.network_interface) {
         const ifaceSelect = document.getElementById('settingNetworkInterface');
         if (ifaceSelect) {
@@ -6009,10 +6577,7 @@ async function loadDeviceControlData() {
     loadTimeSyncStatus(false);
   }
   loadSyncLogs();
-  loadDataResetSummary();
-  loadSystemHealth();
-  loadSystemLogs();
-  loadFirebaseStatus();
+  loadTerminals();
 }
 
 async function loadDataResetSummary() {
@@ -6107,41 +6672,388 @@ async function testDeviceConnection() {
 }
 
 // ==========================================
-// 6. SpeedFace Time Synchronization (Online & Manual)
-// ==========================================
+// 6. Multi-Option Terminal Clock Time Synchronization (Server, Cloud, Manual, Online)
+// ===================================================================================
 let timeSyncModalInterval = null;
+let lastKnownServerDate = null;
+let lastKnownCloudDate = null;
 let lastKnownOnlineDate = null;
+let lastKnownDeviceDate = null;
+let activeTimeSyncTerminalId = 'all';
+
+function getSelectedTimeSyncTerminal() {
+  const sel = document.getElementById('timeSyncTerminalSelect');
+  const val = sel ? sel.value : activeTimeSyncTerminalId;
+  if (!val || val === 'all') {
+    return { id: 'all', name: 'All Registered Terminals', ip: null, port: null };
+  }
+  const term = terminalsCache.find(t => String(t.id) === String(val));
+  return term || { id: val, name: `Terminal #${val}`, ip: null, port: null };
+}
+
+function populateTimeSyncTerminalSelect(preselectId = 'all') {
+  const select = document.getElementById('timeSyncTerminalSelect');
+  const metaEl = document.getElementById('timeSyncTerminalMeta');
+  if (!select) return;
+
+  activeTimeSyncTerminalId = String(preselectId);
+
+  let optionsHtml = '<option value="all">🌐 All Active Terminals (Fleet Broadcast)</option>';
+  if (Array.isArray(terminalsCache) && terminalsCache.length > 0) {
+    optionsHtml += terminalsCache.map(t => {
+      const isOnline = t.status === 'ONLINE';
+      const statusIcon = isOnline ? '🟢' : '🔴';
+      return `<option value="${t.id}">${statusIcon} ${escapeHtml(t.name)} (${escapeHtml(t.ip)}:${t.port || 4370})</option>`;
+    }).join('');
+  }
+
+  select.innerHTML = optionsHtml;
+  select.value = activeTimeSyncTerminalId;
+  if (select.value !== activeTimeSyncTerminalId && terminalsCache.length > 0) {
+    select.value = String(terminalsCache[0].id);
+    activeTimeSyncTerminalId = select.value;
+  }
+
+  updateTimeSyncTerminalMeta();
+}
+
+function updateTimeSyncTerminalMeta() {
+  const metaEl = document.getElementById('timeSyncTerminalMeta');
+  if (!metaEl) return;
+  const target = getSelectedTimeSyncTerminal();
+  if (target.id === 'all') {
+    const activeCount = terminalsCache.filter(t => t.is_enabled).length;
+    metaEl.innerHTML = `<span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:700;">Broadcast Mode: ${activeCount} Active Machine${activeCount === 1 ? '' : 's'}</span>`;
+  } else {
+    metaEl.innerHTML = `<span class="badge" style="background:#f1f5f9; color:#334155; font-weight:600;">Hardware IP: ${escapeHtml(target.ip || '')}:${target.port || 4370}</span>`;
+  }
+}
+
+
+// ==========================================
+// Copy Employees to Terminal & Erase Terminal Records
+// ==========================================
+let activePushEmpTerminalId = 'all';
+let activeEraseLogsTerminalId = 'all';
+
+async function openPushEmployeesModal(targetId = 'all') {
+  activePushEmpTerminalId = targetId || 'all';
+  const modal = document.getElementById('modalPushEmployeesTerminal');
+  if (!modal) return;
+
+  const sel = document.getElementById('pushEmpTargetSelect');
+  if (sel) {
+    sel.innerHTML = '<option value="all">🌐 All Active Terminals (Fleet Broadcast)</option>';
+    terminalsCache.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = `${t.name} (${t.ip}:${t.port}) - ${t.status || 'UNKNOWN'}`;
+      sel.appendChild(opt);
+    });
+    sel.value = String(activePushEmpTerminalId);
+  }
+
+  updatePushEmpTargetMeta();
+
+  // Fetch active employee count
+  const badge = document.getElementById('pushEmpCountBadge');
+  if (badge) badge.textContent = 'Loading...';
+  try {
+    const res = await fetch('/api/employees');
+    const data = await res.json();
+    const count = (data && Array.isArray(data.employees)) ? data.employees.length : (Array.isArray(data) ? data.length : 0);
+    if (badge) badge.textContent = `${count} Active Employee${count === 1 ? '' : 's'}`;
+  } catch (e) {
+    if (badge) badge.textContent = 'Active Employees';
+  }
+
+  const statusBox = document.getElementById('pushEmpStatusBox');
+  if (statusBox) statusBox.style.display = 'none';
+
+  modal.classList.add('active');
+}
+
+function closePushEmployeesModal() {
+  const modal = document.getElementById('modalPushEmployeesTerminal');
+  if (modal) modal.classList.remove('active');
+}
+
+function updatePushEmpTargetMeta() {
+  const meta = document.getElementById('pushEmpTargetMeta');
+  const sel = document.getElementById('pushEmpTargetSelect');
+  if (!meta || !sel) return;
+
+  if (sel.value === 'all') {
+    const activeCount = terminalsCache.filter(t => t.is_enabled).length;
+    meta.textContent = `Push target: All ${activeCount} active fleet machines in parallel`;
+    meta.style.color = '#0284c7';
+  } else {
+    const t = terminalsCache.find(x => String(x.id) === String(sel.value));
+    if (t) {
+      meta.textContent = `Push target: ${t.name} [IP ${t.ip}:${t.port}] (${t.model || 'SpeedFace-V5L'})`;
+      meta.style.color = '#0284c7';
+    } else {
+      meta.textContent = '';
+    }
+  }
+}
+
+async function executePushEmployees() {
+  const sel = document.getElementById('pushEmpTargetSelect');
+  const targetId = sel ? sel.value : 'all';
+  const btn = document.getElementById('btnExecutePushEmployees');
+  const statusBox = document.getElementById('pushEmpStatusBox');
+  const origHtml = btn ? btn.innerHTML : 'Copy Employees Now';
+
+  try {
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin" style="width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Copying to Terminal...';
+    }
+    if (statusBox) {
+      statusBox.style.display = 'block';
+      statusBox.style.background = '#eff6ff';
+      statusBox.style.border = '1px solid #bfdbfe';
+      statusBox.style.color = '#1d4ed8';
+      statusBox.innerHTML = '<span class="spin" style="width:12px;height:12px;border:2px solid #1d4ed8;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Connecting to biometric terminal(s) and writing user registers...';
+    }
+
+    const endpoint = targetId === 'all' ? '/api/terminals/push-employees-all' : `/api/terminals/${targetId}/push-employees`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      const msg = data.message || 'Successfully copied employees to terminal!';
+      showToast(`✓ ${msg}`, 'success', 5000);
+      if (statusBox) {
+        statusBox.style.background = '#f0fdf4';
+        statusBox.style.border = '1px solid #bbf7d0';
+        statusBox.style.color = '#15803d';
+        statusBox.innerHTML = `<strong>✓ Push Completed!</strong><div style="margin-top:4px;">${escapeHtml(msg)}</div>`;
+      }
+      await loadTerminals();
+    } else {
+      throw new Error(data.error || data.message || 'Push failed');
+    }
+  } catch (err) {
+    showToast(`Push error: ${err.message}`, 'error', 5000);
+    if (statusBox) {
+      statusBox.style.background = '#fef2f2';
+      statusBox.style.border = '1px solid #fecaca';
+      statusBox.style.color = '#991b1b';
+      statusBox.innerHTML = `<strong>❌ Push Failed:</strong><div style="margin-top:4px;">${escapeHtml(err.message)}</div>`;
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+  }
+}
+
+async function openEraseLogsModal(targetId = 'all') {
+  activeEraseLogsTerminalId = targetId || 'all';
+  const modal = document.getElementById('modalEraseTerminalLogs');
+  if (!modal) return;
+
+  const sel = document.getElementById('eraseLogsTargetSelect');
+  if (sel) {
+    sel.innerHTML = '<option value="all">🌐 All Active Terminals (Fleet Wipe)</option>';
+    terminalsCache.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = `${t.name} (${t.ip}:${t.port}) - ${Number(t.log_count || 0).toLocaleString()} logs`;
+      sel.appendChild(opt);
+    });
+    sel.value = String(activeEraseLogsTerminalId);
+  }
+
+  updateEraseLogsTargetMeta();
+
+  // Reset confirmation checkbox & button
+  const chk = document.getElementById('chkConfirmEraseTerminalLogs');
+  const btn = document.getElementById('btnExecuteEraseLogs');
+  if (chk) chk.checked = false;
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+  }
+
+  const statusBox = document.getElementById('eraseLogsStatusBox');
+  if (statusBox) statusBox.style.display = 'none';
+
+  modal.classList.add('active');
+}
+
+function closeEraseLogsModal() {
+  const modal = document.getElementById('modalEraseTerminalLogs');
+  if (modal) modal.classList.remove('active');
+}
+
+function updateEraseLogsTargetMeta() {
+  const meta = document.getElementById('eraseLogsTargetMeta');
+  const sel = document.getElementById('eraseLogsTargetSelect');
+  if (!meta || !sel) return;
+
+  if (sel.value === 'all') {
+    const totalStored = terminalsCache.reduce((sum, t) => sum + (Number(t.log_count) || 0), 0);
+    meta.textContent = `Target: All active fleet terminals (${totalStored.toLocaleString()} stored logs across fleet)`;
+  } else {
+    const t = terminalsCache.find(x => String(x.id) === String(sel.value));
+    if (t) {
+      meta.textContent = `Target: ${t.name} [IP ${t.ip}:${t.port}] (${Number(t.log_count || 0).toLocaleString()} logs on device)`;
+    } else {
+      meta.textContent = '';
+    }
+  }
+}
+
+async function executeEraseLogs() {
+  const sel = document.getElementById('eraseLogsTargetSelect');
+  const targetId = sel ? sel.value : 'all';
+  const chk = document.getElementById('chkConfirmEraseTerminalLogs');
+  if (!chk || !chk.checked) {
+    showToast('Please check the confirmation box to proceed with wiping records', 'warning');
+    return;
+  }
+
+  const btn = document.getElementById('btnExecuteEraseLogs');
+  const statusBox = document.getElementById('eraseLogsStatusBox');
+  const origHtml = btn ? btn.innerHTML : 'Wipe Terminal Records Now';
+
+  try {
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin" style="width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Sending Erase Command...';
+    }
+    if (statusBox) {
+      statusBox.style.display = 'block';
+      statusBox.style.background = '#fef2f2';
+      statusBox.style.border = '1px solid #fecaca';
+      statusBox.style.color = '#991b1b';
+      statusBox.innerHTML = '<span class="spin" style="width:12px;height:12px;border:2px solid #991b1b;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Connecting to terminal and executing CMD_CLEAR_ATTLOG...';
+    }
+
+    const endpoint = targetId === 'all' ? '/api/terminals/clear-logs-all' : `/api/terminals/${targetId}/clear-logs`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      const msg = data.message || 'Terminal attendance records erased successfully!';
+      showToast(`✓ ${msg}`, 'success', 5000);
+      if (statusBox) {
+        statusBox.style.background = '#f0fdf4';
+        statusBox.style.border = '1px solid #bbf7d0';
+        statusBox.style.color = '#15803d';
+        statusBox.innerHTML = `<strong>✓ Records Erased Successfully!</strong><div style="margin-top:4px;">${escapeHtml(msg)}</div>`;
+      }
+      await loadTerminals();
+    } else {
+      throw new Error(data.error || data.message || 'Wipe failed');
+    }
+  } catch (err) {
+    showToast(`Erase error: ${err.message}`, 'error', 5000);
+    if (statusBox) {
+      statusBox.style.background = '#fef2f2';
+      statusBox.style.border = '1px solid #fecaca';
+      statusBox.style.color = '#991b1b';
+      statusBox.innerHTML = `<strong>❌ Erase Operation Failed:</strong><div style="margin-top:4px;">${escapeHtml(err.message)}</div>`;
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+  }
+}
+
+function initFleetEmployeeAndLogManagement() {
+  // Toolbar openers
+  document.getElementById('btnOpenFleetPushEmployeesModal')?.addEventListener('click', () => openPushEmployeesModal('all'));
+  document.getElementById('btnOpenFleetEraseLogsModal')?.addEventListener('click', () => openEraseLogsModal('all'));
+
+  // Copy Employees Modal Listeners
+  document.getElementById('btnClosePushEmployeesModal')?.addEventListener('click', closePushEmployeesModal);
+  document.getElementById('btnCancelPushEmployees')?.addEventListener('click', closePushEmployeesModal);
+  document.getElementById('modalPushEmployeesBackdrop')?.addEventListener('click', closePushEmployeesModal);
+  document.getElementById('modalPushEmployeesTerminal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'modalPushEmployeesTerminal' || e.target.classList.contains('modal-backdrop')) closePushEmployeesModal();
+  });
+  document.getElementById('pushEmpTargetSelect')?.addEventListener('change', updatePushEmpTargetMeta);
+  document.getElementById('btnExecutePushEmployees')?.addEventListener('click', executePushEmployees);
+
+  // Erase Logs Modal Listeners
+  document.getElementById('btnCloseEraseLogsModal')?.addEventListener('click', closeEraseLogsModal);
+  document.getElementById('btnCancelEraseLogs')?.addEventListener('click', closeEraseLogsModal);
+  document.getElementById('modalEraseLogsBackdrop')?.addEventListener('click', closeEraseLogsModal);
+  document.getElementById('modalEraseTerminalLogs')?.addEventListener('click', (e) => {
+    if (e.target.id === 'modalEraseTerminalLogs' || e.target.classList.contains('modal-backdrop')) closeEraseLogsModal();
+  });
+  document.getElementById('eraseLogsTargetSelect')?.addEventListener('change', updateEraseLogsTargetMeta);
+  document.getElementById('chkConfirmEraseTerminalLogs')?.addEventListener('change', (e) => {
+    const btn = document.getElementById('btnExecuteEraseLogs');
+    if (btn) {
+      btn.disabled = !e.target.checked;
+      btn.style.opacity = e.target.checked ? '1' : '0.5';
+    }
+  });
+  document.getElementById('btnExecuteEraseLogs')?.addEventListener('click', executeEraseLogs);
+}
+
+window.openPushEmployeesModal = openPushEmployeesModal;
+window.openEraseLogsModal = openEraseLogsModal;
+window.closePushEmployeesModal = closePushEmployeesModal;
+window.closeEraseLogsModal = closeEraseLogsModal;
 
 function initTimeSync() {
   document.getElementById('btnActionOnlineSyncTime')?.addEventListener('click', () => syncDeviceTimeOnline(false));
-  document.getElementById('btnActionOpenTimeModal')?.addEventListener('click', openTimeSyncModal);
-  document.getElementById('btnQuickTimeOptions')?.addEventListener('click', openTimeSyncModal);
+  document.getElementById('btnActionOpenTimeModal')?.addEventListener('click', () => openTerminalTimeModal('all'));
+  document.getElementById('btnQuickTimeOptions')?.addEventListener('click', () => openTerminalTimeModal('all'));
+  document.getElementById('btnOpenFleetTimeSyncModal')?.addEventListener('click', () => openTerminalTimeModal('all'));
 
   document.getElementById('btnCloseTimeSyncModal')?.addEventListener('click', closeTimeSyncModal);
   document.getElementById('btnCloseTimeSyncModalBottom')?.addEventListener('click', closeTimeSyncModal);
   document.getElementById('timeSyncModalBackdrop')?.addEventListener('click', closeTimeSyncModal);
 
-  // Modal Tabs
-  document.getElementById('tabBtnTimeOnline')?.addEventListener('click', () => switchTimeTab('online'));
+  // Terminal selector change listener
+  document.getElementById('timeSyncTerminalSelect')?.addEventListener('change', (e) => {
+    activeTimeSyncTerminalId = e.target.value;
+    updateTimeSyncTerminalMeta();
+    loadTimeSyncStatus(true);
+  });
+
+  // Mode Tabs
+  document.getElementById('tabBtnTimeServer')?.addEventListener('click', () => switchTimeTab('server'));
+  document.getElementById('tabBtnTimeCloud')?.addEventListener('click', () => switchTimeTab('cloud'));
   document.getElementById('tabBtnTimeManual')?.addEventListener('click', () => switchTimeTab('manual'));
-  document.getElementById('tabBtnTimePc')?.addEventListener('click', () => switchTimeTab('pc'));
+  document.getElementById('tabBtnTimeOnline')?.addEventListener('click', () => switchTimeTab('online'));
+  document.getElementById('tabBtnTimePc')?.addEventListener('click', () => switchTimeTab('server'));
 
   // Action Triggers
-  document.getElementById('btnExecuteOnlineSync')?.addEventListener('click', () => syncDeviceTimeOnline(true));
+  document.getElementById('btnExecuteServerSync')?.addEventListener('click', syncDeviceTimeServer);
+  document.getElementById('btnExecutePcSync')?.addEventListener('click', syncDeviceTimeServer);
+  document.getElementById('btnExecuteCloudSync')?.addEventListener('click', syncDeviceTimeCloud);
   document.getElementById('btnExecuteManualSync')?.addEventListener('click', syncDeviceTimeManual);
-  document.getElementById('btnExecutePcSync')?.addEventListener('click', syncDeviceTimePc);
+  document.getElementById('btnExecuteOnlineSync')?.addEventListener('click', syncDeviceTimeOnline);
   document.getElementById('btnRefreshModalTimes')?.addEventListener('click', () => loadTimeSyncStatus(true));
 
   // Quick Adjustment Buttons for Manual Input
   document.getElementById('btnManualFillNow')?.addEventListener('click', () => {
     fillManualTimeInput(new Date());
   });
+  document.getElementById('btnManualFillCloud')?.addEventListener('click', () => {
+    fillManualTimeInput(lastKnownCloudDate || new Date());
+  });
   document.getElementById('btnManualFillOnline')?.addEventListener('click', () => {
-    if (lastKnownOnlineDate) {
-      fillManualTimeInput(lastKnownOnlineDate);
-    } else {
-      fillManualTimeInput(new Date());
-    }
+    fillManualTimeInput(lastKnownOnlineDate || new Date());
   });
 
   document.getElementById('btnAdjustMinus1h')?.addEventListener('click', () => adjustManualTimeInput(-3600));
@@ -6150,36 +7062,46 @@ function initTimeSync() {
   document.getElementById('btnAdjustPlus5m')?.addEventListener('click', () => adjustManualTimeInput(300));
   document.getElementById('btnAdjustMinus1m')?.addEventListener('click', () => adjustManualTimeInput(-60));
   document.getElementById('btnAdjustPlus1m')?.addEventListener('click', () => adjustManualTimeInput(60));
+  document.getElementById('btnAdjustMinus10s')?.addEventListener('click', () => adjustManualTimeInput(-10));
+  document.getElementById('btnAdjustPlus10s')?.addEventListener('click', () => adjustManualTimeInput(10));
 }
 
 function switchTimeTab(tab) {
-  const btnOnline = document.getElementById('tabBtnTimeOnline');
+  const btnServer = document.getElementById('tabBtnTimeServer');
+  const btnCloud = document.getElementById('tabBtnTimeCloud');
   const btnManual = document.getElementById('tabBtnTimeManual');
+  const btnOnline = document.getElementById('tabBtnTimeOnline');
   const btnPc = document.getElementById('tabBtnTimePc');
 
-  const paneOnline = document.getElementById('timePaneOnline');
+  const paneServer = document.getElementById('timePaneServer');
+  const paneCloud = document.getElementById('timePaneCloud');
   const paneManual = document.getElementById('timePaneManual');
-  const panePc = document.getElementById('timePanePc');
+  const paneOnline = document.getElementById('timePaneOnline');
 
-  [btnOnline, btnManual, btnPc].forEach(b => {
+  [btnServer, btnCloud, btnManual, btnOnline, btnPc].forEach(b => {
     if (b) b.className = 'btn btn-sm btn-outline';
   });
-  if (paneOnline) paneOnline.style.display = 'none';
+  if (paneServer) paneServer.style.display = 'none';
+  if (paneCloud) paneCloud.style.display = 'none';
   if (paneManual) paneManual.style.display = 'none';
-  if (panePc) panePc.style.display = 'none';
+  if (paneOnline) paneOnline.style.display = 'none';
 
-  if (tab === 'online') {
-    if (btnOnline) btnOnline.className = 'btn btn-sm btn-primary';
-    if (paneOnline) paneOnline.style.display = 'block';
+  if (tab === 'server' || tab === 'pc') {
+    if (btnServer) btnServer.className = 'btn btn-sm btn-primary';
+    if (btnPc) btnPc.className = 'btn btn-sm btn-primary';
+    if (paneServer) paneServer.style.display = 'block';
+  } else if (tab === 'cloud') {
+    if (btnCloud) btnCloud.className = 'btn btn-sm btn-primary';
+    if (paneCloud) paneCloud.style.display = 'block';
   } else if (tab === 'manual') {
     if (btnManual) btnManual.className = 'btn btn-sm btn-primary';
     if (paneManual) paneManual.style.display = 'block';
     if (!document.getElementById('inputManualDateTime')?.value) {
-      fillManualTimeInput(lastKnownOnlineDate || new Date());
+      fillManualTimeInput(lastKnownCloudDate || lastKnownServerDate || new Date());
     }
-  } else if (tab === 'pc') {
-    if (btnPc) btnPc.className = 'btn btn-sm btn-primary';
-    if (panePc) panePc.style.display = 'block';
+  } else if (tab === 'online') {
+    if (btnOnline) btnOnline.className = 'btn btn-sm btn-primary';
+    if (paneOnline) paneOnline.style.display = 'block';
   }
 }
 
@@ -6205,21 +7127,44 @@ function adjustManualTimeInput(secondsDelta) {
   fillManualTimeInput(cur);
 }
 
-function openTimeSyncModal() {
+function openTerminalTimeModal(targetTerminalId = 'all') {
   const modal = document.getElementById('timeSyncModal');
-  if (modal) modal.classList.add('active');
+  if (!modal) return;
+
+  populateTimeSyncTerminalSelect(targetTerminalId);
   fillManualTimeInput(new Date());
+  modal.classList.add('active');
+
   loadTimeSyncStatus(true);
 
   if (timeSyncModalInterval) clearInterval(timeSyncModalInterval);
   timeSyncModalInterval = setInterval(() => {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString();
+    const fullStr = now.toLocaleString();
+
+    const serverLive = document.getElementById('modalServerTimeLive');
+    const serverSummary = document.getElementById('modalServerTimeSummary');
+    if (serverLive) serverLive.textContent = timeStr;
+    if (serverSummary) serverSummary.textContent = fullStr;
+
     const pcLive = document.getElementById('modalPcTimeLive');
     const pcSummary = document.getElementById('modalPcTimeSummary');
-    const now = new Date();
-    const str = now.toLocaleTimeString();
-    if (pcLive) pcLive.textContent = str;
-    if (pcSummary) pcSummary.textContent = now.toLocaleString();
+    if (pcLive) pcLive.textContent = timeStr;
+    if (pcSummary) pcSummary.textContent = fullStr;
+
+    if (lastKnownCloudDate) {
+      lastKnownCloudDate = new Date(lastKnownCloudDate.getTime() + 1000);
+      const cloudLive = document.getElementById('modalCloudTimeLive');
+      const cloudSummary = document.getElementById('modalCloudTimeSummary');
+      if (cloudLive) cloudLive.textContent = lastKnownCloudDate.toLocaleTimeString();
+      if (cloudSummary) cloudSummary.textContent = lastKnownCloudDate.toLocaleString();
+    }
   }, 1000);
+}
+
+function openTimeSyncModal() {
+  openTerminalTimeModal('all');
 }
 
 function closeTimeSyncModal() {
@@ -6233,114 +7178,176 @@ function closeTimeSyncModal() {
 
 async function loadTimeSyncStatus(showFeedback = false) {
   const modalDev = document.getElementById('modalDevTimeLive');
+  const modalServer = document.getElementById('modalServerTimeLive');
+  const modalCloud = document.getElementById('modalCloudTimeLive');
   const modalOnline = document.getElementById('modalOnlineTimeLive');
   const modalBadge = document.getElementById('modalDriftBadge');
-  const modalSource = document.getElementById('modalOnlineSource');
+  const modalCloudSource = document.getElementById('modalCloudSource');
+  const modalOnlineSource = document.getElementById('modalOnlineSource');
+
+  const target = getSelectedTimeSyncTerminal();
 
   if (showFeedback && modalDev) {
-    modalDev.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #0284c7;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Loading...`;
+    modalDev.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #0284c7;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Checking...`;
   }
 
   try {
     const interfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
-    const ip = document.getElementById('settingIp')?.value || '192.168.10.15';
-    const port = document.getElementById('settingPort')?.value || 4370;
+    const query = new URLSearchParams({
+      terminalId: target.id,
+      interfaceIp: interfaceIp || ''
+    });
+    if (target.ip) query.set('ip', target.ip);
+    if (target.port) query.set('port', target.port);
 
-    const query = new URLSearchParams({ ip, port, interfaceIp: interfaceIp || '' });
     const res = await fetch(`/api/device/time-status?${query.toString()}`);
     const data = await res.json();
 
     if (data.success) {
-      if (modalDev) modalDev.textContent = data.deviceTime || 'Offline';
-      if (document.getElementById('devTimeVal') && data.deviceTime) {
-        document.getElementById('devTimeVal').textContent = data.deviceTime;
-      }
-
-      if (data.onlineTime && data.onlineTime.formatted) {
-        if (modalOnline) modalOnline.textContent = data.onlineTime.formatted;
-        if (modalSource) modalSource.textContent = `${data.onlineTime.source} (${data.timeZone || 'Asia/Colombo'})`;
-        lastKnownOnlineDate = new Date(data.onlineTime.iso || data.onlineTime.formatted);
-      } else {
-        if (modalOnline) modalOnline.textContent = 'Offline';
-        if (modalSource) modalSource.textContent = 'Internet time servers unreachable';
-      }
-
-      // Drift calculation badge
-      const driftBadge = document.getElementById('devTimeDriftBadge');
-      if (modalBadge) {
-        if (data.driftStatus === 'IN_SYNC') {
-          modalBadge.style.background = '#dcfce7';
-          modalBadge.style.color = '#166534';
-          modalBadge.textContent = '✓ Perfectly in Sync (0s)';
-          if (driftBadge) {
-            driftBadge.style.display = 'inline-block';
-            driftBadge.style.background = '#dcfce7';
-            driftBadge.style.color = '#166534';
-            driftBadge.textContent = '✓ Clock in Sync';
-          }
-        } else if (data.driftStatus === 'AHEAD') {
-          modalBadge.style.background = '#fef3c7';
-          modalBadge.style.color = '#92400e';
-          modalBadge.textContent = `⚠️ Ahead by +${data.driftSeconds}s`;
-          if (driftBadge) {
-            driftBadge.style.display = 'inline-block';
-            driftBadge.style.background = '#fef3c7';
-            driftBadge.style.color = '#92400e';
-            driftBadge.textContent = `⚠️ +${data.driftSeconds}s Drift`;
-          }
-        } else if (data.driftStatus === 'BEHIND') {
-          modalBadge.style.background = '#fee2e2';
-          modalBadge.style.color = '#991b1b';
-          modalBadge.textContent = `⚠️ Behind by ${Math.abs(data.driftSeconds)}s`;
-          if (driftBadge) {
-            driftBadge.style.display = 'inline-block';
-            driftBadge.style.background = '#fee2e2';
-            driftBadge.style.color = '#991b1b';
-            driftBadge.textContent = `⚠️ ${data.driftSeconds}s Drift`;
-          }
-        } else {
-          modalBadge.style.background = '#f1f5f9';
-          modalBadge.style.color = '#475569';
-          modalBadge.textContent = 'Drift status unavailable';
-          if (driftBadge) driftBadge.style.display = 'none';
+      // 1. Terminal Clock
+      if (target.id === 'all') {
+        if (modalDev) modalDev.textContent = 'Fleet Broadcast';
+        if (modalBadge) {
+          modalBadge.style.background = '#e0f2fe';
+          modalBadge.style.color = '#0369a1';
+          modalBadge.textContent = 'All Terminals Target';
         }
+      } else {
+        if (modalDev) modalDev.textContent = data.deviceTime || 'Offline / No Comm';
+        lastKnownDeviceDate = data.deviceTime ? new Date(data.deviceTime.replace(' ', 'T')) : null;
+
+        // Drift status
+        if (modalBadge) {
+          if (data.driftStatus === 'IN_SYNC') {
+            modalBadge.style.background = '#dcfce7';
+            modalBadge.style.color = '#166534';
+            modalBadge.textContent = '✓ Perfectly in Sync (0s)';
+          } else if (data.driftStatus === 'AHEAD') {
+            modalBadge.style.background = '#fef3c7';
+            modalBadge.style.color = '#92400e';
+            modalBadge.textContent = `⚠️ Ahead by +${data.driftSeconds}s`;
+          } else if (data.driftStatus === 'BEHIND') {
+            modalBadge.style.background = '#fee2e2';
+            modalBadge.style.color = '#991b1b';
+            modalBadge.textContent = `⚠️ Behind by ${Math.abs(data.driftSeconds)}s`;
+          } else {
+            modalBadge.style.background = '#f1f5f9';
+            modalBadge.style.color = '#64748b';
+            modalBadge.textContent = data.deviceTime ? 'RTC Active' : 'Offline';
+          }
+        }
+      }
+
+      // 2. Server Clock
+      if (data.serverTime) {
+        lastKnownServerDate = new Date(data.serverTime.iso || data.serverTime.formatted);
+        if (modalServer) modalServer.textContent = lastKnownServerDate.toLocaleTimeString();
+        const serverSummary = document.getElementById('modalServerTimeSummary');
+        if (serverSummary) serverSummary.textContent = data.serverTime.formatted || lastKnownServerDate.toLocaleString();
+      }
+
+      // 3. Cloud Clock
+      if (data.cloudTime && data.cloudTime.formatted) {
+        lastKnownCloudDate = new Date(data.cloudTime.iso || data.cloudTime.formatted);
+        if (modalCloud) modalCloud.textContent = lastKnownCloudDate.toLocaleTimeString();
+        if (modalCloudSource) modalCloudSource.textContent = data.cloudTime.source || 'Firebase Cloud RTC';
+        const cloudSummary = document.getElementById('modalCloudTimeSummary');
+        if (cloudSummary) cloudSummary.textContent = data.cloudTime.formatted;
+      } else {
+        if (modalCloud) modalCloud.textContent = 'Cloud Standby';
+      }
+
+      // 4. Online Atomic Clock
+      if (data.onlineTime && data.onlineTime.formatted) {
+        lastKnownOnlineDate = new Date(data.onlineTime.iso || data.onlineTime.formatted);
+        if (modalOnline) modalOnline.textContent = lastKnownOnlineDate.toLocaleTimeString();
+        if (modalOnlineSource) modalOnlineSource.textContent = `${data.onlineTime.source} (${data.timeZone || 'Asia/Colombo'})`;
+      } else {
+        if (modalOnline) modalOnline.textContent = 'NTP Offline';
+      }
+
+    } else {
+      if (modalDev) modalDev.textContent = 'Error';
+      if (modalBadge) {
+        modalBadge.style.background = '#fee2e2';
+        modalBadge.style.color = '#991b1b';
+        modalBadge.textContent = 'Failed to load clock';
       }
     }
   } catch (err) {
-    console.warn('Could not load time status:', err);
+    if (modalDev) modalDev.textContent = 'Comm Error';
   }
 }
 
-// Execute Online Sync
-async function syncDeviceTimeOnline(fromModal = false) {
-  const btn = fromModal ? document.getElementById('btnExecuteOnlineSync') : document.getElementById('btnActionOnlineSyncTime');
+// Execute Server Time Sync
+async function syncDeviceTimeServer() {
+  const target = getSelectedTimeSyncTerminal();
+  const btn = document.getElementById('btnExecuteServerSync');
   const origHtml = btn ? btn.innerHTML : '';
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Updating Online Time...`;
+    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Syncing Server Time...`;
   }
-  showToast('Fetching certified online atomic time & syncing SpeedFace...', 'info');
+  showToast(`Synchronizing clock on ${target.name} with Attendance Server time...`, 'info');
 
   try {
     const interfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
-    const ip = document.getElementById('settingIp')?.value || '192.168.10.15';
-    const port = document.getElementById('settingPort')?.value || 4370;
-
-    const res = await fetch('/api/device/sync-time', {
+    const res = await fetch(`/api/terminals/${target.id}/time-sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: 'online', ip, port, interfaceIp })
+      body: JSON.stringify({ mode: 'server', interfaceIp })
     });
     const data = await res.json();
 
     if (data.success) {
-      showToast(`SpeedFace clock synced to Online Atomic Time: ${data.confirmedDeviceTime || data.appliedTime}`, 'success', 5000);
-      if (document.getElementById('devTimeVal')) {
-        document.getElementById('devTimeVal').textContent = data.confirmedDeviceTime || data.appliedTime;
-      }
+      const msg = data.confirmedDeviceTime
+        ? `${target.name} clock synced to Server Time: ${data.confirmedDeviceTime}`
+        : (data.message || 'Server time synchronization applied successfully!');
+      showToast(msg, 'success', 5000);
       loadTimeSyncStatus(false);
+      await loadTerminals();
     } else {
-      showToast(data.error || 'Failed to sync online time', 'error');
+      showToast(data.error || 'Failed to sync server time', 'error');
+    }
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+  }
+}
+
+// Execute Cloud Time Sync
+async function syncDeviceTimeCloud() {
+  const target = getSelectedTimeSyncTerminal();
+  const btn = document.getElementById('btnExecuteCloudSync');
+  const origHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Syncing Cloud Time...`;
+  }
+  showToast(`Synchronizing clock on ${target.name} with Cloud Atomic RTC...`, 'info');
+
+  try {
+    const interfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
+    const res = await fetch(`/api/terminals/${target.id}/time-sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'cloud', interfaceIp })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      const msg = data.confirmedDeviceTime
+        ? `${target.name} clock synced to Cloud Time: ${data.confirmedDeviceTime}`
+        : (data.message || 'Cloud time synchronization applied successfully!');
+      showToast(msg, 'success', 5000);
+      loadTimeSyncStatus(false);
+      await loadTerminals();
+    } else {
+      showToast(data.error || 'Failed to sync cloud time', 'error');
     }
   } catch (err) {
     showToast(err.message, 'error');
@@ -6361,32 +7368,31 @@ async function syncDeviceTimeManual() {
     return;
   }
 
+  const target = getSelectedTimeSyncTerminal();
   const btn = document.getElementById('btnExecuteManualSync');
   const origHtml = btn ? btn.innerHTML : '';
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Setting Time...`;
   }
-  showToast(`Encoding custom time (${customTime}) to SpeedFace hardware...`, 'info');
+  showToast(`Writing custom time (${customTime}) to ${target.name} hardware registers...`, 'info');
 
   try {
     const interfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
-    const ip = document.getElementById('settingIp')?.value || '192.168.10.15';
-    const port = document.getElementById('settingPort')?.value || 4370;
-
-    const res = await fetch('/api/device/sync-time', {
+    const res = await fetch(`/api/terminals/${target.id}/time-sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: 'manual', customTime, ip, port, interfaceIp })
+      body: JSON.stringify({ mode: 'manual', customTime, interfaceIp })
     });
     const data = await res.json();
 
     if (data.success) {
-      showToast(`SpeedFace clock successfully updated to: ${data.confirmedDeviceTime || data.appliedTime}`, 'success', 5000);
-      if (document.getElementById('devTimeVal')) {
-        document.getElementById('devTimeVal').textContent = data.confirmedDeviceTime || data.appliedTime;
-      }
+      const msg = data.confirmedDeviceTime
+        ? `${target.name} clock updated to: ${data.confirmedDeviceTime}`
+        : (data.message || 'Custom time applied successfully to hardware registers!');
+      showToast(msg, 'success', 5000);
       loadTimeSyncStatus(false);
+      await loadTerminals();
     } else {
       showToast(data.error || 'Failed to apply custom time', 'error');
     }
@@ -6400,45 +7406,49 @@ async function syncDeviceTimeManual() {
   }
 }
 
-// Execute PC Time Sync
-async function syncDeviceTimePc() {
-  const btn = document.getElementById('btnExecutePcSync');
+// Execute Online Atomic NTP Time Sync
+async function syncDeviceTimeOnline(showFeedback = true) {
+  const target = getSelectedTimeSyncTerminal();
+  const btn = document.getElementById('btnExecuteOnlineSync');
   const origHtml = btn ? btn.innerHTML : '';
-  if (btn) {
+  if (btn && showFeedback) {
     btn.disabled = true;
-    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Syncing PC Time...`;
+    btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Querying NTP Time...`;
   }
-  showToast('Synchronizing SpeedFace with computer system time...', 'info');
+  if (showFeedback) showToast(`Synchronizing ${target.name} with Online Atomic NTP servers...`, 'info');
 
   try {
     const interfaceIp = document.getElementById('settingNetworkInterfaceIp')?.value || null;
-    const ip = document.getElementById('settingIp')?.value || '192.168.10.15';
-    const port = document.getElementById('settingPort')?.value || 4370;
-
-    const res = await fetch('/api/device/sync-time', {
+    const res = await fetch(`/api/terminals/${target.id}/time-sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: 'pc', ip, port, interfaceIp })
+      body: JSON.stringify({ mode: 'online', interfaceIp })
     });
     const data = await res.json();
 
     if (data.success) {
-      showToast(`SpeedFace clock synced with computer: ${data.confirmedDeviceTime || data.appliedTime}`, 'success', 5000);
-      if (document.getElementById('devTimeVal')) {
-        document.getElementById('devTimeVal').textContent = data.confirmedDeviceTime || data.appliedTime;
-      }
+      const msg = data.confirmedDeviceTime
+        ? `${target.name} clock synced to Online NTP Time: ${data.confirmedDeviceTime}`
+        : (data.message || 'Online atomic time applied successfully!');
+      if (showFeedback) showToast(msg, 'success', 5000);
       loadTimeSyncStatus(false);
+      await loadTerminals();
     } else {
-      showToast(data.error || 'Failed to sync with computer time', 'error');
+      if (showFeedback) showToast(data.error || 'Failed to sync online time', 'error');
     }
   } catch (err) {
-    showToast(err.message, 'error');
+    if (showFeedback) showToast(err.message, 'error');
   } finally {
-    if (btn) {
+    if (btn && showFeedback) {
       btn.disabled = false;
       btn.innerHTML = origHtml;
     }
   }
+}
+
+// Execute PC Time Sync (Compatibility wrapper)
+async function syncDeviceTimePc() {
+  return syncDeviceTimeServer();
 }
 
 // Alias for compatibility
@@ -6866,6 +7876,8 @@ function handleWebSocketMessage(msg) {
     loadFirebaseStatus();
   } else if (msg.type === 'FIREBASE_STATUS' || msg.type === 'FIREBASE_STATUS_UPDATE') {
     loadFirebaseStatus();
+  } else if (msg.type === 'TERMINAL_STATUS' || msg.type === 'FLEET_STATUS') {
+    if (typeof loadTerminals === 'function') loadTerminals();
   } else if (msg.type === 'DEVICE_STATUS') {
     const dev = msg.data;
     const isOnline = Boolean(dev.online);
@@ -9532,11 +10544,11 @@ function initFirebaseSync() {
       btnExecuteRestore.disabled = false;
       btnExecuteRestore.innerHTML = '<span>🚀 Start Cloud Restore</span>';
     }
-    modalRestore.style.display = 'flex';
+    modalRestore.classList.add('active');
   }
 
   function closeCloudRestoreModal() {
-    if (modalRestore) modalRestore.style.display = 'none';
+    if (modalRestore) modalRestore.classList.remove('active');
   }
 
   window.openCloudRestoreModal = openCloudRestoreModal;
@@ -11263,6 +12275,10 @@ async function initSettingsTab() {
   await loadOrganizationUsers();
   initOrgSettingsTabForm();
   initAddUserModal();
+  await loadSystemHealth();
+  await loadDatabaseSnapshotsList();
+  await loadSystemLogs();
+  await loadDataResetSummary();
 }
 
 async function loadOrganizationUsers() {
