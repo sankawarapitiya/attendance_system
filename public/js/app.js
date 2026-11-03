@@ -19,6 +19,7 @@ const DEFAULT_PRINT_OPTIONS = {
 
 // Default Employee Registry Columns Definition
 const EMPLOYEE_COLUMNS_DEF = [
+  { key: 'select', label: 'Select', default: true, required: true },
   { key: 'expand', label: 'Dossier', default: true, required: true },
   { key: 'user_id', label: 'FingerPrint ID', default: true },
   { key: 'service_id', label: 'Service ID', default: true },
@@ -235,6 +236,7 @@ const state = {
     currentPage: 1,
     pageSize: 25,
     expandedRows: new Set(),
+    selectedUserIds: new Set(),
     columns: getSavedEmpColumns()
   },
   records: {
@@ -4295,12 +4297,149 @@ async function deleteEmployeeGroupConfirm(id, name) {
   }
 }
 
+function updateEmpSelectionBar() {
+  if (!state.empRegistry.selectedUserIds) {
+    state.empRegistry.selectedUserIds = new Set();
+  }
+  const selectedCount = state.empRegistry.selectedUserIds.size;
+  const bar = document.getElementById('empSelectionBar');
+  const countDisplay = document.getElementById('empSelectedCountDisplay');
+  if (countDisplay) countDisplay.textContent = selectedCount;
+  if (bar) {
+    bar.style.display = selectedCount > 0 ? 'flex' : 'none';
+  }
+
+  const bulkGroupCount = document.getElementById('bulkGroupSelectedCount');
+  if (bulkGroupCount) bulkGroupCount.textContent = selectedCount;
+
+  const bulkShiftCount = document.getElementById('bulkShiftSelectedCount');
+  if (bulkShiftCount) bulkShiftCount.textContent = selectedCount;
+
+  // Header checkbox synchronization
+  const selectAll = document.getElementById('empSelectAllPage');
+  if (selectAll) {
+    const pageItems = typeof getEmpPageItems === 'function' ? getEmpPageItems() : [];
+    if (pageItems.length === 0) {
+      selectAll.checked = false;
+      selectAll.indeterminate = false;
+    } else {
+      const pageSelected = pageItems.filter(e => state.empRegistry.selectedUserIds.has(String(e.user_id))).length;
+      if (pageSelected === pageItems.length) {
+        selectAll.checked = true;
+        selectAll.indeterminate = false;
+      } else if (pageSelected > 0) {
+        selectAll.checked = false;
+        selectAll.indeterminate = true;
+      } else {
+        selectAll.checked = false;
+        selectAll.indeterminate = false;
+      }
+    }
+  }
+}
+window.updateEmpSelectionBar = updateEmpSelectionBar;
+
+function renderBulkGroupPickerList(query = '') {
+  const container = document.getElementById('bulkGroupPickerList');
+  if (!container) return;
+  const q = String(query || '').toLowerCase().trim();
+  const rawList = state.empRegistry.rawList || [];
+  const filtered = q
+    ? rawList.filter(e =>
+        String(e.name || '').toLowerCase().includes(q) ||
+        String(e.user_id || '').toLowerCase().includes(q) ||
+        String(e.department || '').toLowerCase().includes(q) ||
+        String(e.user_group || '').toLowerCase().includes(q)
+      )
+    : rawList;
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="text-muted text-center py-2" style="font-size:0.8rem;">No employees matching search</div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map(emp => {
+    const uId = String(emp.user_id);
+    const isChecked = state.empRegistry.selectedUserIds && state.empRegistry.selectedUserIds.has(uId);
+    const grpBadge = emp.user_group
+      ? `<span class="badge" style="background:#0284c718; color:#0284c7; font-size:0.7rem; padding:1px 6px; border-radius:8px;">🏷️ ${escapeHtml(emp.user_group)}</span>`
+      : '<span class="text-muted" style="font-size:0.7rem;">Unassigned</span>';
+    return `
+      <label style="display:flex; align-items:center; justify-content:space-between; padding:5px 8px; border-radius:4px; font-size:0.82rem; cursor:pointer; background:#fff; border:1px solid #e2e8f0; margin-bottom:2px;">
+        <span style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" class="bulk-group-picker-chk" data-userid="${uId}" ${isChecked ? 'checked' : ''} style="cursor:pointer; width:15px; height:15px;">
+          <span>
+            <strong style="color:#0f172a;">${escapeHtml(emp.name || 'Unassigned')}</strong>
+            <span class="font-mono text-muted" style="font-size:0.75rem; margin-left:4px;">#${uId}</span>
+            <span class="text-muted" style="font-size:0.75rem; margin-left:6px;">(${escapeHtml(emp.department || 'General')})</span>
+          </span>
+        </span>
+        ${grpBadge}
+      </label>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.bulk-group-picker-chk').forEach(chk => {
+    chk.addEventListener('change', () => {
+      const uId = String(chk.getAttribute('data-userid'));
+      if (chk.checked) {
+        state.empRegistry.selectedUserIds.add(uId);
+      } else {
+        state.empRegistry.selectedUserIds.delete(uId);
+      }
+      updateEmpSelectionBar();
+      updateBulkGroupPickerCount();
+      // Also update table checkbox if on current page
+      const tableChk = document.querySelector(`.emp-row-select[data-userid="${uId}"]`);
+      if (tableChk) tableChk.checked = chk.checked;
+    });
+  });
+
+  updateBulkGroupPickerCount();
+}
+
+function updateBulkGroupPickerCount() {
+  const badge = document.getElementById('bulkGroupPickerSelectedBadge');
+  if (badge) badge.textContent = (state.empRegistry.selectedUserIds && state.empRegistry.selectedUserIds.size) || 0;
+}
+
+function updateBulkGroupScopeVisibility() {
+  const scope = document.getElementById('bulkGroupScope')?.value;
+  const deptWrap = document.getElementById('bulkGroupDeptWrap');
+  const pickerWrap = document.getElementById('bulkGroupPickerWrap');
+  if (deptWrap) deptWrap.style.display = scope === 'dept' ? 'block' : 'none';
+  if (pickerWrap) {
+    pickerWrap.style.display = (scope === 'pick' || scope === 'selected') ? 'block' : 'none';
+    if (scope === 'pick' || scope === 'selected') renderBulkGroupPickerList();
+  }
+}
+
 function openBulkGroupModal() {
   const modal = document.getElementById('modalBulkGroup');
   if (!modal) return;
   
+  if (!state.empRegistry.selectedUserIds) {
+    state.empRegistry.selectedUserIds = new Set();
+  }
+  const selectedCount = state.empRegistry.selectedUserIds.size;
+  const filteredCount = (state.empRegistry.filteredList || []).length;
+
   const countSpan = document.getElementById('bulkGroupFilteredCount');
-  if (countSpan) countSpan.textContent = (state.empRegistry.filteredList || []).length;
+  if (countSpan) countSpan.textContent = filteredCount;
+
+  const selCountSpan = document.getElementById('bulkGroupSelectedCount');
+  if (selCountSpan) selCountSpan.textContent = selectedCount;
+
+  const scopeSel = document.getElementById('bulkGroupScope');
+  if (scopeSel) {
+    const optSelected = scopeSel.querySelector('option[value="selected"]');
+    if (optSelected) {
+      optSelected.textContent = `Selected Employees (${selectedCount} selected)`;
+      optSelected.disabled = selectedCount === 0;
+    }
+    // Default to 'selected' if employees are selected, otherwise 'filtered'
+    scopeSel.value = selectedCount > 0 ? 'selected' : 'filtered';
+  }
 
   const deptSelect = document.getElementById('bulkGroupDeptSelect');
   if (deptSelect) {
@@ -4318,6 +4457,7 @@ function openBulkGroupModal() {
     bulkSelect.innerHTML = optHtml;
   }
 
+  updateBulkGroupScopeVisibility();
   modal.classList.add('active');
 }
 
@@ -4326,12 +4466,145 @@ function closeBulkGroupModal() {
   if (modal) modal.classList.remove('active');
 }
 
+async function openAddEmployeeModal() {
+  // Compute next suggested user ID
+  const ids = (state.empRegistry.rawList || [])
+    .map(e => parseInt(e.user_id, 10))
+    .filter(n => !isNaN(n) && n > 0);
+  const maxId = ids.length > 0 ? Math.max(...ids) : 0;
+  const nextId = maxId + 1;
+
+  const userIdInput = document.getElementById('modalUserId');
+  if (userIdInput) {
+    userIdInput.value = nextId;
+    userIdInput.readOnly = false;
+    userIdInput.style.background = '#ffffff';
+  }
+
+  document.getElementById('modalServiceId').value = '';
+  document.getElementById('modalNic').value = '';
+  document.getElementById('modalTitleSelect').value = '';
+  document.getElementById('modalName').value = '';
+  document.getElementById('modalGender').value = '';
+  document.getElementById('modalBirthday').value = '';
+  document.getElementById('modalAppointmentDate').value = '';
+  document.getElementById('modalStatus').value = 'Permanent';
+  document.getElementById('modalDept').value = '';
+  document.getElementById('modalRole').value = '';
+  document.getElementById('modalEmail').value = '';
+  document.getElementById('modalPhone').value = '';
+
+  const grpSelect = document.getElementById('modalUserGroup');
+  if (grpSelect) {
+    let optHtml = '<option value="">-- No Group Assigned --</option>';
+    (state.employeeGroups || []).forEach(g => {
+      optHtml += `<option value="${escapeHtml(g.name)}">🏷️ ${escapeHtml(g.name)}</option>`;
+    });
+    grpSelect.innerHTML = optHtml;
+    grpSelect.value = '';
+  }
+
+  const orgSelect = document.getElementById('modalOrgId');
+  if (orgSelect) {
+    orgSelect.value = getActiveOrgFilter() || '';
+    if (state.currentUser && state.currentUser.role !== 'admin') {
+      orgSelect.value = state.currentUser.orgId;
+      orgSelect.disabled = true;
+    } else {
+      orgSelect.disabled = false;
+    }
+  }
+
+  if (!state.shifts || state.shifts.length === 0) {
+    await loadShifts().catch(() => {});
+  }
+  if (!state.leaveCategories || state.leaveCategories.length === 0) {
+    await loadLeaveCategories().catch(() => {});
+  }
+
+  const leaveSelect = document.getElementById('modalLeaveCategoryId');
+  if (leaveSelect) {
+    if (state.leaveCategories && state.leaveCategories.length > 0) {
+      leaveSelect.innerHTML = state.leaveCategories.map((c) => `
+        <option value="${c.id}" ${c.is_default ? 'selected' : ''}>
+          ${escapeHtml(c.name)} ${c.is_default ? '(Default)' : ''}
+        </option>
+      `).join('');
+    } else {
+      leaveSelect.innerHTML = '<option value="1">Permanent (Default)</option>';
+    }
+  }
+
+  const shiftSelect = document.getElementById('modalShiftId');
+  if (shiftSelect) {
+    if (state.shifts && state.shifts.length > 0) {
+      shiftSelect.innerHTML = state.shifts.map((s) => `
+        <option value="${s.id}">
+          ${escapeHtml(s.name)} (${s.start_time} - ${s.end_time})
+        </option>
+      `).join('');
+    } else {
+      shiftSelect.innerHTML = '<option value="1">General Shift</option>';
+    }
+  }
+
+  const chkActive = document.getElementById('modalIsActive');
+  if (chkActive) chkActive.checked = true;
+
+  const photoImg = document.getElementById('modalPhotoImg');
+  const photoPlaceholder = document.getElementById('modalPhotoPlaceholder');
+  const photoData = document.getElementById('modalPhotoData');
+  const btnRemovePhoto = document.getElementById('btnRemovePhoto');
+  if (photoImg) { photoImg.src = ''; photoImg.style.display = 'none'; }
+  if (photoPlaceholder) { photoPlaceholder.style.display = 'block'; photoPlaceholder.textContent = '👤'; }
+  if (photoData) photoData.value = '';
+  if (btnRemovePhoto) btnRemovePhoto.style.display = 'none';
+
+  document.getElementById('modalTitle').textContent = '+ Add New Employee';
+
+  const modalDeleteBtn = document.getElementById('btnModalDeleteEmployee');
+  if (modalDeleteBtn) modalDeleteBtn.style.display = 'none';
+
+  const btnSave = document.getElementById('btnModalSave');
+  if (btnSave) {
+    btnSave.style.display = 'inline-flex';
+    btnSave.disabled = false;
+    btnSave.style.opacity = '1';
+  }
+
+  const modal = document.getElementById('employeeModal');
+  if (modal) {
+    modal.style.display = 'flex';
+    modal.classList.add('active');
+  }
+}
+window.openAddEmployeeModal = openAddEmployeeModal;
+
 function initEmployeeGroupsUI() {
+  // Add Employee Button
+  document.getElementById('btnAddEmployee')?.addEventListener('click', openAddEmployeeModal);
+
   // Manage Groups buttons
   document.getElementById('btnManageEmpGroups')?.addEventListener('click', openManageGroupsModal);
   document.getElementById('btnManageGroupsClose')?.addEventListener('click', closeManageGroupsModal);
   document.getElementById('btnManageGroupsDone')?.addEventListener('click', closeManageGroupsModal);
   document.getElementById('modalManageGroupsBackdrop')?.addEventListener('click', closeManageGroupsModal);
+
+  // Selection Bar Action Buttons
+  document.getElementById('btnBarAssignGroup')?.addEventListener('click', openBulkGroupModal);
+  document.getElementById('btnBarAssignShift')?.addEventListener('click', () => {
+    if (typeof openBulkShiftModal === 'function') openBulkShiftModal();
+  });
+  document.getElementById('btnBarAssignLeave')?.addEventListener('click', () => {
+    if (typeof openBulkLeaveModal === 'function') openBulkLeaveModal();
+  });
+  document.getElementById('btnEmpDeselectAll')?.addEventListener('click', () => {
+    state.empRegistry.selectedUserIds.clear();
+    document.querySelectorAll('.emp-row-select').forEach(chk => { chk.checked = false; });
+    const selectAll = document.getElementById('empSelectAllPage');
+    if (selectAll) selectAll.checked = false;
+    updateEmpSelectionBar();
+  });
 
   // Color picker sync
   document.getElementById('inputGroupColor')?.addEventListener('input', (e) => {
@@ -4385,11 +4658,34 @@ function initEmployeeGroupsUI() {
   document.getElementById('btnBulkGroupCancel')?.addEventListener('click', closeBulkGroupModal);
   document.getElementById('modalBulkGroupBackdrop')?.addEventListener('click', closeBulkGroupModal);
 
-  document.getElementById('bulkGroupScope')?.addEventListener('change', (e) => {
-    const deptWrap = document.getElementById('bulkGroupDeptWrap');
-    if (deptWrap) {
-      deptWrap.style.display = e.target.value === 'dept' ? 'block' : 'none';
-    }
+  document.getElementById('bulkGroupScope')?.addEventListener('change', updateBulkGroupScopeVisibility);
+
+  // Picker search
+  document.getElementById('bulkGroupPickerSearch')?.addEventListener('input', (e) => {
+    renderBulkGroupPickerList(e.target.value);
+  });
+
+  // Picker select all & clear
+  document.getElementById('btnBulkGroupPickAll')?.addEventListener('click', () => {
+    const container = document.getElementById('bulkGroupPickerList');
+    if (!container) return;
+    container.querySelectorAll('.bulk-group-picker-chk').forEach(chk => {
+      chk.checked = true;
+      state.empRegistry.selectedUserIds.add(String(chk.getAttribute('data-userid')));
+    });
+    updateEmpSelectionBar();
+    updateBulkGroupPickerCount();
+  });
+
+  document.getElementById('btnBulkGroupPickClear')?.addEventListener('click', () => {
+    const container = document.getElementById('bulkGroupPickerList');
+    if (!container) return;
+    container.querySelectorAll('.bulk-group-picker-chk').forEach(chk => {
+      chk.checked = false;
+      state.empRegistry.selectedUserIds.delete(String(chk.getAttribute('data-userid')));
+    });
+    updateEmpSelectionBar();
+    updateBulkGroupPickerCount();
   });
 
   document.getElementById('formBulkGroup')?.addEventListener('submit', async (e) => {
@@ -4404,7 +4700,14 @@ function initEmployeeGroupsUI() {
     const org = getActiveOrgFilter();
 
     let payload = { group_name: groupName, org_id: org };
-    if (scope === 'filtered') {
+    if (scope === 'selected' || scope === 'pick') {
+      const selected = Array.from(state.empRegistry.selectedUserIds || []);
+      if (selected.length === 0) {
+        showToast('Please select at least one employee', 'warning');
+        return;
+      }
+      payload.user_ids = selected;
+    } else if (scope === 'filtered') {
       payload.user_ids = (state.empRegistry.filteredList || []).map(emp => emp.user_id);
     } else if (scope === 'dept') {
       payload.department = document.getElementById('bulkGroupDeptSelect').value;
@@ -4423,6 +4726,8 @@ function initEmployeeGroupsUI() {
         closeBulkGroupModal();
         await loadEmployeeGroups();
         await loadEmployees();
+        state.empRegistry.selectedUserIds.clear();
+        updateEmpSelectionBar();
       } else {
         showToast(data.error || 'Failed to assign group', 'error');
       }
@@ -5251,11 +5556,15 @@ function renderEmployeesTable() {
   const activeCols = EMPLOYEE_COLUMNS_DEF.filter(c => cols[c.key] !== false);
   const visibleColCount = activeCols.length;
 
-  // Set sticky offset property for table
+  // Set sticky offset properties for table
+  const hasSelect = activeCols.some(c => c.key === 'select');
   const hasExpand = activeCols.some(c => c.key === 'expand');
   const empTable = document.getElementById('employeesTable');
   if (empTable) {
-    empTable.style.setProperty('--sticky-name-left', hasExpand ? '44px' : '0px');
+    const expandLeft = hasSelect ? 40 : 0;
+    const nameLeft = (hasSelect ? 40 : 0) + (hasExpand ? 44 : 0);
+    empTable.style.setProperty('--sticky-expand-left', `${expandLeft}px`);
+    empTable.style.setProperty('--sticky-name-left', `${nameLeft}px`);
   }
 
   // Render Table Headers
@@ -5263,6 +5572,9 @@ function renderEmployeesTable() {
     headRow.innerHTML = activeCols.map(c => {
       let align = 'left';
       let stickyClass = '';
+      if (c.key === 'select') {
+        return `<th data-col="select" class="col-sticky-select" style="text-align: center; width: 40px; min-width: 40px; max-width: 40px;"><input type="checkbox" id="empSelectAllPage" style="cursor: pointer; width: 16px; height: 16px;" title="Select all on this page"></th>`;
+      }
       if (c.key === 'expand') { align = 'center'; stickyClass = 'col-sticky-expand'; }
       if (c.key === 'name') { stickyClass = 'col-sticky-name'; }
       if (c.key === 'actions') align = 'center';
@@ -5341,6 +5653,14 @@ function renderEmployeesTable() {
     // Build cells according to activeCols
     const cellsHtml = activeCols.map(c => {
       switch (c.key) {
+        case 'select': {
+          const isChecked = state.empRegistry.selectedUserIds && state.empRegistry.selectedUserIds.has(String(emp.user_id));
+          return `
+            <td class="col-sticky-select" data-col="select" style="text-align: center; width: 40px; min-width: 40px; max-width: 40px;">
+              <input type="checkbox" class="emp-row-select" data-userid="${emp.user_id}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 16px; height: 16px;">
+            </td>
+          `;
+        }
         case 'expand':
           return `
             <td class="col-sticky-expand" data-col="expand" style="text-align: center; width: 44px;">
@@ -5738,6 +6058,43 @@ function attachEmployeeRowListeners() {
       openDeleteEmployeeModal({ user_id: userId, name, department: dept, role });
     });
   });
+
+  // Employee Row Selection Checkboxes
+  document.querySelectorAll('.emp-row-select').forEach(chk => {
+    chk.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const uId = String(chk.getAttribute('data-userid'));
+      if (chk.checked) {
+        state.empRegistry.selectedUserIds.add(uId);
+      } else {
+        state.empRegistry.selectedUserIds.delete(uId);
+      }
+      updateEmpSelectionBar();
+    });
+  });
+
+  // Table Header Select All Checkbox
+  const selectAll = document.getElementById('empSelectAllPage');
+  if (selectAll) {
+    selectAll.onchange = (e) => {
+      const isChecked = e.target.checked;
+      const pageItems = getEmpPageItems();
+      pageItems.forEach(emp => {
+        const uId = String(emp.user_id);
+        if (isChecked) {
+          state.empRegistry.selectedUserIds.add(uId);
+        } else {
+          state.empRegistry.selectedUserIds.delete(uId);
+        }
+      });
+      document.querySelectorAll('.emp-row-select').forEach(chk => {
+        chk.checked = isChecked;
+      });
+      updateEmpSelectionBar();
+    };
+  }
+
+  updateEmpSelectionBar();
 }
 
 async function loadEmployees() {
@@ -5822,7 +6179,12 @@ async function loadEmployees() {
 }
 
 async function openEmployeeModal(emp) {
-  document.getElementById('modalUserId').value = emp.user_id;
+  const userIdInput = document.getElementById('modalUserId');
+  if (userIdInput) {
+    userIdInput.value = emp.user_id;
+    userIdInput.readOnly = true;
+    userIdInput.style.background = '#f1f5f9';
+  }
   document.getElementById('modalServiceId').value = emp.employee_service_id || '';
   document.getElementById('modalNic').value = emp.nic || '';
   document.getElementById('modalTitleSelect').value = emp.title || '';
@@ -8794,13 +9156,21 @@ async function initShiftsAndHolidays() {
     const shift_id = document.getElementById('bulkShiftSelect').value;
     const scope = document.getElementById('bulkShiftScope').value;
     const department = scope === 'dept' ? document.getElementById('bulkShiftDeptSelect').value : '';
+    let user_ids = [];
+    if (scope === 'selected') {
+      user_ids = Array.from(state.empRegistry.selectedUserIds || []);
+      if (user_ids.length === 0) {
+        showToast('Please select at least one employee', 'warning');
+        return;
+      }
+    }
 
     try {
       showToast('Assigning working shift...', 'info');
       const res = await fetch('/api/employees/assign-shift', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shift_id, department })
+        body: JSON.stringify({ shift_id, department, user_ids })
       });
       const data = await res.json();
       if (data.success) {
@@ -9380,6 +9750,19 @@ function downloadSampleHolidaysTemplate(format = 'csv') {
 async function openBulkShiftModal() {
   if (!state.shifts || state.shifts.length === 0) {
     await loadShifts();
+  }
+
+  const selectedCount = (state.empRegistry.selectedUserIds && state.empRegistry.selectedUserIds.size) || 0;
+  const selSpan = document.getElementById('bulkShiftSelectedCount');
+  if (selSpan) selSpan.textContent = selectedCount;
+
+  const scopeSel = document.getElementById('bulkShiftScope');
+  if (scopeSel) {
+    const optSelected = scopeSel.querySelector('option[value="selected"]');
+    if (optSelected) {
+      optSelected.disabled = selectedCount === 0;
+    }
+    scopeSel.value = selectedCount > 0 ? 'selected' : 'all';
   }
 
   const shiftSelect = document.getElementById('bulkShiftSelect');

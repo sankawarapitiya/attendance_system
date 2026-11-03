@@ -998,7 +998,11 @@
                 <span id="btnToggleExpandAllText">Expand All</span>
               </button>
 
-              <button class="btn btn-primary btn-sm" id="btnPushAllToDevice" title="Push all employee names and roles to the SpeedFace terminal">
+              <button class="btn btn-primary btn-sm" id="btnAddEmployee" title="Register a new employee into the system" style="font-weight: 600; display: inline-flex; align-items: center; gap: 6px; background: #059669; border-color: #059669;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                + Add Employee
+              </button>
+              <button class="btn btn-outline btn-sm" id="btnPushAllToDevice" title="Push all employee names and roles to the SpeedFace terminal">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 Sync with Device
               </button>
@@ -1156,6 +1160,27 @@
 
           <!-- Table Container -->
           <div class="card-body table-responsive" style="padding: 0;">
+            <!-- Employee Batch Selection Bar -->
+            <div id="empSelectionBar" style="display: none; background: #e0f2fe; border: 1px solid #7dd3fc; border-radius: 8px; margin: 8px 12px; padding: 8px 16px; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 1.1rem;">☑️</span>
+                <strong style="color: #0369a1; font-size: 0.9rem;"><span id="empSelectedCountDisplay">0</span> employee(s) selected</strong>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <button type="button" class="btn btn-sm btn-primary" id="btnBarAssignGroup" style="background: #0284c7; border-color: #0284c7; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                  🏷️ Assign Group
+                </button>
+                <button type="button" class="btn btn-sm btn-outline" id="btnBarAssignShift" style="border-color: #0284c7; color: #0284c7; background: #fff;">
+                  Assign Shift
+                </button>
+                <button type="button" class="btn btn-sm btn-outline" id="btnBarAssignLeave" style="border-color: #4f46e5; color: #4f46e5; background: #fff;">
+                  Assign Leave
+                </button>
+                <button type="button" class="btn btn-sm btn-outline" id="btnEmpDeselectAll" style="background: #fff;">
+                  Clear Selection
+                </button>
+              </div>
+            </div>
             <table class="data-table" id="employeesTable">
               <thead>
                 <tr id="employeesTableHeadRow">
@@ -7375,10 +7400,29 @@ Loading application logs...
           <div class="form-group" style="margin-bottom: 14px;">
             <label style="font-weight: 600; margin-bottom: 4px;">Assignment Scope *</label>
             <select id="bulkGroupScope" class="form-control">
+              <option value="selected">Selected Employees (<span id="bulkGroupSelectedCount">0</span> selected)</option>
+              <option value="pick">Choose / Search Specific Employees...</option>
               <option value="filtered">Current Filtered List (<span id="bulkGroupFilteredCount">0</span> employees)</option>
               <option value="all">All Organization Employees</option>
               <option value="dept">By Specific Department</option>
             </select>
+          </div>
+
+          <div class="form-group" id="bulkGroupPickerWrap" style="display: none; margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <label style="font-weight: 600; margin-bottom: 0;">Select Employees to Assign</label>
+              <div style="display: flex; gap: 6px;">
+                <button type="button" class="btn btn-xs btn-outline" id="btnBulkGroupPickAll" style="padding: 2px 8px; font-size: 0.72rem;">Select All</button>
+                <button type="button" class="btn btn-xs btn-outline" id="btnBulkGroupPickClear" style="padding: 2px 8px; font-size: 0.72rem;">Clear</button>
+              </div>
+            </div>
+            <input type="text" id="bulkGroupPickerSearch" class="form-control" placeholder="Search employees by name, ID or department..." style="margin-bottom: 8px; font-size: 0.85rem; padding: 6px 10px;">
+            <div id="bulkGroupPickerList" style="max-height: 200px; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px; background: #f8fafc; display: flex; flex-direction: column; gap: 4px;">
+              <!-- Checkboxes rendered dynamically -->
+            </div>
+            <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">
+              <span id="bulkGroupPickerSelectedBadge" style="font-weight: 700; color: #0284c7;">0</span> employee(s) selected
+            </div>
           </div>
 
           <div class="form-group" id="bulkGroupDeptWrap" style="display: none; margin-bottom: 14px;">
@@ -7828,6 +7872,7 @@ Loading application logs...
           <div class="form-group">
             <label>Assign Scope</label>
             <select id="bulkShiftScope" class="form-control">
+              <option value="selected">Selected Employees (<span id="bulkShiftSelectedCount">0</span> selected)</option>
               <option value="all">All Registered Employees</option>
               <option value="dept">By Department...</option>
             </select>

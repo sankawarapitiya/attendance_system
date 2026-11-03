@@ -4219,10 +4219,32 @@ select.form-control {
 }
 
 /* Sticky Columns for Viewing Area Horizontal Scroll */
+/* Sticky Columns for Viewing Area Horizontal Scroll */
+#employeesTable th.col-sticky-select,
+#employeesTable td.col-sticky-select {
+  position: sticky;
+  left: 0;
+  z-index: 6;
+  width: 40px;
+  min-width: 40px;
+  max-width: 40px;
+  background: var(--bg-card, #ffffff);
+  text-align: center;
+}
+
+#employeesTable thead th.col-sticky-select {
+  background: #f8fafc;
+  z-index: 16;
+}
+
+#employeesTable tbody tr:hover td.col-sticky-select {
+  background: #f1f5f9;
+}
+
 #employeesTable th.col-sticky-expand,
 #employeesTable td.col-sticky-expand {
   position: sticky;
-  left: 0;
+  left: var(--sticky-expand-left, 40px);
   z-index: 5;
   width: 44px;
   min-width: 44px;
