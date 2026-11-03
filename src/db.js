@@ -1201,17 +1201,18 @@ async function saveSystemUser(userData) {
 
   await dbRun(`
     INSERT INTO system_users (uid, email, username, password_hash, display_name, role, org_id, phone, firebase_uid, is_active)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    VALUES (?, ?, ?, COALESCE(NULLIF(?, ''), '123456'), ?, ?, ?, ?, ?, 1)
     ON CONFLICT(uid, org_id) DO UPDATE SET
       email = excluded.email,
       username = excluded.username,
       display_name = excluded.display_name,
       role = excluded.role,
+      password_hash = CASE WHEN excluded.password_hash != '' THEN excluded.password_hash ELSE system_users.password_hash END,
       org_id = excluded.org_id,
       phone = excluded.phone,
       firebase_uid = COALESCE(excluded.firebase_uid, system_users.firebase_uid),
       updated_at = CURRENT_TIMESTAMP
-  `, [uid, email, username, passwordHash, displayName, role, orgId, phone, firebaseUid]);
+  `, [uid, email, username, passwordHash, passwordHash, displayName, role, orgId, phone, firebaseUid]);
 
   return getSystemUserByUid(uid, orgId);
 }
@@ -3203,7 +3204,7 @@ async function upsertSystemUsersFromCloud(usersList = [], targetOrgId = 'DSOFFIC
       if (existing && existing.password_hash) {
         pwdHash = existing.password_hash;
       } else {
-        pwdHash = (role === 'admin' ? 'admin123' : (role === 'manager' ? 'manager123' : 'staff123'));
+        pwdHash = '123456';
       }
     }
 
