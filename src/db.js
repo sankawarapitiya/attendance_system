@@ -3181,15 +3181,37 @@ async function upsertSystemUsersFromCloud(usersList = [], targetOrgId = 'DSOFFIC
     const email = (u.email || '').trim().toLowerCase();
     const displayName = (u.displayName || u.display_name || username).trim();
     const role = (u.role || 'staff').toLowerCase();
-    const pwdHash = u.passwordHash || u.password_hash || '';
+    const cloudPwd = u.passwordHash || u.password_hash || u.password || '';
     const userOrg = (u.organizationId || u.org_id || org).trim().toUpperCase();
+    const phone = u.phone || '';
+    const firebaseUid = u.firebaseUid || u.firebase_uid || null;
     const isActive = u.isActive !== undefined ? (u.isActive ? 1 : 0) : (u.is_active !== undefined ? u.is_active : 1);
+
+    // Check if user already exists locally by uid or (username, org_id)
+    const existing = await dbGet(
+      `SELECT uid, password_hash FROM system_users WHERE (uid = ? OR (LOWER(username) = ? AND org_id = ?)) AND org_id = ?`,
+      [uid, username.toLowerCase(), userOrg, userOrg]
+    );
+
+    if (existing && existing.uid !== uid) {
+      // Avoid unique constraint violation on idx_sys_user_uname_org by cleaning obsolete row
+      await dbRun(`DELETE FROM system_users WHERE uid = ? AND org_id = ?`, [existing.uid, userOrg]);
+    }
+
+    let pwdHash = cloudPwd;
+    if (!pwdHash) {
+      if (existing && existing.password_hash) {
+        pwdHash = existing.password_hash;
+      } else {
+        pwdHash = (role === 'admin' ? 'admin123' : (role === 'manager' ? 'manager123' : 'staff123'));
+      }
+    }
 
     await dbRun(`
       INSERT INTO system_users (
-        uid, username, email, display_name, role, password_hash, org_id, is_active,
+        uid, username, email, display_name, role, password_hash, org_id, phone, firebase_uid, is_active,
         synced_to_cloud, cloud_synced_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       ON CONFLICT(uid, org_id) DO UPDATE SET
         username = excluded.username,
         email = excluded.email,
@@ -3197,11 +3219,13 @@ async function upsertSystemUsersFromCloud(usersList = [], targetOrgId = 'DSOFFIC
         role = excluded.role,
         password_hash = CASE WHEN excluded.password_hash != '' THEN excluded.password_hash ELSE system_users.password_hash END,
         org_id = excluded.org_id,
+        phone = excluded.phone,
+        firebase_uid = COALESCE(excluded.firebase_uid, system_users.firebase_uid),
         is_active = excluded.is_active,
         synced_to_cloud = 1,
         cloud_synced_at = CURRENT_TIMESTAMP,
         updated_at = CURRENT_TIMESTAMP
-    `, [uid, username, email, displayName, role, pwdHash, userOrg, isActive]);
+    `, [uid, username, email, displayName, role, pwdHash, userOrg, phone, firebaseUid, isActive]);
     count++;
   }
   return { inserted: count, total: usersList.length };

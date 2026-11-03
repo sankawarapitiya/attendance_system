@@ -12594,6 +12594,68 @@ window.printUserLoginTimesheet = function() {
 // SYSTEM AUTHENTICATION, RBAC & SETTINGS / USER MANAGEMENT LOGIC
 // ============================================================================
 
+let isLoginSyncRunning = false;
+let lastLoginSyncTime = 0;
+
+async function syncSystemUsersOnLogin(targetOrg = null, force = false) {
+  const orgInput = document.getElementById('inputLoginOrgId');
+  const orgId = (targetOrg || orgInput?.value || localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+
+  // Rate limit: don't re-sync within 10 seconds unless forced
+  const now = Date.now();
+  if (!force && isLoginSyncRunning) return;
+  if (!force && (now - lastLoginSyncTime < 10000)) return;
+
+  isLoginSyncRunning = true;
+  lastLoginSyncTime = now;
+
+  const syncBox = document.getElementById('loginCloudSyncStatus');
+  const syncIcon = document.getElementById('loginCloudSyncIcon');
+  const syncText = document.getElementById('loginCloudSyncText');
+
+  if (syncBox && syncText && syncIcon) {
+    syncBox.style.display = 'flex';
+    syncBox.style.background = '#f0f9ff';
+    syncBox.style.borderColor = '#bae6fd';
+    syncBox.style.color = '#0369a1';
+    syncIcon.className = 'spin';
+    syncIcon.textContent = '';
+    syncIcon.style.display = 'inline-block';
+    syncText.textContent = `Syncing users from cloud for ${orgId}...`;
+  }
+
+  try {
+    const res = await fetch('/api/auth/sync-users-from-cloud', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orgId })
+    });
+    const data = await res.json();
+
+    if (data.success && syncBox && syncText && syncIcon) {
+      syncIcon.className = '';
+      syncIcon.style.display = 'none';
+      syncBox.style.background = '#f0fdf4';
+      syncBox.style.borderColor = '#bbf7d0';
+      syncBox.style.color = '#15803d';
+      const count = data.count !== undefined ? data.count : (data.totalUsers || 0);
+      syncText.innerHTML = `☁️ Cloud Users Synchronized (${count} user${count === 1 ? '' : 's'} available)`;
+
+      setTimeout(() => {
+        if (syncBox && syncBox.style.color === 'rgb(21, 128, 61)') {
+          syncBox.style.display = 'none';
+        }
+      }, 3500);
+    }
+  } catch (err) {
+    console.warn('[AUTH] Background cloud users sync noticed offline or error:', err.message);
+    if (syncBox) syncBox.style.display = 'none';
+  } finally {
+    isLoginSyncRunning = false;
+  }
+}
+window.syncSystemUsersOnLogin = syncSystemUsersOnLogin;
+
 function lockSystem() {
   document.body.classList.add('system-locked');
   const modal = document.getElementById('modalSystemLogin');
@@ -12614,6 +12676,11 @@ function lockSystem() {
     if (!orgInput.value) {
       orgInput.value = localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
     }
+  }
+
+  // Automatically sync system users from cloud when System Authentication page loads
+  if (typeof syncSystemUsersOnLogin === 'function') {
+    syncSystemUsersOnLogin(orgInput ? orgInput.value : null);
   }
   const alertBox = document.getElementById('loginAlertBox');
   if (alertBox) {
@@ -12801,6 +12868,7 @@ function initSystemAuth() {
       const lockedNotice = document.getElementById('loginLockedNotice');
       if (lockedNotice) lockedNotice.style.display = 'none';
       setTimeout(() => { try { userInput?.focus(); } catch (err) {} }, 100);
+      syncSystemUsersOnLogin(curOrg);
     }
   };
   const openLoginModal = window.openLoginModal;
@@ -12823,6 +12891,22 @@ function initSystemAuth() {
   btnSettingsSwitchUserHero?.addEventListener('click', openLoginModal);
   userPill?.addEventListener('click', openLoginModal);
   btnCloseModal?.addEventListener('click', closeLoginModal);
+
+  // Sync users when organization partition ID is changed or manually requested
+  orgInput?.addEventListener('blur', () => {
+    if (orgInput.value && orgInput.value.trim()) {
+      syncSystemUsersOnLogin(orgInput.value.trim());
+    }
+  });
+  orgInput?.addEventListener('change', () => {
+    if (orgInput.value && orgInput.value.trim()) {
+      syncSystemUsersOnLogin(orgInput.value.trim());
+    }
+  });
+  document.getElementById('btnManualLoginSync')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    syncSystemUsersOnLogin(orgInput?.value, true);
+  });
 
   // Hook sidebar Cloud Sync pill click -> navigate to System Settings / firebase section
   document.getElementById('sidebarCloudSyncPill')?.addEventListener('click', () => {

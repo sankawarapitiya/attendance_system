@@ -3913,9 +3913,18 @@ router.post('/auth/login', async (req, res) => {
     }
 
     // Validate Organization Partition ID against recognized system partitions
-    const validOrgs = await getValidOrganizationIds();
-    const cleanInputOrg = trimmedOrgId.toUpperCase();
-    const isOrgKnown = validOrgs.map(o => o.toUpperCase()).includes(cleanInputOrg);
+    let validOrgs = await getValidOrganizationIds();
+    let cleanInputOrg = trimmedOrgId.toUpperCase();
+    let isOrgKnown = validOrgs.map(o => o.toUpperCase()).includes(cleanInputOrg);
+
+    // If partition is not yet known locally, attempt on-the-fly cloud sync for this partition
+    if (!isOrgKnown) {
+      try {
+        await firebaseService.syncSystemUsersFromCloud(trimmedOrgId);
+        validOrgs = await getValidOrganizationIds();
+        isOrgKnown = validOrgs.map(o => o.toUpperCase()).includes(cleanInputOrg);
+      } catch (e) {}
+    }
 
     if (!isOrgKnown) {
       return res.status(401).json({
@@ -3982,6 +3991,14 @@ router.post('/auth/login', async (req, res) => {
     }
 
     let user = await getSystemUserByIdentifier(inputIdentifier, trimmedOrgId);
+    if (!user) {
+      // Attempt on-the-fly cloud sync in case user was recently added or modified in Firestore
+      try {
+        await firebaseService.syncSystemUsersFromCloud(trimmedOrgId);
+        user = await getSystemUserByIdentifier(inputIdentifier, trimmedOrgId);
+      } catch (e) {}
+    }
+
     if (!user) {
       // Check if user exists across other partitions
       const globalUser = await getSystemUserByIdentifier(inputIdentifier);
@@ -4145,12 +4162,36 @@ router.delete('/auth/users/:uid', async (req, res) => {
   }
 });
 
-// 6. Push Organization Users to Firestore
+// 6. Synchronize Organization Users with Firestore (Upload, Download, or Two-way)
 router.post('/auth/sync-users', async (req, res) => {
   try {
     const orgSetting = await dbGet(`SELECT value FROM settings WHERE key = 'firestore_org_id'`);
     const targetOrg = req.body?.orgId || (orgSetting ? orgSetting.value : 'DSOFFICE_LUNUGAMWEHERA');
+    const direction = req.body?.direction || 'upload'; // 'upload', 'download', 'two_way'
+
+    if (direction === 'download') {
+      const result = await firebaseService.syncSystemUsersFromCloud(targetOrg);
+      return res.json(result);
+    } else if (direction === 'two_way') {
+      const down = await firebaseService.syncSystemUsersFromCloud(targetOrg);
+      const up = await firebaseService.syncSystemUsersToCloud(targetOrg);
+      return res.json({ success: true, download: down, upload: up });
+    }
+
     const result = await firebaseService.syncSystemUsersToCloud(targetOrg);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 7. Pull & Synchronize System Users from Cloud Firestore to SQLite (On Login & On Demand)
+router.post('/auth/sync-users-from-cloud', async (req, res) => {
+  try {
+    const orgSetting = await dbGet(`SELECT value FROM settings WHERE key = 'firestore_org_id'`);
+    const requestedOrg = req.body?.orgId;
+    const targetOrg = (requestedOrg && requestedOrg.trim()) ? requestedOrg.trim() : (orgSetting ? orgSetting.value : 'ALL');
+    const result = await firebaseService.syncSystemUsersFromCloud(targetOrg);
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

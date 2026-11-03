@@ -9035,9 +9035,18 @@ Loading application logs...
       <!-- Modal Body -->
       <div style="padding: 22px;">
         <!-- System Locked Banner -->
-        <div id="loginLockedNotice" style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; color: #991b1b; font-size: 0.82rem; font-weight: 600;">
+        <div id="loginLockedNotice" style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; color: #991b1b; font-size: 0.82rem; font-weight: 600;">
           <span style="font-size: 1rem;">🔒</span>
           <span>System Locked. Please sign in to unlock access.</span>
+        </div>
+
+        <!-- Cloud Users Sync Status Indicator -->
+        <div id="loginCloudSyncStatus" style="display: none; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.76rem; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 6px 12px; margin-bottom: 14px; color: #0369a1; transition: all 0.3s ease;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span id="loginCloudSyncIcon" class="spin" style="width: 12px; height: 12px; border: 2px solid #0284c7; border-top-color: transparent; border-radius: 50%; display: inline-block;"></span>
+            <span id="loginCloudSyncText" style="font-weight: 500;">Syncing system users from cloud...</span>
+          </div>
+          <button type="button" id="btnManualLoginSync" style="background: none; border: none; color: #0284c7; cursor: pointer; font-size: 0.74rem; font-weight: 600; text-decoration: underline; padding: 0;" title="Refresh cloud users">Sync Now</button>
         </div>
 
         <form id="formSystemLogin">

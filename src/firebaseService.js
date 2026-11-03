@@ -1450,6 +1450,7 @@ class FirebaseService {
             role: u.role,
             orgId: u.org_id,
             phone: u.phone || '',
+            passwordHash: u.password_hash || '',
             isActive: Boolean(u.is_active),
             updatedAt: nowIso
           })
@@ -1485,6 +1486,7 @@ class FirebaseService {
           role: user.role || 'staff',
           orgId: targetOrg,
           phone: user.phone || '',
+          passwordHash: user.password_hash || user.password || '',
           isActive: user.is_active !== undefined ? Boolean(user.is_active) : true,
           updatedAt: nowIso
         })
@@ -1520,6 +1522,80 @@ class FirebaseService {
       return { success: false, error: err.message };
     }
   }
+
+  /**
+   * Synchronize system users from Cloud Firestore into local SQLite.
+   * If orgId is provided, syncs that partition. If 'ALL' or empty, discovers all partitions in Firestore.
+   */
+  async syncSystemUsersFromCloud(orgId = null) {
+    await this.init();
+    if (!this.firestore) return { success: false, error: 'Firebase is not initialized or offline' };
+
+    const orgConfig = await this.getOrganizationConfig();
+    const defaultOrg = (orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+
+    const targetOrgs = new Set();
+    if (orgId && typeof orgId === 'string' && orgId.trim() && orgId.trim().toUpperCase() !== 'ALL') {
+      targetOrgs.add(orgId.trim().toUpperCase());
+    } else {
+      try {
+        const orgDocs = await this.firestore.collection('organizations').get();
+        if (!orgDocs.empty) {
+          orgDocs.forEach(d => {
+            if (d.id && d.id.trim()) targetOrgs.add(d.id.trim().toUpperCase());
+          });
+        }
+      } catch (e) {
+        console.warn('[FIREBASE] Failed listing organizations collection, using default org:', e.message);
+      }
+      targetOrgs.add(defaultOrg);
+    }
+
+    let totalUsersCount = 0;
+    const syncedOrgs = [];
+    const allUsers = [];
+
+    for (const org of targetOrgs) {
+      try {
+        const snap = await this.firestore.collection(`organizations/${org}/system_users`).get();
+        if (!snap.empty) {
+          const usersList = [];
+          snap.forEach(doc => {
+            const data = doc.data();
+            usersList.push({
+              uid: data.uid || doc.id,
+              username: data.username,
+              email: data.email,
+              displayName: data.displayName || data.display_name,
+              role: data.role,
+              orgId: data.orgId || data.org_id || org,
+              phone: data.phone || '',
+              passwordHash: data.passwordHash || data.password_hash || data.password || '',
+              isActive: data.isActive !== undefined ? data.isActive : data.is_active,
+              firebaseUid: data.firebaseUid || data.firebase_uid || null
+            });
+          });
+
+          if (usersList.length > 0) {
+            const res = await upsertSystemUsersFromCloud(usersList, org);
+            totalUsersCount += (res.inserted || usersList.length);
+            allUsers.push(...usersList);
+            syncedOrgs.push({ org, count: usersList.length });
+          }
+        }
+      } catch (err) {
+        console.error(`[FIREBASE] Error syncing system_users for org "${org}":`, err.message);
+      }
+    }
+
+    return {
+      success: true,
+      count: totalUsersCount,
+      orgs: syncedOrgs,
+      totalUsers: allUsers.length
+    };
+  }
+
 
   /**
    * Synchronize Working Shifts for an organization partition (two-way, upload, or download).
