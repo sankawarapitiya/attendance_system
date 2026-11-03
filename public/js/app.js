@@ -27,6 +27,7 @@ const EMPLOYEE_COLUMNS_DEF = [
   { key: 'gender', label: 'Gender', default: true },
   { key: 'department', label: 'Department', default: true },
   { key: 'role', label: 'Role / Designation', default: true },
+  { key: 'group', label: 'User Group', default: true },
   { key: 'employment_status', label: 'Employment Status', default: true },
   { key: 'appointment_date', label: 'Appointment Date', default: false },
   { key: 'birthday', label: 'Birthday & Age', default: false },
@@ -216,6 +217,7 @@ const state = {
     columns: {}
   },
   employeesFilter: 'all',
+  employeeGroups: [],
   empRegistry: {
     rawList: [],
     filteredList: [],
@@ -228,6 +230,7 @@ const state = {
     genderFilter: 'all',
     cardFilter: 'all',
     activityFilter: 'all',
+    groupFilter: 'all',
     sortBy: 'user_id_asc',
     currentPage: 1,
     pageSize: 25,
@@ -4325,6 +4328,7 @@ async function initEmployees() {
   bindFilterSelect('filterEmpGender', 'genderFilter');
   bindFilterSelect('filterEmpCard', 'cardFilter');
   bindFilterSelect('filterEmpActivity', 'activityFilter');
+  bindFilterSelect('filterEmpGroup', 'groupFilter');
   bindFilterSelect('filterEmpSort', 'sortBy');
 
   // Reset Filters
@@ -4351,6 +4355,8 @@ async function initEmployees() {
     resetVal('filterEmpGender', 'all');
     resetVal('filterEmpCard', 'all');
     resetVal('filterEmpActivity', 'all');
+    resetVal('filterEmpGroup', 'all');
+    state.empRegistry.groupFilter = 'all';
     resetVal('filterEmpSort', 'user_id_asc');
 
     [filterAll, filterActive, filterInactive].forEach(btn => btn?.classList.remove('active'));
@@ -4558,6 +4564,7 @@ async function initEmployees() {
       employment_status: document.getElementById('modalStatus').value,
       department: document.getElementById('modalDept').value,
       role: document.getElementById('modalRole').value,
+      user_group: document.getElementById('modalUserGroup')?.value || '',
       shift_id: parseInt(document.getElementById('modalShiftId')?.value, 10) || 1,
       leave_category_id: leaveCatId,
       org_id: orgId,
@@ -4721,7 +4728,8 @@ function applyEmployeeFilters() {
         String(e.role || '').toLowerCase().includes(q) ||
         String(e.phone || '').toLowerCase().includes(q) ||
         String(e.email || '').toLowerCase().includes(q) ||
-        String(e.card_no || '').toLowerCase().includes(q)
+        String(e.card_no || '').toLowerCase().includes(q) ||
+        String(e.user_group || '').toLowerCase().includes(q)
       );
     });
   }
@@ -4756,6 +4764,15 @@ function applyEmployeeFilters() {
     list = list.filter(e => e.card_no && String(e.card_no).trim() !== '' && String(e.card_no).trim() !== '0');
   } else if (reg.cardFilter === 'no_card') {
     list = list.filter(e => !e.card_no || String(e.card_no).trim() === '' || String(e.card_no).trim() === '0');
+  }
+
+  // User Defined Group Filter
+  if (reg.groupFilter && reg.groupFilter !== 'all') {
+    if (reg.groupFilter === 'unassigned') {
+      list = list.filter(e => !e.user_group || String(e.user_group).trim() === '');
+    } else {
+      list = list.filter(e => String(e.user_group || '').toLowerCase() === reg.groupFilter.toLowerCase());
+    }
   }
 
   // 9. Activity
@@ -4805,6 +4822,7 @@ function applyEmployeeFilters() {
   if (reg.genderFilter !== 'all') activeFilterCount++;
   if (reg.cardFilter !== 'all') activeFilterCount++;
   if (reg.activityFilter !== 'all') activeFilterCount++;
+  if (reg.groupFilter && reg.groupFilter !== 'all') activeFilterCount++;
 
   const badge = document.getElementById('empActiveFiltersBadge');
   if (badge) {
@@ -4920,6 +4938,7 @@ function renderEmployeesTable() {
       if (c.key === 'name') { stickyClass = 'col-sticky-name'; }
       if (c.key === 'actions') align = 'center';
       if (c.key === 'gender') align = 'center';
+      if (c.key === 'group') align = 'center';
       if (c.key === 'status') align = 'center';
       return `<th data-col="${c.key}" class="${stickyClass}" style="text-align:${align};">${escapeHtml(c.label)}</th>`;
     }).join('');
@@ -5025,6 +5044,22 @@ function renderEmployeesTable() {
           return `<td data-col="department"><span class="cell-primary">${escapeHtml(emp.department || 'General')}</span></td>`;
         case 'role':
           return `<td data-col="role"><span class="cell-primary">${escapeHtml(emp.role || 'Staff')}</span></td>`;
+        case 'group': {
+          const gName = emp.user_group && String(emp.user_group).trim();
+          if (gName) {
+            const grpObj = (state.employeeGroups || []).find(g => (g.name || '').toLowerCase() === gName.toLowerCase());
+            const gColor = grpObj?.color || '#0284c7';
+            return `
+              <td data-col="group" style="text-align: center;">
+                <span class="badge" style="background: ${gColor}18; color: ${gColor}; border: 1px solid ${gColor}45; font-weight: 700; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;">
+                  <span style="width: 6px; height: 6px; border-radius: 50%; background: ${gColor}; display: inline-block;"></span>
+                  ${escapeHtml(gName)}
+                </span>
+              </td>
+            `;
+          }
+          return `<td data-col="group" style="text-align: center;"><span class="text-muted" style="font-size:0.8rem;">-</span></td>`;
+        }
         case 'employment_status':
           return `<td data-col="employment_status">${statusBadge}</td>`;
         case 'appointment_date':
@@ -5138,6 +5173,7 @@ function renderEmployeesTable() {
                     <div class="emp-dossier-item"><span class="emp-dossier-label">Service ID:</span><span class="emp-dossier-val font-mono">${escapeHtml(emp.employee_service_id || '-')}</span></div>
                     <div class="emp-dossier-item"><span class="emp-dossier-label">Department:</span><span class="emp-dossier-val">${escapeHtml(emp.department || 'General')}</span></div>
                     <div class="emp-dossier-item"><span class="emp-dossier-label">Designation / Role:</span><span class="emp-dossier-val">${escapeHtml(emp.role || 'Staff')}</span></div>
+                <div class="emp-dossier-item"><span class="emp-dossier-label">User Group:</span><span class="emp-dossier-val">${emp.user_group ? `<span class="badge-tag" style="background:#0284c718; color:#0284c7; border:1px solid #0284c740; font-weight:700;">🏷️ ${escapeHtml(emp.user_group)}</span>` : '<span class="text-muted">Unassigned</span>'}</span></div>
                     <div class="emp-dossier-item"><span class="emp-dossier-label">Employment Status:</span><span class="emp-dossier-val">${escapeHtml(emp.employment_status || 'Permanent')}</span></div>
                     <div class="emp-dossier-item">
                       <span class="emp-dossier-label">Leave Policy:</span>
@@ -5376,6 +5412,9 @@ function attachEmployeeRowListeners() {
 }
 
 async function loadEmployees() {
+  if (!state.employeeGroups || state.employeeGroups.length === 0) {
+    await loadEmployeeGroups().catch(() => {});
+  }
   if (!state.leaveCategories || state.leaveCategories.length === 0) {
     await loadLeaveCategories().catch(() => {});
   }
@@ -5401,6 +5440,18 @@ async function loadEmployees() {
       if (elAll) elAll.textContent = data.counts.total ?? 0;
       if (elAct) elAct.textContent = data.counts.active ?? 0;
       if (elInact) elInact.textContent = data.counts.inactive ?? 0;
+    }
+
+    // Dynamically populate user groups dropdown
+    const grpFilterSelect = document.getElementById('filterEmpGroup');
+    if (grpFilterSelect) {
+      const currentGrp = grpFilterSelect.value;
+      let optHtml = '<option value="all">All Groups</option><option value="unassigned">-- Unassigned --</option>';
+      (state.employeeGroups || []).forEach(g => {
+        optHtml += `<option value="${escapeHtml(g.name)}">🏷️ ${escapeHtml(g.name)} (${g.member_count || 0})</option>`;
+      });
+      grpFilterSelect.innerHTML = optHtml;
+      if (currentGrp) grpFilterSelect.value = currentGrp;
     }
 
     // Dynamically populate department dropdown
@@ -5453,6 +5504,19 @@ async function openEmployeeModal(emp) {
   document.getElementById('modalStatus').value = emp.employment_status || 'Permanent';
   document.getElementById('modalDept').value = emp.department || '';
   document.getElementById('modalRole').value = emp.role || '';
+  const grpSelect = document.getElementById('modalUserGroup');
+  if (grpSelect) {
+    const curVal = emp.user_group || '';
+    let optHtml = '<option value="">-- No Group Assigned --</option>';
+    (state.employeeGroups || []).forEach(g => {
+      optHtml += `<option value="${escapeHtml(g.name)}" ${(g.name||'').toLowerCase() === curVal.toLowerCase() ? 'selected' : ''}>🏷️ ${escapeHtml(g.name)}</option>`;
+    });
+    if (curVal && !(state.employeeGroups || []).some(g => (g.name||'').toLowerCase() === curVal.toLowerCase())) {
+      optHtml += `<option value="${escapeHtml(curVal)}" selected>🏷️ ${escapeHtml(curVal)}</option>`;
+    }
+    grpSelect.innerHTML = optHtml;
+    grpSelect.value = curVal;
+  }
   document.getElementById('modalEmail').value = emp.email || '';
   document.getElementById('modalPhone').value = emp.phone || '';
 

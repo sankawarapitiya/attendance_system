@@ -1002,7 +1002,15 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 Sync with Device
               </button>
-                            <button class="btn btn-outline btn-sm" id="btnOpenBulkLeaveModal" style="border-color: #4f46e5; color: #4f46e5; font-weight: 600;" title="Bulk assign leave category & quota to employees">
+                            <button class="btn btn-outline btn-sm" id="btnManageEmpGroups" title="Create and manage user-defined employee groups" style="border-color: #0284c7; color: #0284c7; font-weight: 600;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                Manage Groups
+              </button>
+              <button class="btn btn-outline btn-sm" id="btnOpenBulkGroupModal" style="border-color: #0891b2; color: #0891b2; font-weight: 600;" title="Bulk assign group to employees">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
+                Assign Group
+              </button>
+              <button class="btn btn-outline btn-sm" id="btnOpenBulkLeaveModal" style="border-color: #4f46e5; color: #4f46e5; font-weight: 600;" title="Bulk assign leave category & quota to employees">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
                 Assign Leave
               </button>
@@ -1063,6 +1071,12 @@
             <!-- Collapsible Advanced Filter Drawer -->
             <div id="empAdvancedFilterPanel" class="emp-filter-drawer" style="display: none;">
               <div class="emp-filter-grid">
+                <div class="emp-filter-item">
+                  <label for="filterEmpGroup">User Group</label>
+                  <select id="filterEmpGroup">
+                    <option value="all">All Groups</option>
+                  </select>
+                </div>
                 <div class="emp-filter-item">
                   <label for="filterEmpDept">Department</label>
                   <select id="filterEmpDept">
@@ -7204,24 +7218,34 @@ Loading application logs...
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
             <div class="form-group">
-              <label>Assigned Working Shift</label>
-              <select id="modalShiftId" class="form-control"></select>
+              <label>User Defined Group</label>
+              <div style="display: flex; gap: 6px;">
+                <select id="modalUserGroup" class="form-control">
+                  <option value="">-- No Group Assigned --</option>
+                </select>
+                <button type="button" class="btn btn-sm btn-outline" id="btnQuickAddGroup" title="Quickly create a new group" style="padding: 0 10px; font-weight: 800; border-color: #0284c7; color: #0284c7; flex-shrink: 0;">+</button>
+              </div>
             </div>
             <div class="form-group">
-              <label>Leave Category Scheme</label>
-              <select id="modalLeaveCategoryId" class="form-control"></select>
+              <label>Assigned Working Shift</label>
+              <select id="modalShiftId" class="form-control"></select>
             </div>
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
             <div class="form-group">
+              <label>Leave Category Scheme</label>
+              <select id="modalLeaveCategoryId" class="form-control"></select>
+            </div>
+            <div class="form-group">
               <label>Mobile / Phone Number</label>
               <input type="text" id="modalPhone" class="form-control" placeholder="071xxxxxxx">
             </div>
-            <div class="form-group">
-              <label>Email Address</label>
-              <input type="email" id="modalEmail" class="form-control" placeholder="name@company.com">
-            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" id="modalEmail" class="form-control" placeholder="name@company.com">
           </div>
 
           <div class="form-group" style="margin-top: 10px;">
@@ -7259,6 +7283,116 @@ Loading application logs...
               Save &amp; Sync with Device
             </button>
           </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- Manage Employee Groups Modal -->
+  <div class="modal" id="modalManageGroups" style="z-index: 2200;">
+    <div class="modal-backdrop" id="modalManageGroupsBackdrop"></div>
+    <div class="modal-content" style="max-width: 650px;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.25rem;">📁</span>
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700;">User Defined Employee Groups</h3>
+        </div>
+        <button class="btn-close" id="btnManageGroupsClose">&times;</button>
+      </div>
+      <div class="modal-body" style="max-height: 75vh; overflow-y: auto;">
+        <!-- Create / Edit Group Form -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+          <h4 id="groupFormTitle" style="margin: 0 0 10px 0; font-size: 0.92rem; font-weight: 700; color: #1e293b;">+ Create New Group</h4>
+          <form id="formSaveEmployeeGroup">
+            <input type="hidden" id="inputGroupId" value="">
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px; margin-bottom: 10px;">
+              <div>
+                <label style="font-size: 0.8rem; font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Group Name *</label>
+                <input type="text" id="inputGroupName" class="form-control" placeholder="e.g. Field Officers, Night Wardens" required style="font-size: 0.85rem;">
+              </div>
+              <div>
+                <label style="font-size: 0.8rem; font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Tag Color</label>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  <input type="color" id="inputGroupColor" value="#3b82f6" style="width: 38px; height: 35px; padding: 2px; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer;">
+                  <span id="inputGroupColorHex" style="font-family: monospace; font-size: 0.8rem; color: #64748b;">#3b82f6</span>
+                </div>
+              </div>
+            </div>
+            <div style="margin-bottom: 10px;">
+              <label style="font-size: 0.8rem; font-weight: 600; color: #475569; display: block; margin-bottom: 4px;">Description (Optional)</label>
+              <input type="text" id="inputGroupDesc" class="form-control" placeholder="e.g. Outdoor assignment roster team" style="font-size: 0.85rem;">
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 8px;">
+              <button type="button" class="btn btn-sm btn-outline" id="btnCancelEditGroup" style="display: none;">Cancel</button>
+              <button type="submit" class="btn btn-sm btn-primary" id="btnSaveGroup">Save Group</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Existing Groups List -->
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <strong style="font-size: 0.9rem; color: #1e293b;">Defined Groups (<span id="countGroupsList">0</span>)</strong>
+            <span style="font-size: 0.78rem; color: #64748b;">Assigned directly in employee profiles or via bulk assign</span>
+          </div>
+          <div id="groupsListContainer" style="display: flex; flex-direction: column; gap: 8px;">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: flex-end;">
+        <button type="button" class="btn btn-outline" id="btnManageGroupsDone">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bulk Assign Employee Group Modal -->
+  <div class="modal" id="modalBulkGroup" style="z-index: 2200;">
+    <div class="modal-backdrop" id="modalBulkGroupBackdrop"></div>
+    <div class="modal-content" style="max-width: 520px;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.25rem;">🏷️</span>
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700;">Bulk Assign User Group</h3>
+        </div>
+        <button class="btn-close" id="btnBulkGroupClose">&times;</button>
+      </div>
+      <form id="formBulkGroup">
+        <div class="modal-body">
+          <p style="font-size: 0.85rem; color: #64748b; margin-top: 0; margin-bottom: 14px;">
+            Assign a user-defined group to multiple employees simultaneously.
+          </p>
+
+          <div class="form-group" style="margin-bottom: 14px;">
+            <label style="font-weight: 600; margin-bottom: 4px;">Target Group to Assign *</label>
+            <select id="bulkGroupSelect" class="form-control" required>
+              <option value="">-- Select Group --</option>
+            </select>
+            <div class="text-xs text-muted" style="margin-top: 4px;">Select a group or choose "-- Remove Group (Clear) --" to unassign.</div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 14px;">
+            <label style="font-weight: 600; margin-bottom: 4px;">Assignment Scope *</label>
+            <select id="bulkGroupScope" class="form-control">
+              <option value="filtered">Current Filtered List (<span id="bulkGroupFilteredCount">0</span> employees)</option>
+              <option value="all">All Organization Employees</option>
+              <option value="dept">By Specific Department</option>
+            </select>
+          </div>
+
+          <div class="form-group" id="bulkGroupDeptWrap" style="display: none; margin-bottom: 14px;">
+            <label style="font-weight: 600; margin-bottom: 4px;">Select Department</label>
+            <select id="bulkGroupDeptSelect" class="form-control"></select>
+          </div>
+
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 10px 12px; font-size: 0.82rem; color: #1e40af;">
+            ℹ️ Employees matching this scope will be updated immediately.
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 8px;">
+          <button type="button" class="btn btn-outline" id="btnBulkGroupCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnBulkGroupSubmit">Assign Group</button>
         </div>
       </form>
     </div>

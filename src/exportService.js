@@ -87,6 +87,7 @@ function formatEmployeesForExport(employees) {
     'Mobile / Phone': e.phone || '-',
     'Email': e.email || '-',
     'Department': e.department || 'General',
+    'User Group': e.user_group || '-',
     'Role': e.role || 'Staff',
     'Assigned Shift': e.shift_name ? `${e.shift_name} (${e.shift_start || ''}-${e.shift_end || ''})` : 'General Shift',
     'Card #': e.card_no || '-',
@@ -119,6 +120,7 @@ function generateEmployeeExcelBuffer(employees, sheetName = 'Employees') {
     { wch: 16 }, // Mobile / Phone
     { wch: 22 }, // Email
     { wch: 18 }, // Department
+    { wch: 18 }, // User Group
     { wch: 14 }, // Role
     { wch: 24 }, // Assigned Shift
     { wch: 12 }, // Card #

@@ -141,7 +141,8 @@ async function initDatabase() {
     'org_id TEXT DEFAULT \'DSOFFICE_LUNUGAMWEHERA\'',
     'synced_to_cloud INTEGER DEFAULT 0',
     'cloud_synced_at DATETIME DEFAULT NULL',
-    'leave_category_id INTEGER DEFAULT 1'
+    'leave_category_id INTEGER DEFAULT 1',
+    'user_group TEXT DEFAULT \'\''
   ];
   for (const col of extraCols) {
     try {
@@ -161,6 +162,41 @@ async function initDatabase() {
 
   // Ensure is_active is 1 for all existing records
   await dbRun(`UPDATE employees SET is_active = 1 WHERE is_active IS NULL`);
+
+  // User Defined Employee Groups Table
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS employee_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      color TEXT DEFAULT '#3b82f6',
+      org_id TEXT DEFAULT 'DSOFFICE_LUNUGAMWEHERA',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(name, org_id)
+    )
+  `);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_emp_group_org ON employee_groups(org_id)`);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_emp_user_group ON employees(user_group)`);
+
+  // Seed default employee groups if empty
+  try {
+    const grpCount = await dbGet(`SELECT COUNT(*) as count FROM employee_groups`);
+    if (!grpCount || grpCount.count === 0) {
+      const orgRow = await dbGet(`SELECT value FROM settings WHERE key = 'firestore_org_id'`);
+      const defaultOrg = orgRow ? orgRow.value : 'DSOFFICE_LUNUGAMWEHERA';
+      await dbRun(`
+        INSERT OR IGNORE INTO employee_groups (name, description, color, org_id) VALUES
+        ('Field Officers', 'Officers conducting field inspections and outside visits', '#059669', ?),
+        ('Administrative Staff', 'Office management, accounting, and clerical staff', '#2563eb', ?),
+        ('Technical Support', 'IT, maintenance, and technical operations staff', '#7c3aed', ?),
+        ('Executive & Management', 'Divisional secretaries, directors, and department heads', '#d97706', ?)
+      `, [defaultOrg, defaultOrg, defaultOrg, defaultOrg]);
+      console.log('[DB] Seeded default user defined employee groups.');
+    }
+  } catch (grpErr) {
+    console.warn('[DB] Group seeding deferred:', grpErr.message);
+  }
 
   // Working Shifts Table
   await dbRun(`
@@ -3378,7 +3414,153 @@ async function deleteTerminal(id) {
   return dbRun(`DELETE FROM terminals WHERE id = ?`, [id]);
 }
 
+
+// ==========================================
+// USER DEFINED EMPLOYEE GROUPS
+// ==========================================
+
+async function getEmployeeGroups(orgId) {
+  const cleanOrg = (orgId && orgId !== 'ALL' && orgId !== 'all') ? String(orgId).trim().toUpperCase() : null;
+  let sql = `
+    SELECT 
+      eg.*,
+      COUNT(e.user_id) as member_count
+    FROM employee_groups eg
+    LEFT JOIN employees e ON (
+      LOWER(TRIM(COALESCE(e.user_group, ''))) = LOWER(TRIM(eg.name))
+      ${cleanOrg ? 'AND (e.org_id = eg.org_id OR e.org_id IS NULL)' : ''}
+    )
+  `;
+  const params = [];
+  if (cleanOrg) {
+    sql += ` WHERE (UPPER(eg.org_id) = ? OR eg.org_id = 'DEFAULT' OR eg.org_id IS NULL) `;
+    params.push(cleanOrg);
+  }
+  sql += ` GROUP BY eg.id ORDER BY eg.name ASC `;
+  let groups = await dbAll(sql, params);
+  if ((!groups || groups.length === 0) && cleanOrg) {
+    groups = await dbAll(`
+      SELECT 
+        eg.*,
+        COUNT(e.user_id) as member_count
+      FROM employee_groups eg
+      LEFT JOIN employees e ON LOWER(TRIM(COALESCE(e.user_group, ''))) = LOWER(TRIM(eg.name))
+      GROUP BY eg.id
+      ORDER BY eg.name ASC
+    `);
+  }
+  return groups || [];
+}
+
+async function getEmployeeGroupById(id) {
+  if (!id) return null;
+  return dbGet(`SELECT * FROM employee_groups WHERE id = ?`, [id]);
+}
+
+async function saveEmployeeGroup(groupData) {
+  const name = String(groupData.name || '').trim();
+  if (!name) throw new Error('Group name is required');
+  const description = String(groupData.description || '').trim();
+  const color = String(groupData.color || '#3b82f6').trim();
+  const orgId = String(groupData.org_id || groupData.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+
+  if (groupData.id) {
+    const existing = await dbGet(`SELECT name FROM employee_groups WHERE id = ?`, [groupData.id]);
+    await dbRun(`
+      UPDATE employee_groups 
+      SET name = ?, description = ?, color = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [name, description, color, groupData.id]);
+
+    if (existing && existing.name && existing.name !== name) {
+      await dbRun(`
+        UPDATE employees 
+        SET user_group = ?, updated_at = CURRENT_TIMESTAMP 
+        WHERE LOWER(TRIM(user_group)) = LOWER(TRIM(?))
+      `, [name, existing.name]);
+    }
+    return dbGet(`SELECT * FROM employee_groups WHERE id = ?`, [groupData.id]);
+  } else {
+    const res = await dbRun(`
+      INSERT INTO employee_groups (name, description, color, org_id)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(name, org_id) DO UPDATE SET
+        description = excluded.description,
+        color = excluded.color,
+        updated_at = CURRENT_TIMESTAMP
+    `, [name, description, color, orgId]);
+    return dbGet(`SELECT * FROM employee_groups WHERE id = ?`, [res.lastID]);
+  }
+}
+
+async function deleteEmployeeGroup(id) {
+  const group = await dbGet(`SELECT * FROM employee_groups WHERE id = ?`, [id]);
+  if (!group) return false;
+  await dbRun(`
+    UPDATE employees 
+    SET user_group = '', updated_at = CURRENT_TIMESTAMP 
+    WHERE LOWER(TRIM(user_group)) = LOWER(TRIM(?))
+  `, [group.name]);
+  await dbRun(`DELETE FROM employee_groups WHERE id = ?`, [id]);
+  return true;
+}
+
+async function assignGroupToEmployees({ groupName, userIds = [], department = '', orgId = '' }) {
+  const targetGroup = String(groupName || '').trim();
+  const targetOrg = (orgId && orgId !== 'ALL' && orgId !== 'all') ? String(orgId).trim().toUpperCase() : null;
+  let targetUserIds = [];
+
+  if (Array.isArray(userIds) && userIds.length > 0) {
+    const placeholders = userIds.map(() => '?').join(',');
+    await dbRun(
+      `UPDATE employees SET user_group = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id IN (${placeholders})`,
+      [targetGroup, ...userIds]
+    );
+    targetUserIds = userIds;
+  } else if (department && department !== 'all') {
+    let sql = `SELECT user_id FROM employees WHERE LOWER(TRIM(department)) = LOWER(TRIM(?))`;
+    const params = [department];
+    if (targetOrg) {
+      sql += ` AND org_id = ?`;
+      params.push(targetOrg);
+    }
+    const emps = await dbAll(sql, params);
+    targetUserIds = emps.map(e => e.user_id);
+    if (targetUserIds.length > 0) {
+      const placeholders = targetUserIds.map(() => '?').join(',');
+      await dbRun(
+        `UPDATE employees SET user_group = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id IN (${placeholders})`,
+        [targetGroup, ...targetUserIds]
+      );
+    }
+  } else {
+    let sql = `SELECT user_id FROM employees`;
+    const params = [];
+    if (targetOrg) {
+      sql += ` WHERE org_id = ?`;
+      params.push(targetOrg);
+    }
+    const emps = await dbAll(sql, params);
+    targetUserIds = emps.map(e => e.user_id);
+    if (targetUserIds.length > 0) {
+      const placeholders = targetUserIds.map(() => '?').join(',');
+      await dbRun(
+        `UPDATE employees SET user_group = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id IN (${placeholders})`,
+        [targetGroup, ...targetUserIds]
+      );
+    }
+  }
+
+  return { success: true, count: targetUserIds.length, userIds: targetUserIds };
+}
+
 module.exports = {
+  getEmployeeGroups,
+  getEmployeeGroupById,
+  saveEmployeeGroup,
+  deleteEmployeeGroup,
+  assignGroupToEmployees,
+
   db,
   dbRun,
   dbAll,

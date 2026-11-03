@@ -199,6 +199,7 @@ function parseEmployeesInput(input, existingShifts = []) {
     const email = getVal('email', 'e-mail', 'mail');
     const cardNo = getVal('card #', 'card no', 'card_no', 'card number', 'card_number', 'rfid');
     const orderById = getVal('order id', 'order_id', 'order_by_id', 'order');
+    const userGroup = getVal('user group', 'user_group', 'group', 'group name', 'team', 'employee group') || '';
 
     // Active Status
     let isActive = 1;
@@ -259,6 +260,7 @@ function parseEmployeesInput(input, existingShifts = []) {
       shift_id: shiftId,
       shift_name: shiftName,
       order_by_id: orderById || null,
+      user_group: userGroup || null,
       is_active: isActive
     });
   });

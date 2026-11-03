@@ -43,7 +43,12 @@ const {
   getTerminalByIp,
   createTerminal,
   updateTerminal,
-  deleteTerminal
+  deleteTerminal,
+  getEmployeeGroups,
+  getEmployeeGroupById,
+  saveEmployeeGroup,
+  deleteEmployeeGroup,
+  assignGroupToEmployees
 } = require('./db');
 const { 
   syncFromDevice, 
@@ -1995,8 +2000,8 @@ router.post('/employees/upload', async (req, res) => {
       await dbRun(`
         INSERT INTO employees (
           user_id, name, department, role, email, phone, shift_id,
-          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, card_no, org_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, card_no, user_group, org_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
           name = excluded.name,
           department = excluded.department,
@@ -2016,6 +2021,7 @@ router.post('/employees/upload', async (req, res) => {
           order_by_id = COALESCE(excluded.order_by_id, employees.order_by_id),
           is_active = excluded.is_active,
           card_no = COALESCE(excluded.card_no, employees.card_no),
+          user_group = COALESCE(excluded.user_group, employees.user_group),
           org_id = COALESCE(excluded.org_id, employees.org_id),
           updated_at = CURRENT_TIMESTAMP
       `, [
@@ -2038,6 +2044,7 @@ router.post('/employees/upload', async (req, res) => {
         emp.order_by_id || null,
         activeVal,
         emp.card_no || null,
+        emp.user_group || null,
         empOrgId
       ]);
       insertedCount++;
@@ -2098,6 +2105,16 @@ router.get('/employees', async (req, res) => {
     const orgId = req.query.orgId || req.headers['x-organization-id'];
     let whereClauses = [];
     let params = [];
+
+    const group = req.query.group;
+    if (group && group !== 'all') {
+      if (group === 'unassigned') {
+        whereClauses.push("(e.user_group IS NULL OR TRIM(e.user_group) = '')");
+      } else {
+        whereClauses.push("LOWER(TRIM(e.user_group)) = LOWER(TRIM(?))");
+        params.push(group);
+      }
+    }
 
     if (status === 'active') {
       whereClauses.push('COALESCE(e.is_active, 1) = 1');
@@ -2231,7 +2248,7 @@ router.post('/employees', async (req, res) => {
     const {
       user_id, name, department, role, email, phone, photo, shift_id = 1, syncToDevice = true,
       employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active,
-      org_id
+      org_id, user_group
     } = req.body;
     if (!user_id) {
       return res.status(400).json({ success: false, error: 'User ID is required' });
@@ -2270,8 +2287,8 @@ router.post('/employees', async (req, res) => {
       await dbRun(`
         INSERT INTO employees (
           user_id, name, department, role, email, phone, photo, shift_id,
-          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, leave_category_id, org_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, leave_category_id, user_group, org_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
           name = excluded.name,
           department = excluded.department,
@@ -2292,16 +2309,17 @@ router.post('/employees', async (req, res) => {
           order_by_id = COALESCE(excluded.order_by_id, employees.order_by_id),
           is_active = excluded.is_active,
           leave_category_id = excluded.leave_category_id,
+          user_group = COALESCE(excluded.user_group, employees.user_group),
           org_id = COALESCE(excluded.org_id, employees.org_id),
           updated_at = CURRENT_TIMESTAMP
       `, [user_id, name || '', department || 'General', role || 'Staff', email || '', phone || '', photoPath, sId,
-          employee_service_id || null, nic || null, title || null, first_name || null, last_name || null, gender || null, birthday || null, appointment_date || null, employment_status || null, order_by_id || null, activeVal, leaveCatId, employeeOrgId]);
+          employee_service_id || null, nic || null, title || null, first_name || null, last_name || null, gender || null, birthday || null, appointment_date || null, employment_status || null, order_by_id || null, activeVal, leaveCatId, (user_group !== undefined ? user_group : null), employeeOrgId]);
     } else {
       await dbRun(`
         INSERT INTO employees (
           user_id, name, department, role, email, phone, shift_id,
-          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, leave_category_id, org_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, leave_category_id, user_group, org_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
           name = excluded.name,
           department = excluded.department,
@@ -2321,10 +2339,11 @@ router.post('/employees', async (req, res) => {
           order_by_id = COALESCE(excluded.order_by_id, employees.order_by_id),
           is_active = excluded.is_active,
           leave_category_id = excluded.leave_category_id,
+          user_group = COALESCE(excluded.user_group, employees.user_group),
           org_id = COALESCE(excluded.org_id, employees.org_id),
           updated_at = CURRENT_TIMESTAMP
       `, [user_id, name || '', department || 'General', role || 'Staff', email || '', phone || '', sId,
-          employee_service_id || null, nic || null, title || null, first_name || null, last_name || null, gender || null, birthday || null, appointment_date || null, employment_status || null, order_by_id || null, activeVal, leaveCatId, employeeOrgId]);
+          employee_service_id || null, nic || null, title || null, first_name || null, last_name || null, gender || null, birthday || null, appointment_date || null, employment_status || null, order_by_id || null, activeVal, leaveCatId, (user_group !== undefined ? user_group : null), employeeOrgId]);
     }
 
     // Initialize/update employee leave balances for the assigned leave category
@@ -2495,6 +2514,62 @@ router.delete(['/employees/:id', '/v1/users/:id', '/users/:id'], async (req, res
 });
 
 // Bulk assign shift to employees
+
+// ==========================================
+// USER DEFINED EMPLOYEE GROUPS API
+// ==========================================
+
+// Get all employee groups with member counts
+router.get('/employee-groups', async (req, res) => {
+  try {
+    const orgId = req.query.orgId || req.headers['x-organization-id'];
+    const groups = await getEmployeeGroups(orgId);
+    res.json({ success: true, groups });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Create or update employee group
+router.post('/employee-groups', async (req, res) => {
+  try {
+    const { id, name, description, color, org_id } = req.body;
+    const orgId = org_id || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const group = await saveEmployeeGroup({ id, name, description, color, orgId });
+    res.json({ success: true, group });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// Delete employee group
+router.delete('/employee-groups/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const success = await deleteEmployeeGroup(id);
+    res.json({ success, message: 'Group deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Bulk assign group to employees
+router.post('/employees/assign-group', async (req, res) => {
+  try {
+    const { group_name, user_ids, department, org_id } = req.body;
+    const orgId = org_id || req.headers['x-organization-id'] || '';
+    const result = await assignGroupToEmployees({
+      groupName: group_name,
+      userIds: user_ids,
+      department,
+      orgId
+    });
+    res.json({ success: true, count: result.count, message: `Assigned group to ${result.count} employee(s)` });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
 router.post('/employees/assign-shift', async (req, res) => {
   try {
     const { shift_id, user_ids = [], department = '' } = req.body;
