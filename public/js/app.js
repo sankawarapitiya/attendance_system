@@ -3002,14 +3002,14 @@ function renderMatrixProposedEmployeeRows(rec, i, dateList) {
       const durDisplay = d.worked_formatted && d.worked_formatted !== '-' ? d.worked_formatted : (d.punch_count > 1 ? '0h 0m' : '-');
 
       return `
-        <td class="matrix-cell-max ${isWeekend ? 'matrix-day-weekend' : ''}" title="${dStr} (${dName}): In ${d.check_in_time}, Out ${d.check_out_time} • ${escapeHtml(d.daily_status)} • Worked: ${durDisplay}${d.ot_hours > 0 ? ` • OT: +${d.ot_hours}H` : ''}">
+        <td class="matrix-cell-max ${isWeekend ? 'matrix-day-weekend' : ''}" title="${dStr} (${dName}): I: ${d.check_in_time}, O: ${d.check_out_time} • ${escapeHtml(d.daily_status)} • Worked: ${durDisplay}${d.ot_hours > 0 ? ` • OT: +${d.ot_hours}H` : ''}">
           <span class="matrix-max-day-tag ${dayTagClass}">${dayNum} ${dName}</span>
           <div class="matrix-max-time-box">
             <div class="matrix-time-in-max" title="Check-In Punch Time">
-              <small>IN</small> ${inTime}
+              <small>I</small> ${inTime}
             </div>
             <div class="matrix-time-out-max" title="Check-Out Punch Time">
-              <small>OUT</small> ${outTime}
+              <small>O</small> ${outTime}
             </div>
           </div>
           <div class="matrix-max-badge-row">
@@ -3144,12 +3144,12 @@ function renderMatrixStandardEmployeeRow(rec, i, dateList) {
 
       const inTime = d.check_in_time !== '-' ? d.check_in_time.slice(0, 5) : '--:--';
       const outTime = d.check_out_time !== '-' ? d.check_out_time.slice(0, 5) : '--:--';
-      const timeDisplay = `<span class="matrix-time-in">${inTime}</span><span class="matrix-time-sep">-</span><span class="matrix-time-out">${outTime}</span>`;
+      const timeDisplay = `<span class="matrix-time-in" title="In: ${inTime}"><small style="font-size:0.62rem;color:#15803d;font-weight:700;margin-right:1px;">I</small> ${inTime}</span><span class="matrix-time-sep">-</span><span class="matrix-time-out" title="Out: ${outTime}"><small style="font-size:0.62rem;color:#0369a1;font-weight:700;margin-right:1px;">O</small> ${outTime}</span>`;
       const otDisplay = d.ot_hours > 0 ? `<span class="matrix-ot-badge">+${d.ot_hours}H</span>` : '';
       const durDisplay = d.worked_formatted && d.worked_formatted !== '-' ? d.worked_formatted : (d.punch_count > 1 ? '0h 0m' : '-');
 
       return `
-        <td class="matrix-cell ${isWeekend ? 'matrix-day-weekend' : ''}" title="${dStr}: In ${d.check_in_time}, Out ${d.check_out_time} • ${escapeHtml(d.daily_status)} • Worked: ${durDisplay}${d.ot_hours > 0 ? ` • OT: +${d.ot_hours}H` : ''}">
+        <td class="matrix-cell ${isWeekend ? 'matrix-day-weekend' : ''}" title="${dStr}: I: ${d.check_in_time}, O: ${d.check_out_time} • ${escapeHtml(d.daily_status)} • Worked: ${durDisplay}${d.ot_hours > 0 ? ` • OT: +${d.ot_hours}H` : ''}">
           <div class="matrix-cell-sub">
             <span class="matrix-badge ${badgeClass}">${badgeText}</span>
             ${otDisplay}

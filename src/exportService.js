@@ -465,7 +465,7 @@ function generateMonthlyMatrixExcelBuffer(data) {
       if (!d) {
         row[colHeader] = '-';
       } else if (d.punch_count > 0) {
-        const inOut = `${d.check_in_time} - ${d.check_out_time}`;
+        const inOut = `I: ${d.check_in_time} - O: ${d.check_out_time}`;
         const workStr = d.worked_formatted && d.worked_formatted !== '-' ? ` (${d.worked_formatted})` : '';
         const otStr = d.ot_hours > 0 ? `, +${d.ot_hours}H OT` : '';
         row[colHeader] = `${inOut}${workStr} [${d.daily_status}${otStr}]`;
@@ -550,7 +550,7 @@ function generateMonthlyMatrixCsvString(data) {
       if (!d) {
         row[colHeader] = '-';
       } else if (d.punch_count > 0) {
-        const inOut = `${d.check_in_time} - ${d.check_out_time}`;
+        const inOut = `I: ${d.check_in_time} - O: ${d.check_out_time}`;
         const workStr = d.worked_formatted && d.worked_formatted !== '-' ? ` (${d.worked_formatted})` : '';
         const otStr = d.ot_hours > 0 ? `, +${d.ot_hours}H OT` : '';
         row[colHeader] = `${inOut}${workStr} [${d.daily_status}${otStr}]`;

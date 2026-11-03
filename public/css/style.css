@@ -3614,6 +3614,19 @@ select.form-control {
   color: #0369a1;
 }
 
+
+.matrix-time-in small,
+.matrix-time-out small {
+  font-size: 0.62rem;
+  font-weight: 700;
+  margin-right: 1px;
+}
+.matrix-time-in small {
+  color: #16a34a;
+}
+.matrix-time-out small {
+  color: #0284c7;
+}
 .matrix-time-in-max small,
 .matrix-time-out-max small {
   font-size: 0.62rem;
