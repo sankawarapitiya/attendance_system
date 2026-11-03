@@ -4658,6 +4658,35 @@ router.post('/leave/sync-balances', async (req, res) => {
   }
 });
 
+// 14. Trigger Push or Sync for Leave Categories & Policies specifically
+router.post(['/leave/sync-policies', '/leave/push-policies'], async (req, res) => {
+  try {
+    const orgId = req.body.orgId || req.query.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const direction = req.body.direction || 'upload'; // default push/upload
+
+    const result = await firebaseService.syncLeaveManagement({ orgId, direction });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 15. Push individual Leave Category and configured Types to Cloud Firestore
+router.post('/leave/categories/:id/push-to-cloud', async (req, res) => {
+  try {
+    const orgId = req.body.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const catId = parseInt(req.params.id, 10);
+    const category = await getLeaveCategoryById(catId);
+    if (!category) {
+      return res.status(404).json({ success: false, error: 'Category not found' });
+    }
+    const result = await firebaseService.pushLeaveCategoryToCloud(category, orgId);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 
 // ============================================================================
 // Leave Requests & Approval API Endpoints

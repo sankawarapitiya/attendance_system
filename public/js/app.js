@@ -14942,15 +14942,22 @@ async function loadDossierLeaveBalances(userId, forceRefresh = false) {
   }
 }
 
-// Cloud Synchronization Handlers
+// Cloud Synchronization Handlers (Push, Pull, or Two-way)
 async function triggerLeaveCloudSync(direction = 'two_way') {
+  const pushBtn = document.getElementById('btnPushLeaveToCloud');
   const syncBtn = document.getElementById('btnTwoWaySyncLeave');
-  const icon = document.getElementById('leaveSyncIcon');
+  const pullBtn = document.getElementById('btnPullLeaveFromCloud');
+  const syncIcon = document.getElementById('leaveSyncIcon');
   const statusText = document.getElementById('leaveSyncStatusText');
 
-  if (icon) icon.classList.add('spin');
-  if (syncBtn) syncBtn.disabled = true;
-  if (statusText) statusText.textContent = 'Syncing leave management with Firebase...';
+  const activeBtn = direction === 'upload' ? pushBtn : (direction === 'download' ? pullBtn : syncBtn);
+  if (syncIcon) syncIcon.classList.add('spin');
+  if (activeBtn) activeBtn.disabled = true;
+  if (statusText) {
+    statusText.textContent = direction === 'upload'
+      ? 'Pushing leave policies & balances to Cloud Firebase...'
+      : (direction === 'download' ? 'Pulling leave settings from Cloud Firebase...' : 'Syncing leave management with Firebase...');
+  }
 
   try {
     const org = getActiveOrgFilter();
@@ -14961,7 +14968,16 @@ async function triggerLeaveCloudSync(direction = 'two_way') {
     });
     const data = await res.json();
     if (data.success) {
-      showToast(data.message || 'Leave cloud sync completed successfully!', 'success');
+      let msg = data.message;
+      if (direction === 'upload') {
+        const catCount = data.categories?.uploadedCount !== undefined ? data.categories.uploadedCount : 0;
+        const balCount = data.balances?.uploadedCount !== undefined ? data.balances.uploadedCount : 0;
+        msg = `Successfully pushed ${catCount} categories & policies and ${balCount} employee balances to Cloud!`;
+      } else if (direction === 'download') {
+        const catCount = data.categories?.downloadedCount !== undefined ? data.categories.downloadedCount : 0;
+        msg = `Successfully pulled ${catCount} categories & policies from Cloud!`;
+      }
+      showToast(msg || 'Leave cloud operation completed successfully!', 'success', 5000);
       if (statusText) statusText.textContent = `Synced just now (${new Date().toLocaleTimeString()})`;
       await loadLeaveManagement();
     } else {
@@ -14971,10 +14987,90 @@ async function triggerLeaveCloudSync(direction = 'two_way') {
   } catch (err) {
     showToast('Network error during leave cloud sync: ' + err.message, 'error');
   } finally {
-    if (icon) icon.classList.remove('spin');
-    if (syncBtn) syncBtn.disabled = false;
+    if (syncIcon) syncIcon.classList.remove('spin');
+    if (activeBtn) activeBtn.disabled = false;
   }
 }
+window.triggerLeaveCloudSync = triggerLeaveCloudSync;
+
+// Push Leave Policies & Categories to Cloud Firestore
+async function pushLeavePoliciesToCloud() {
+  const btn = document.getElementById('btnPushPoliciesToCloud');
+  const org = getActiveOrgFilter();
+  const oldHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spin" style="width:13px;height:13px;border:2px solid #4338ca;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Pushing...`;
+  }
+  showToast('Pushing leave categories & policies to Cloud Firestore...', 'info');
+
+  try {
+    const res = await fetch('/api/leave/sync-policies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-organization-id': org || '' },
+      body: JSON.stringify({ orgId: org, direction: 'upload' })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Successfully pushed ${data.uploadedCount || 0} leave categories & policy configurations to Cloud under "${data.orgId || org}"!`, 'success', 5000);
+      const statusText = document.getElementById('leaveSyncStatusText');
+      if (statusText) statusText.textContent = `Pushed policies just now (${new Date().toLocaleTimeString()})`;
+      await loadLeaveManagement();
+    } else {
+      showToast(data.error || 'Failed to push leave policies to cloud', 'warning');
+    }
+  } catch (err) {
+    showToast('Network error while pushing leave policies: ' + err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml;
+    }
+  }
+}
+window.pushLeavePoliciesToCloud = pushLeavePoliciesToCloud;
+
+// Push currently selected leave category & its types to Cloud Firestore
+async function pushSelectedCategoryToCloud() {
+  const catId = state.selectedLeaveCategoryId || (state.leaveCategories && state.leaveCategories[0]?.id);
+  if (!catId) {
+    showToast('No category selected to push.', 'warning');
+    return;
+  }
+  const btn = document.getElementById('btnPushSelectedCategoryToCloud');
+  const org = getActiveOrgFilter();
+  const oldHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spin" style="width:13px;height:13px;border:2px solid #4338ca;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Pushing...`;
+  }
+  showToast('Pushing category to Cloud...', 'info');
+
+  try {
+    const res = await fetch(`/api/leave/categories/${catId}/push-to-cloud`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-organization-id': org || '' },
+      body: JSON.stringify({ orgId: org })
+    });
+    const data = await res.json();
+    if (data.success) {
+      const cat = (state.leaveCategories || []).find(c => c.id === catId);
+      showToast(`Category "${cat ? cat.name : catId}" and configured leave types pushed to Cloud successfully!`, 'success', 5000);
+      const statusText = document.getElementById('leaveSyncStatusText');
+      if (statusText) statusText.textContent = `Pushed category just now (${new Date().toLocaleTimeString()})`;
+    } else {
+      showToast(data.error || 'Failed to push category to cloud', 'warning');
+    }
+  } catch (err) {
+    showToast('Network error: ' + err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = oldHtml;
+    }
+  }
+}
+window.pushSelectedCategoryToCloud = pushSelectedCategoryToCloud;
 
 // ==========================================
 // LEAVE BALANCES & YEARLY CALCULATION MODULE
@@ -16943,8 +17039,11 @@ function initLeaveManagementEvents() {
   });
 
   // Cloud sync buttons
+  document.getElementById('btnPushLeaveToCloud')?.addEventListener('click', () => triggerLeaveCloudSync('upload'));
   document.getElementById('btnTwoWaySyncLeave')?.addEventListener('click', () => triggerLeaveCloudSync('two_way'));
   document.getElementById('btnPullLeaveFromCloud')?.addEventListener('click', () => triggerLeaveCloudSync('download'));
+  document.getElementById('btnPushPoliciesToCloud')?.addEventListener('click', pushLeavePoliciesToCloud);
+  document.getElementById('btnPushSelectedCategoryToCloud')?.addEventListener('click', pushSelectedCategoryToCloud);
   document.getElementById('btnPushLeaveBalancesOnly')?.addEventListener('click', async () => {
     try {
       showToast('Pushing employee leave balances to cloud...', 'info');

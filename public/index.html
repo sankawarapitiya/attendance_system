@@ -1339,9 +1339,13 @@
               </div>
             </div>
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-              <button class="btn btn-primary" id="btnTwoWaySyncLeave" type="button" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600; background: #4f46e5; border-color: #4f46e5;" title="Full two-way synchronization of leave categories, types, and employee balances with Firebase">
+              <button class="btn btn-primary" id="btnPushLeaveToCloud" type="button" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600; background: #4f46e5; border-color: #4f46e5;" title="Push all leave categories, policy configurations, and employee balances to Cloud Firestore">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;" id="leavePushIcon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span>Push to Cloud</span>
+              </button>
+              <button class="btn btn-outline" id="btnTwoWaySyncLeave" type="button" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 500;" title="Full two-way synchronization of leave categories, types, and employee balances with Firebase">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;" id="leaveSyncIcon"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                <span>Sync to Cloud</span>
+                <span>Two-Way Sync</span>
               </button>
               <button class="btn btn-outline" id="btnPullLeaveFromCloud" type="button" style="display: inline-flex; align-items: center; gap: 6px;" title="Download leave settings from Cloud Partition to local SQLite">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 15px; height: 15px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -1625,15 +1629,21 @@
           <div style="display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start;">
             <!-- Left Column: Categories List -->
             <div class="card">
-              <div class="card-header" style="display: flex; align-items: center; justify-content: space-between; padding: 14px 18px;">
+              <div class="card-header" style="display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; flex-wrap: wrap; gap: 8px;">
                 <div>
                   <h3 style="margin: 0; font-size: 1.05rem;">Leave Categories</h3>
                   <div style="font-size: 0.78rem; color: var(--text-muted);">Employment policy tiers</div>
                 </div>
-                <button class="btn btn-primary btn-sm" id="btnOpenAddCategoryModal" type="button" style="display: inline-flex; align-items: center; gap: 5px;">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 13px; height: 13px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                  <span>Add Category</span>
-                </button>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <button class="btn btn-outline btn-sm" id="btnPushPoliciesToCloud" type="button" style="display: inline-flex; align-items: center; gap: 5px; color: #4338ca; border-color: #c7d2fe; background: #eef2ff; font-weight: 600;" title="Push all leave categories & policy configurations to Cloud Firestore">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 13px; height: 13px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <span>Push to Cloud</span>
+                  </button>
+                  <button class="btn btn-primary btn-sm" id="btnOpenAddCategoryModal" type="button" style="display: inline-flex; align-items: center; gap: 5px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 13px; height: 13px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    <span>Add Category</span>
+                  </button>
+                </div>
               </div>
               <div class="card-body" style="padding: 12px;" id="leaveCategoriesContainer">
                 <div class="text-center py-4 text-muted">Loading leave categories...</div>
@@ -1654,6 +1664,10 @@
                   </div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
+                  <button class="btn btn-outline btn-sm" id="btnPushSelectedCategoryToCloud" type="button" style="display: inline-flex; align-items: center; gap: 5px; color: #4338ca; border-color: #c7d2fe; background: #eef2ff; font-weight: 600;" title="Push this category and configured leave types to Cloud Firestore">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 13px; height: 13px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <span>Push to Cloud</span>
+                  </button>
                   <button class="btn btn-primary btn-sm" id="btnOpenAddLeaveTypeModal" type="button" style="display: inline-flex; align-items: center; gap: 5px;">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 13px; height: 13px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                     <span>Add Leave Type</span>
