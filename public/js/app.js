@@ -1380,20 +1380,54 @@ function applyMonthlyBookPrintScope() {
 }
 window.applyMonthlyBookPrintScope = applyMonthlyBookPrintScope;
 
-function triggerPrintDialog() {
-  if (state.report.scope === 'monthly_book') {
-    renderAllRemainingBookPages();
-    applyMonthlyBookPrintScope();
-  } else if (state.report.scope === 'matrix') {
-    if (typeof renderAllRemainingMatrixRows === 'function') {
-      renderAllRemainingMatrixRows();
-    }
-  } else {
-    renderAllRemainingTableRows();
+function renderAllRemainingTableRows() {
+  const rows = state.report.activeRows || [];
+  const tbody = document.getElementById('reportTableBody');
+  if (!tbody || state.report.renderedCount >= rows.length || !state.report.rowRenderer) return;
+  const remaining = rows.slice(state.report.renderedCount);
+  const frag = document.createElement('tbody');
+  frag.innerHTML = remaining.map((r, i) => state.report.rowRenderer(r, state.report.renderedCount + i)).join('');
+  while (frag.firstChild) {
+    tbody.appendChild(frag.firstChild);
   }
-  prepareReportForPrint();
-  applyAllPrintOptions();
-  window.print();
+  state.report.renderedCount = rows.length;
+  const sentinel = document.getElementById('reportTableScrollSentinel');
+  if (sentinel) sentinel.style.display = 'none';
+}
+window.renderAllRemainingTableRows = renderAllRemainingTableRows;
+
+let isPrintDialogOpen = false;
+
+function triggerPrintDialog() {
+  if (isPrintDialogOpen) {
+    console.warn('[Print] Print dialog already in progress. Ignoring duplicate trigger.');
+    return;
+  }
+  isPrintDialogOpen = true;
+
+  try {
+    const scope = state.report?.scope;
+    if (scope === 'monthly_book') {
+      if (typeof renderAllRemainingBookPages === 'function') renderAllRemainingBookPages();
+      if (typeof applyMonthlyBookPrintScope === 'function') applyMonthlyBookPrintScope();
+    } else if (scope === 'monthly_matrix' || scope === 'matrix') {
+      if (typeof renderAllRemainingMatrixRows === 'function') {
+        renderAllRemainingMatrixRows();
+      }
+    } else {
+      if (typeof renderAllRemainingTableRows === 'function') {
+        renderAllRemainingTableRows();
+      }
+    }
+    prepareReportForPrint();
+    applyAllPrintOptions();
+    window.print();
+  } finally {
+    // Release debounce lock after safety window
+    setTimeout(() => {
+      isPrintDialogOpen = false;
+    }, 1500);
+  }
 }
 window.triggerPrintDialog = triggerPrintDialog;
 
@@ -1545,7 +1579,6 @@ function initPrintOptions() {
   // Toolbar Options Buttons
   document.getElementById('btnOpenPrintOptionsModal')?.addEventListener('click', openPrintOptionsModal);
   document.getElementById('btnMonthlyBookPrintOptions')?.addEventListener('click', openPrintOptionsModal);
-  document.getElementById('btnMatrixPrintOptions')?.addEventListener('click', openPrintOptionsModal);
 
   // Modal Actions
   document.getElementById('btnPrintOptionsModalClose')?.addEventListener('click', closePrintOptionsModal);
@@ -1573,6 +1606,7 @@ function initPrintOptions() {
 
   // After print: restore any hidden elements in monthly book
   window.addEventListener('afterprint', () => {
+    isPrintDialogOpen = false;
     document.querySelectorAll('.employee-monthly-page').forEach(p => p.style.display = '');
   });
 }
@@ -2043,15 +2077,18 @@ async function initReports() {
 
   // Ensure print layout and classes are active even if user hits Ctrl+P natively
   window.addEventListener('beforeprint', () => {
-    if (state.report.scope === 'monthly_book') {
-      renderAllRemainingBookPages();
-      applyMonthlyBookPrintScope();
-    } else if (state.report.scope === 'matrix') {
+    const scope = state.report?.scope;
+    if (scope === 'monthly_book') {
+      if (typeof renderAllRemainingBookPages === 'function') renderAllRemainingBookPages();
+      if (typeof applyMonthlyBookPrintScope === 'function') applyMonthlyBookPrintScope();
+    } else if (scope === 'monthly_matrix' || scope === 'matrix') {
       if (typeof renderAllRemainingMatrixRows === 'function') {
         renderAllRemainingMatrixRows();
       }
     } else {
-      renderAllRemainingTableRows();
+      if (typeof renderAllRemainingTableRows === 'function') {
+        renderAllRemainingTableRows();
+      }
     }
     if (state.currentTab === 'tab-records') {
       prepareRecordsForPrint();
@@ -2062,6 +2099,7 @@ async function initReports() {
   });
 
   window.addEventListener('afterprint', () => {
+    isPrintDialogOpen = false;
     document.body.classList.remove('print-single-emp-active');
     if (state.report.scope === 'monthly_book') {
       const jumpSelect = document.getElementById('monthlyBookJumpSelect');
@@ -2083,7 +2121,6 @@ async function initReports() {
 
   document.getElementById('btnPrintReport')?.addEventListener('click', triggerPrintDialog);
   document.getElementById('btnMonthlyBookPrintAll')?.addEventListener('click', triggerPrintDialog);
-  document.getElementById('btnMatrixPrint')?.addEventListener('click', triggerPrintDialog);
 
   // Monthly Book toolbar Prev / Next month buttons
   document.getElementById('btnMonthlyBookPrevMonth')?.addEventListener('click', () => {
