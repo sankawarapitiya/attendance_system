@@ -4136,8 +4136,337 @@ function triggerReportExport(format) {
   window.location.href = `/api/reports/export?${q.toString()}`;
 }
 
+// ==========================================
+// USER DEFINED EMPLOYEE GROUPS UI LOGIC
+// ==========================================
+
+async function loadEmployeeGroups() {
+  try {
+    const org = getActiveOrgFilter();
+    const url = org && org !== 'ALL' ? `/api/employee-groups?orgId=${encodeURIComponent(org)}` : '/api/employee-groups';
+    const res = await fetch(url, { headers: { 'x-organization-id': org || '' } });
+    const data = await res.json();
+    if (data.success) {
+      state.employeeGroups = data.groups || [];
+    }
+  } catch (err) {
+    console.warn('Failed to load employee groups:', err.message);
+  }
+
+  // Populate #filterEmpGroup
+  const filterSelect = document.getElementById('filterEmpGroup');
+  if (filterSelect) {
+    const curVal = filterSelect.value;
+    let optHtml = '<option value="all">All Groups</option><option value="unassigned">-- Unassigned --</option>';
+    (state.employeeGroups || []).forEach(g => {
+      optHtml += `<option value="${escapeHtml(g.name)}">🏷️ ${escapeHtml(g.name)} (${g.member_count || 0})</option>`;
+    });
+    filterSelect.innerHTML = optHtml;
+    if (curVal) filterSelect.value = curVal;
+  }
+
+  // Populate #bulkGroupSelect
+  const bulkSelect = document.getElementById('bulkGroupSelect');
+  if (bulkSelect) {
+    let optHtml = '<option value="">-- Select Group --</option>';
+    optHtml += '<option value="__clear__" style="color: #ef4444; font-weight: 700;">❌ -- Remove Group (Clear) --</option>';
+    (state.employeeGroups || []).forEach(g => {
+      optHtml += `<option value="${escapeHtml(g.name)}">🏷️ ${escapeHtml(g.name)} (${g.member_count || 0} members)</option>`;
+    });
+    bulkSelect.innerHTML = optHtml;
+  }
+
+  // Populate #modalUserGroup
+  const modalSelect = document.getElementById('modalUserGroup');
+  if (modalSelect) {
+    const curVal = modalSelect.value;
+    let optHtml = '<option value="">-- No Group Assigned --</option>';
+    (state.employeeGroups || []).forEach(g => {
+      optHtml += `<option value="${escapeHtml(g.name)}" ${(g.name||'').toLowerCase() === curVal.toLowerCase() ? 'selected' : ''}>🏷️ ${escapeHtml(g.name)}</option>`;
+    });
+    modalSelect.innerHTML = optHtml;
+    if (curVal) modalSelect.value = curVal;
+  }
+}
+
+function renderGroupsList() {
+  const container = document.getElementById('groupsListContainer');
+  const countBadge = document.getElementById('countGroupsList');
+  if (countBadge) countBadge.textContent = (state.employeeGroups || []).length;
+  if (!container) return;
+
+  if (!state.employeeGroups || state.employeeGroups.length === 0) {
+    container.innerHTML = `<div class="text-center py-4 text-muted" style="font-size: 0.85rem;">No custom groups created yet. Use the form above to add your first user group.</div>`;
+    return;
+  }
+
+  container.innerHTML = state.employeeGroups.map(g => {
+    const color = g.color || '#3b82f6';
+    return `
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; transition: all 0.15s;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="width: 14px; height: 14px; border-radius: 50%; background: ${color}; display: inline-block; flex-shrink: 0; box-shadow: 0 0 0 2px ${color}30;"></span>
+          <div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <strong style="font-size: 0.88rem; color: #0f172a;">${escapeHtml(g.name)}</strong>
+              <span class="badge" style="background: ${color}18; color: ${color}; font-weight: 700; font-size: 0.72rem; padding: 1px 7px; border-radius: 9999px;">
+                ${g.member_count || 0} staff
+              </span>
+            </div>
+            ${g.description ? `<div style="font-size: 0.78rem; color: #64748b; margin-top: 2px;">${escapeHtml(g.description)}</div>` : ''}
+          </div>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button type="button" class="btn btn-sm btn-outline" onclick="window.editEmployeeGroup(${g.id})" style="padding: 2px 8px; font-size: 0.74rem;">✏️ Edit</button>
+          <button type="button" class="btn btn-sm btn-outline" onclick="window.deleteEmployeeGroupConfirm(${g.id}, '${escapeHtml(g.name).replace(/'/g, "\\\\'")}')" style="padding: 2px 8px; font-size: 0.74rem; color: #ef4444; border-color: #fca5a5;">🗑️</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openManageGroupsModal() {
+  const modal = document.getElementById('modalManageGroups');
+  if (!modal) return;
+  resetGroupForm();
+  renderGroupsList();
+  modal.classList.add('active');
+}
+
+function closeManageGroupsModal() {
+  const modal = document.getElementById('modalManageGroups');
+  if (modal) modal.classList.remove('active');
+}
+
+function resetGroupForm() {
+  const form = document.getElementById('formSaveEmployeeGroup');
+  if (form) form.reset();
+  const idEl = document.getElementById('inputGroupId');
+  if (idEl) idEl.value = '';
+  const colorEl = document.getElementById('inputGroupColor');
+  if (colorEl) colorEl.value = '#3b82f6';
+  const hexEl = document.getElementById('inputGroupColorHex');
+  if (hexEl) hexEl.textContent = '#3b82f6';
+  const titleEl = document.getElementById('groupFormTitle');
+  if (titleEl) titleEl.textContent = '+ Create New Group';
+  const cancelBtn = document.getElementById('btnCancelEditGroup');
+  if (cancelBtn) cancelBtn.style.display = 'none';
+  const saveBtn = document.getElementById('btnSaveGroup');
+  if (saveBtn) saveBtn.textContent = 'Save Group';
+}
+
+function editEmployeeGroup(id) {
+  const group = (state.employeeGroups || []).find(g => g.id === id);
+  if (!group) return;
+  const idEl = document.getElementById('inputGroupId');
+  if (idEl) idEl.value = group.id;
+  const nameEl = document.getElementById('inputGroupName');
+  if (nameEl) nameEl.value = group.name;
+  const descEl = document.getElementById('inputGroupDesc');
+  if (descEl) descEl.value = group.description || '';
+  const colorEl = document.getElementById('inputGroupColor');
+  if (colorEl) colorEl.value = group.color || '#3b82f6';
+  const hexEl = document.getElementById('inputGroupColorHex');
+  if (hexEl) hexEl.textContent = group.color || '#3b82f6';
+  const titleEl = document.getElementById('groupFormTitle');
+  if (titleEl) titleEl.textContent = '✏️ Edit Group: ' + group.name;
+  const cancelBtn = document.getElementById('btnCancelEditGroup');
+  if (cancelBtn) cancelBtn.style.display = 'inline-block';
+  const saveBtn = document.getElementById('btnSaveGroup');
+  if (saveBtn) saveBtn.textContent = 'Update Group';
+}
+
+async function deleteEmployeeGroupConfirm(id, name) {
+  if (!confirm(`Are you sure you want to delete the group "${name}"?\\nEmployees assigned to this group will become unassigned.`)) return;
+  try {
+    showToast(`Deleting group "${name}"...`, 'info');
+    const res = await fetch(`/api/employee-groups/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Group "${name}" deleted!`, 'success');
+      await loadEmployeeGroups();
+      renderGroupsList();
+      await loadEmployees();
+    } else {
+      showToast(data.error || 'Failed to delete group', 'error');
+    }
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function openBulkGroupModal() {
+  const modal = document.getElementById('modalBulkGroup');
+  if (!modal) return;
+  
+  const countSpan = document.getElementById('bulkGroupFilteredCount');
+  if (countSpan) countSpan.textContent = (state.empRegistry.filteredList || []).length;
+
+  const deptSelect = document.getElementById('bulkGroupDeptSelect');
+  if (deptSelect) {
+    const depts = Array.from(new Set(state.empRegistry.rawList.map(e => (e.department || '').trim()).filter(Boolean))).sort();
+    deptSelect.innerHTML = depts.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+  }
+
+  const bulkSelect = document.getElementById('bulkGroupSelect');
+  if (bulkSelect) {
+    let optHtml = '<option value="">-- Select Group --</option>';
+    optHtml += '<option value="__clear__" style="color: #ef4444; font-weight: 700;">❌ -- Remove Group (Clear) --</option>';
+    (state.employeeGroups || []).forEach(g => {
+      optHtml += `<option value="${escapeHtml(g.name)}">🏷️ ${escapeHtml(g.name)} (${g.member_count || 0} members)</option>`;
+    });
+    bulkSelect.innerHTML = optHtml;
+  }
+
+  modal.classList.add('active');
+}
+
+function closeBulkGroupModal() {
+  const modal = document.getElementById('modalBulkGroup');
+  if (modal) modal.classList.remove('active');
+}
+
+function initEmployeeGroupsUI() {
+  // Manage Groups buttons
+  document.getElementById('btnManageEmpGroups')?.addEventListener('click', openManageGroupsModal);
+  document.getElementById('btnManageGroupsClose')?.addEventListener('click', closeManageGroupsModal);
+  document.getElementById('btnManageGroupsDone')?.addEventListener('click', closeManageGroupsModal);
+  document.getElementById('modalManageGroupsBackdrop')?.addEventListener('click', closeManageGroupsModal);
+
+  // Color picker sync
+  document.getElementById('inputGroupColor')?.addEventListener('input', (e) => {
+    const hex = document.getElementById('inputGroupColorHex');
+    if (hex) hex.textContent = e.target.value;
+  });
+
+  // Cancel edit
+  document.getElementById('btnCancelEditGroup')?.addEventListener('click', resetGroupForm);
+
+  // Save group form
+  document.getElementById('formSaveEmployeeGroup')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const idVal = document.getElementById('inputGroupId').value;
+    const name = document.getElementById('inputGroupName').value.trim();
+    const description = document.getElementById('inputGroupDesc').value.trim();
+    const color = document.getElementById('inputGroupColor').value;
+    const org = getActiveOrgFilter();
+
+    try {
+      showToast('Saving employee group...', 'info');
+      const res = await fetch('/api/employee-groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: idVal ? parseInt(idVal, 10) : undefined,
+          name,
+          description,
+          color,
+          org_id: org
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Group "${data.group.name}" saved!`, 'success');
+        resetGroupForm();
+        await loadEmployeeGroups();
+        renderGroupsList();
+        await loadEmployees();
+      } else {
+        showToast(data.error || 'Failed to save group', 'error');
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  // Bulk Group Assignment
+  document.getElementById('btnOpenBulkGroupModal')?.addEventListener('click', openBulkGroupModal);
+  document.getElementById('btnBulkGroupClose')?.addEventListener('click', closeBulkGroupModal);
+  document.getElementById('btnBulkGroupCancel')?.addEventListener('click', closeBulkGroupModal);
+  document.getElementById('modalBulkGroupBackdrop')?.addEventListener('click', closeBulkGroupModal);
+
+  document.getElementById('bulkGroupScope')?.addEventListener('change', (e) => {
+    const deptWrap = document.getElementById('bulkGroupDeptWrap');
+    if (deptWrap) {
+      deptWrap.style.display = e.target.value === 'dept' ? 'block' : 'none';
+    }
+  });
+
+  document.getElementById('formBulkGroup')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const rawGroup = document.getElementById('bulkGroupSelect').value;
+    if (!rawGroup) {
+      showToast('Please select a group to assign', 'warning');
+      return;
+    }
+    const groupName = rawGroup === '__clear__' ? '' : rawGroup;
+    const scope = document.getElementById('bulkGroupScope').value;
+    const org = getActiveOrgFilter();
+
+    let payload = { group_name: groupName, org_id: org };
+    if (scope === 'filtered') {
+      payload.user_ids = (state.empRegistry.filteredList || []).map(emp => emp.user_id);
+    } else if (scope === 'dept') {
+      payload.department = document.getElementById('bulkGroupDeptSelect').value;
+    }
+
+    try {
+      showToast('Assigning group to employees...', 'info');
+      const res = await fetch('/api/employees/assign-group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(data.message || 'Updated employees!', 'success');
+        closeBulkGroupModal();
+        await loadEmployeeGroups();
+        await loadEmployees();
+      } else {
+        showToast(data.error || 'Failed to assign group', 'error');
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+
+  // Quick add group button in employeeModal
+  document.getElementById('btnQuickAddGroup')?.addEventListener('click', async () => {
+    const name = prompt('Enter new user group name (e.g. Field Officers, Drivers):');
+    if (!name || !name.trim()) return;
+    try {
+      const org = getActiveOrgFilter();
+      const res = await fetch('/api/employee-groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), color: '#0284c7', org_id: org })
+      });
+      const data = await res.json();
+      if (data.success && data.group) {
+        showToast(`Group "${data.group.name}" created!`, 'success');
+        await loadEmployeeGroups();
+        const select = document.getElementById('modalUserGroup');
+        if (select) select.value = data.group.name;
+      } else {
+        showToast(data.error || 'Failed to create group', 'error');
+      }
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
+}
+
+window.editEmployeeGroup = editEmployeeGroup;
+window.deleteEmployeeGroupConfirm = deleteEmployeeGroupConfirm;
+window.openManageGroupsModal = openManageGroupsModal;
+window.closeManageGroupsModal = closeManageGroupsModal;
+window.openBulkGroupModal = openBulkGroupModal;
+window.closeBulkGroupModal = closeBulkGroupModal;
+
 // 4. Employees Management
 async function initEmployees() {
+  initEmployeeGroupsUI();
   document.getElementById('btnSyncUsers')?.addEventListener('click', async () => {
     showToast('Refreshing users from SpeedFace device...', 'info');
     await triggerManualSync();
@@ -5412,7 +5741,7 @@ function attachEmployeeRowListeners() {
 }
 
 async function loadEmployees() {
-  if (!state.employeeGroups || state.employeeGroups.length === 0) {
+  if (typeof loadEmployeeGroups === 'function' && (!state.employeeGroups || state.employeeGroups.length === 0)) {
     await loadEmployeeGroups().catch(() => {});
   }
   if (!state.leaveCategories || state.leaveCategories.length === 0) {
