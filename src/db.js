@@ -480,9 +480,9 @@ async function initDatabase() {
   await dbRun(`
     CREATE TABLE IF NOT EXISTS system_users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      uid TEXT UNIQUE,
+      uid TEXT NOT NULL,
       email TEXT NOT NULL,
-      username TEXT UNIQUE,
+      username TEXT NOT NULL,
       password_hash TEXT,
       display_name TEXT,
       role TEXT NOT NULL DEFAULT 'staff',
@@ -491,12 +491,13 @@ async function initDatabase() {
       is_active INTEGER DEFAULT 1,
       firebase_uid TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(uid, org_id)
     )
   `);
 
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_sys_user_email ON system_users(email)`);
-  await dbRun(`CREATE INDEX IF NOT EXISTS idx_sys_user_username ON system_users(username)`);
+  await dbRun(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sys_user_uname_org ON system_users(username, org_id)`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_sys_user_org ON system_users(org_id)`);
 
   // Safe migrations for system_users cloud sync columns
@@ -1131,9 +1132,12 @@ async function getValidOrganizationIds() {
 }
 
 // Get system user by UID
-async function getSystemUserByUid(uid) {
+async function getSystemUserByUid(uid, orgId = null) {
   if (!uid) return null;
-  return dbGet(`SELECT * FROM system_users WHERE uid = ?`, [uid]);
+  if (orgId) {
+    return dbGet(`SELECT * FROM system_users WHERE uid = ? AND org_id = ?`, [uid, orgId]);
+  }
+  return dbGet(`SELECT * FROM system_users WHERE uid = ? ORDER BY id DESC LIMIT 1`, [uid]);
 }
 
 // Get all system users for an organization
@@ -1162,7 +1166,7 @@ async function saveSystemUser(userData) {
   await dbRun(`
     INSERT INTO system_users (uid, email, username, password_hash, display_name, role, org_id, phone, firebase_uid, is_active)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-    ON CONFLICT(uid) DO UPDATE SET
+    ON CONFLICT(uid, org_id) DO UPDATE SET
       email = excluded.email,
       username = excluded.username,
       display_name = excluded.display_name,
@@ -1173,7 +1177,7 @@ async function saveSystemUser(userData) {
       updated_at = CURRENT_TIMESTAMP
   `, [uid, email, username, passwordHash, displayName, role, orgId, phone, firebaseUid]);
 
-  return getSystemUserByUid(uid);
+  return getSystemUserByUid(uid, orgId);
 }
 
 // Delete system user
@@ -3150,7 +3154,7 @@ async function upsertSystemUsersFromCloud(usersList = [], targetOrgId = 'DSOFFIC
         uid, username, email, display_name, role, password_hash, org_id, is_active,
         synced_to_cloud, cloud_synced_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      ON CONFLICT(uid) DO UPDATE SET
+      ON CONFLICT(uid, org_id) DO UPDATE SET
         username = excluded.username,
         email = excluded.email,
         display_name = excluded.display_name,
