@@ -12869,14 +12869,15 @@ window.systemLogout = function (e, reason) {
 
   if (reason === 'idle') {
     const alertBox = document.getElementById('loginAlertBox');
+    const timeDesc = currentIdleTimeoutMins === 1 ? '1 minute' : `${currentIdleTimeoutMins} minutes`;
     if (alertBox) {
       alertBox.style.display = 'block';
       alertBox.style.background = '#fffbeb';
       alertBox.style.color = '#92400e';
       alertBox.style.border = '1px solid #fcd34d';
-      alertBox.innerHTML = '<strong>⏰ Session Expired:</strong><div style="margin-top: 4px; font-weight: 500;">You have been automatically logged out due to 5 minutes of inactivity. Please enter your credentials to resume.</div>';
+      alertBox.innerHTML = `<strong>⏰ Session Expired:</strong><div style="margin-top: 4px; font-weight: 500;">You have been automatically logged out due to ${timeDesc} of inactivity. Please enter your credentials to resume.</div>`;
     }
-    showToast('Logged out due to 5 minutes of inactivity. Dashboard locked until next sign in.', 'warning', 6000);
+    showToast(`Logged out due to ${timeDesc} of inactivity. Dashboard locked until next sign in.`, 'warning', 6000);
   } else {
     showToast('Logged out of system. Dashboard locked until next sign in.', 'info');
   }
@@ -12885,23 +12886,117 @@ window.systemLogout = function (e, reason) {
 const systemLogout = window.systemLogout;
 
 // ============================================================================
-// IDLE ACTIVITY DETECTION & AUTO-LOGOUT (5 MINUTES)
+// CONFIGURABLE IDLE ACTIVITY DETECTION & AUTO-LOGOUT
 // ============================================================================
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes (300,000 ms)
+let currentIdleTimeoutMins = 5; // Default: 5 minutes (0 = Disabled)
+let idleTimeoutMs = 5 * 60 * 1000;
 let lastUserActivityTimestamp = Date.now();
 let idleDetectionInterval = null;
+let idleLiveTickInterval = null;
 
 function recordUserActivity() {
   lastUserActivityTimestamp = Date.now();
 }
 window.recordUserActivity = recordUserActivity;
 
+function updateIdleTimeoutUI() {
+  const badge = document.getElementById('badgeIdleTimeoutStatus');
+  const lblMins = document.getElementById('lblActiveTimeoutMins');
+  const lblReauth = document.getElementById('lblReauthRequired');
+  const presetSelect = document.getElementById('settingIdleTimeoutPreset');
+  const customRow = document.getElementById('rowCustomIdleTimeout');
+  const customInput = document.getElementById('settingIdleTimeoutCustom');
+
+  if (currentIdleTimeoutMins === 0) {
+    if (badge) {
+      badge.textContent = 'DISABLED';
+      badge.style.background = '#f1f5f9';
+      badge.style.color = '#475569';
+    }
+    if (lblMins) lblMins.textContent = 'Disabled (Never Timeout)';
+    if (lblReauth) {
+      lblReauth.textContent = 'Disabled';
+      lblReauth.style.color = '#64748b';
+    }
+  } else {
+    const minsText = `${currentIdleTimeoutMins} MINS ACTIVE`;
+    if (badge) {
+      badge.textContent = minsText;
+      badge.style.background = '#dcfce7';
+      badge.style.color = '#15803d';
+    }
+    if (lblMins) lblMins.textContent = `${currentIdleTimeoutMins} Minutes`;
+    if (lblReauth) {
+      lblReauth.textContent = 'Active';
+      lblReauth.style.color = '#15803d';
+    }
+  }
+
+  // Update preset select dropdown if available
+  if (presetSelect) {
+    const knownPresets = ['0', '1', '3', '5', '10', '15', '30', '60', '120'];
+    const valStr = String(currentIdleTimeoutMins);
+    if (knownPresets.includes(valStr)) {
+      presetSelect.value = valStr;
+      if (customRow) customRow.style.display = 'none';
+    } else {
+      presetSelect.value = 'custom';
+      if (customRow) customRow.style.display = 'block';
+      if (customInput) customInput.value = currentIdleTimeoutMins;
+    }
+  }
+}
+window.updateIdleTimeoutUI = updateIdleTimeoutUI;
+
+function setIdleTimeout(mins, save = false) {
+  const parsed = parseInt(mins, 10);
+  if (isNaN(parsed) || parsed < 0) return Promise.resolve({ success: false });
+
+  currentIdleTimeoutMins = parsed;
+  if (parsed === 0) {
+    idleTimeoutMs = 0;
+    console.log('[AUTH] Session idle auto-logout disabled.');
+  } else {
+    idleTimeoutMs = parsed * 60 * 1000;
+    console.log(`[AUTH] Session idle auto-logout set to ${parsed} minute(s) (${idleTimeoutMs}ms).`);
+  }
+  lastUserActivityTimestamp = Date.now();
+  updateIdleTimeoutUI();
+
+  if (save) {
+    return fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_idle_timeout_mins: String(parsed) })
+    }).then(r => r.json()).catch(err => ({ success: false, error: err.message }));
+  }
+  return Promise.resolve({ success: true, timeoutMins: parsed });
+}
+window.setIdleTimeout = setIdleTimeout;
+
+async function loadIdleTimeoutSettings() {
+  try {
+    const res = await fetch('/api/settings');
+    const data = await res.json();
+    if (data.success && data.settings && data.settings.session_idle_timeout_mins !== undefined) {
+      setIdleTimeout(data.settings.session_idle_timeout_mins, false);
+    } else {
+      updateIdleTimeoutUI();
+    }
+  } catch (err) {
+    console.warn('[AUTH] Could not load idle timeout setting:', err.message);
+    updateIdleTimeoutUI();
+  }
+}
+window.loadIdleTimeoutSettings = loadIdleTimeoutSettings;
+
 function checkUserIdleTimeout() {
   if (!state.currentUser) return; // Only apply auto-logout when user is actively logged in
+  if (idleTimeoutMs === 0) return; // Disabled
   const now = Date.now();
   const elapsed = now - lastUserActivityTimestamp;
-  if (elapsed >= IDLE_TIMEOUT_MS) {
-    console.warn(`[AUTH] System idle for ${Math.round(elapsed / 1000)}s (>= 5 minutes). Logging out automatically.`);
+  if (elapsed >= idleTimeoutMs) {
+    console.warn(`[AUTH] System idle for ${Math.round(elapsed / 1000)}s (>= ${currentIdleTimeoutMins} minutes). Logging out automatically.`);
     systemLogout(null, 'idle');
   }
 }
@@ -12930,11 +13025,116 @@ function initIdleAutoLogout() {
     }
   });
 
-  // Check every 5 seconds
+  // Check timeout every 5 seconds
   if (idleDetectionInterval) clearInterval(idleDetectionInterval);
   idleDetectionInterval = setInterval(checkUserIdleTimeout, 5000);
+
+  // Live countdown indicator tick every 1 second
+  if (idleLiveTickInterval) clearInterval(idleLiveTickInterval);
+  idleLiveTickInterval = setInterval(() => {
+    const ind = document.getElementById('idleTimeoutLiveIndicator');
+    if (!ind) return;
+    if (idleTimeoutMs === 0) {
+      ind.textContent = 'Timeout: Disabled';
+      ind.style.color = '#64748b';
+      return;
+    }
+    if (!state.currentUser) {
+      ind.textContent = 'Dashboard Locked';
+      ind.style.color = '#dc2626';
+      return;
+    }
+    const elapsedSec = Math.floor((Date.now() - lastUserActivityTimestamp) / 1000);
+    const totalSec = currentIdleTimeoutMins * 60;
+    const remainingSec = Math.max(0, totalSec - elapsedSec);
+    const remM = Math.floor(remainingSec / 60);
+    const remS = remainingSec % 60;
+    ind.textContent = `Lock in: ${remM}m ${remS < 10 ? '0' : ''}${remS}s (Idle: ${elapsedSec}s)`;
+    if (remainingSec <= 30) {
+      ind.style.color = '#dc2626';
+      ind.style.fontWeight = '700';
+    } else if (remainingSec <= 60) {
+      ind.style.color = '#d97706';
+      ind.style.fontWeight = '600';
+    } else {
+      ind.style.color = '#64748b';
+      ind.style.fontWeight = 'normal';
+    }
+  }, 1000);
 }
 window.initIdleAutoLogout = initIdleAutoLogout;
+
+let isIdleTimeoutSettingsInitialized = false;
+
+function initIdleTimeoutSettings() {
+  const form = document.getElementById('formIdleTimeoutSettings');
+  const presetSelect = document.getElementById('settingIdleTimeoutPreset');
+  const customRow = document.getElementById('rowCustomIdleTimeout');
+  const customInput = document.getElementById('settingIdleTimeoutCustom');
+  const savedBadge = document.getElementById('idleTimeoutSavedBadge');
+  const saveBtn = document.getElementById('btnSaveIdleTimeout');
+
+  if (presetSelect && customRow) {
+    presetSelect.addEventListener('change', () => {
+      if (presetSelect.value === 'custom') {
+        customRow.style.display = 'block';
+        if (customInput) customInput.focus();
+      } else {
+        customRow.style.display = 'none';
+      }
+    });
+  }
+
+  if (isIdleTimeoutSettingsInitialized) return;
+  isIdleTimeoutSettingsInitialized = true;
+
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      let targetMins = 5;
+      if (presetSelect.value === 'custom') {
+        const customVal = parseInt(customInput?.value, 10);
+        if (isNaN(customVal) || customVal < 1 || customVal > 1440) {
+          showToast('Please enter a valid custom timeout between 1 and 1440 minutes.', 'warning');
+          return;
+        }
+        targetMins = customVal;
+      } else {
+        targetMins = parseInt(presetSelect.value, 10);
+      }
+
+      const origHtml = saveBtn ? saveBtn.innerHTML : '';
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Saving...';
+      }
+
+      try {
+        const res = await setIdleTimeout(targetMins, true);
+        if (res.success) {
+          const toastMsg = targetMins === 0 
+            ? '✓ Session idle auto-logout disabled.'
+            : `✓ Session idle timeout set to ${targetMins} minute(s).`;
+          showToast(toastMsg, 'success');
+          if (savedBadge) {
+            savedBadge.style.display = 'inline-block';
+            setTimeout(() => { savedBadge.style.display = 'none'; }, 3500);
+          }
+        } else {
+          showToast(res.error || 'Failed to save idle timeout setting', 'error');
+        }
+      } catch (err) {
+        showToast('Error saving idle timeout: ' + err.message, 'error');
+      } finally {
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.innerHTML = origHtml;
+        }
+      }
+    });
+  }
+}
+window.initIdleTimeoutSettings = initIdleTimeoutSettings;
 
 window.handleLicenseCardClick = function (e) {
   if (e && typeof e.preventDefault === 'function') {
@@ -12972,6 +13172,7 @@ function initSystemAuth() {
   const alertBox = document.getElementById('loginAlertBox');
   const submitBtn = document.getElementById('btnSubmitSystemLogin');
 
+  loadIdleTimeoutSettings();
   // Load saved session or lock system
   let savedUser = null;
   try {
@@ -13362,6 +13563,8 @@ async function initSettingsTab() {
   await loadFirebaseStatus();
   initFirebaseSync();
   await loadOrganizationUsers();
+  await loadIdleTimeoutSettings();
+  initIdleTimeoutSettings();
   initOrgSettingsTabForm();
   initAddUserModal();
   await loadSystemHealth();

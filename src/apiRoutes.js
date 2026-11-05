@@ -3301,7 +3301,7 @@ router.post('/settings', async (req, res) => {
     const settingKeys = [
       'device_ip', 'device_port', 'auto_sync_interval', 'auto_sync_enabled',
       'network_interface', 'network_interface_ip',
-      'org_name', 'org_subtitle', 'org_address', 'org_phone', 'org_email', 'org_website', 'org_footer', 'org_logo'
+      'org_name', 'org_subtitle', 'org_address', 'org_phone', 'org_email', 'org_website', 'org_footer', 'org_logo', 'session_idle_timeout_mins'
     ];
 
     for (const key of settingKeys) {

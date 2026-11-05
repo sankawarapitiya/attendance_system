@@ -6996,7 +6996,102 @@ Loading application logs...
           </div>
         </div>
 
-        <!-- 2. Organization Details & Report Letterhead Card -->
+        <!-- Security & Session Idle Timeout Card -->
+        <div class="card" id="cardSecuritySettings" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border); margin-bottom: 24px; overflow: hidden;">
+          <div class="card-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; background: #fff;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 1.25rem;">⏱️</span>
+                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #1e293b;">Security &amp; Session Idle Timeout</h3>
+                <span class="badge" id="badgeIdleTimeoutStatus" style="background: #dcfce7; color: #15803d; font-weight: 700; font-size: 0.75rem; padding: 3px 9px; border-radius: 999px;">5 MINS ACTIVE</span>
+              </div>
+              <p style="margin: 4px 0 0 0; font-size: 0.82rem; color: #64748b;">
+                Configure automatic dashboard lock and session logout when no user activity is detected, protecting employee records and administrator privileges.
+              </p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span id="idleTimeoutLiveIndicator" style="font-size: 0.8rem; color: #64748b; font-family: monospace; background: #f8fafc; padding: 4px 10px; border-radius: 6px; border: 1px solid #e2e8f0;">Idle: 0s</span>
+            </div>
+          </div>
+
+          <div class="card-body" style="padding: 20px;">
+            <form id="formIdleTimeoutSettings">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;" class="idle-timeout-grid">
+                
+                <!-- Left Column: Timeout Selection -->
+                <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; background: #fafafa;">
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                    <span style="font-size: 1.1rem;">⏳</span>
+                    <h4 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: #1e293b;">Inactivity Lock Duration</h4>
+                  </div>
+                  <p style="font-size: 0.8rem; color: #64748b; margin: 0 0 14px 0; line-height: 1.45;">
+                    Automatically logs out the signed-in user and locks the dashboard if no mouse, keyboard, touch, or scroll events occur within this timeframe.
+                  </p>
+
+                  <div class="form-group" style="margin-bottom: 12px;">
+                    <label for="settingIdleTimeoutPreset" style="font-size: 0.82rem; font-weight: 700; color: #334155; display: block; margin-bottom: 4px;">
+                      Select Inactivity Timeout:
+                    </label>
+                    <select id="settingIdleTimeoutPreset" class="form-control" style="font-size: 0.88rem; height: 38px; font-weight: 600;">
+                      <option value="1">1 Minute (Ultra Secure / Shared Kiosk)</option>
+                      <option value="3">3 Minutes (High Security)</option>
+                      <option value="5" selected>5 Minutes (Standard Recommended)</option>
+                      <option value="10">10 Minutes</option>
+                      <option value="15">15 Minutes (Office Workstation)</option>
+                      <option value="30">30 Minutes (Extended Operations)</option>
+                      <option value="60">60 Minutes (1 Hour)</option>
+                      <option value="120">120 Minutes (2 Hours)</option>
+                      <option value="0">Disabled (Never Auto-Logout)</option>
+                      <option value="custom">Custom Duration (Minutes)...</option>
+                    </select>
+                  </div>
+
+                  <!-- Custom Minutes Input Row -->
+                  <div id="rowCustomIdleTimeout" style="display: none; margin-bottom: 14px;">
+                    <label for="settingIdleTimeoutCustom" style="font-size: 0.78rem; font-weight: 600; color: #64748b; display: block; margin-bottom: 3px;">
+                      Custom Timeout Duration:
+                    </label>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <input type="number" id="settingIdleTimeoutCustom" class="form-control" min="1" max="1440" placeholder="e.g. 25" style="font-size: 0.85rem; height: 36px; max-width: 140px;">
+                      <span style="font-size: 0.82rem; color: #64748b; font-weight: 600;">Minutes</span>
+                    </div>
+                  </div>
+
+                  <div style="margin-top: 16px; display: flex; align-items: center; gap: 10px;">
+                    <button type="submit" class="btn btn-primary" id="btnSaveIdleTimeout" style="display: inline-flex; align-items: center; gap: 6px; font-weight: 700; padding: 8px 18px; font-size: 0.85rem;">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><line x1="7" y1="3" x2="7" y2="8"></line></svg>
+                      <span>Save Timeout Setting</span>
+                    </button>
+                    <span id="idleTimeoutSavedBadge" style="display: none; font-size: 0.78rem; color: #15803d; font-weight: 600;">✓ Saved &amp; Active!</span>
+                  </div>
+                </div>
+
+                <!-- Right Column: Security Guidance & Info -->
+                <div style="border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px; background: #fff; display: flex; flex-direction: column; justify-content: space-between;">
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                      <span style="font-size: 1.1rem;">🔒</span>
+                      <h4 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: #1e293b;">Security Guidelines &amp; Recommendations</h4>
+                    </div>
+                    <ul style="margin: 0 0 14px 0; padding-left: 20px; font-size: 0.82rem; color: #475569; line-height: 1.6;">
+                      <li><b>Shared &amp; Public Desks:</b> Set to <b>1 – 3 minutes</b> to ensure immediate lockout when an officer leaves the terminal unattended.</li>
+                      <li><b>Private Administrative Offices:</b> <b>10 – 15 minutes</b> is ideal for timesheet reconciliation without frequent re-login prompts.</li>
+                      <li><b>Wall Displays &amp; Live Monitors:</b> Set to <b>Disabled</b> if the screen is used solely for live punch monitoring.</li>
+                      <li><b>Data Preservation:</b> Auto-logout locks the browser interface only. In-flight background sync, terminal data collection, and database operations continue uninterrupted.</li>
+                    </ul>
+                  </div>
+
+                  <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; font-size: 0.78rem; color: #475569;">
+                    <div style="font-weight: 700; color: #1e293b; margin-bottom: 2px;">⚡ Active Configuration Summary</div>
+                    <div>Configured Timeout: <strong id="lblActiveTimeoutMins" style="color: #0284c7;">5 Minutes</strong> &bull; Re-authentication on Idle: <strong id="lblReauthRequired" style="color: #15803d;">Active</strong></div>
+                  </div>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+
+                <!-- 2. Organization Details & Report Letterhead Card -->
         <div class="card" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border); margin-bottom: 24px;">
           <div class="card-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <div>
@@ -9473,7 +9568,7 @@ Loading application logs...
   <div class="toast-container" id="toastContainer"></div>
 
 <script src="js/cloudAdapter.js?v=2.9.8"></script>
-  <script src="js/app.js?v=3.7.0"></script>
+  <script src="js/app.js?v=3.8.0"></script>
 
   <!-- Modal: Cloud Disaster Recovery & Database Restore -->
   <div class="modal" id="modalCloudRestore">

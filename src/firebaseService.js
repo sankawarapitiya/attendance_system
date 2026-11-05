@@ -2453,7 +2453,8 @@ class FirebaseService {
     const keysToSync = [
       'org_name', 'org_subtitle', 'org_address', 'org_phone', 'org_email', 'org_website', 'org_footer',
       'device_ip', 'device_port', 'auto_sync_interval', 'auto_sync_enabled',
-      'firestore_org_name', 'firestore_enabled', 'firestore_auto_sync', 'firestore_sync_interval'
+      'firestore_org_name', 'firestore_enabled', 'firestore_auto_sync', 'firestore_sync_interval',
+      'session_idle_timeout_mins'
     ];
 
     let downloaded = 0;

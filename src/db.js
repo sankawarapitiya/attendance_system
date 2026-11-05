@@ -726,6 +726,7 @@ async function initDatabase() {
   await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('org_email', 'info@nifne.ac.lk')`);
   await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('org_website', 'www.nifne.ac.lk')`);
   await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('org_footer', 'SpeedFace-V5L Automated Biometric Attendance & Payroll System')`);
+  await dbRun(`INSERT OR IGNORE INTO settings (key, value) VALUES ('session_idle_timeout_mins', '5')`);
 
   console.log('Database tables & indexes initialized successfully.');
 }
