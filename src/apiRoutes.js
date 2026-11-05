@@ -3812,16 +3812,66 @@ router.post('/firebase/reset-sync', async (req, res) => {
   }
 });
 
-// 8. Two-Way Sync for Selected Date Range
+// 8. Two-Way Sync for Selected Date Range or Full Sync
 router.post('/firebase/two-way-sync', async (req, res) => {
   try {
-    const { startDate, endDate, direction, orgId } = req.body || {};
+    const { startDate, endDate, direction, orgId, scope } = req.body || {};
+    if (scope === 'all') {
+      const result = await firebaseService.syncAllCloudFirst({
+        startDate,
+        endDate,
+        orgId,
+        force: true,
+        reason: 'MANUAL_TWO_WAY_FULL'
+      });
+      return res.json(result);
+    }
     const result = await firebaseService.twoWaySync({
       startDate,
       endDate,
       direction: direction || 'two_way',
       orgId
     });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 8d. Master Cloud-First Bidirectional Synchronization (Settings, Users, Metadata, Attendance)
+router.post('/firebase/sync-all', async (req, res) => {
+  try {
+    const { orgId, daysBack, startDate, endDate, force, reason } = req.body || {};
+    const result = await firebaseService.syncAllCloudFirst({
+      orgId,
+      daysBack,
+      startDate,
+      endDate,
+      force: force !== undefined ? Boolean(force) : true,
+      reason: reason || 'MANUAL_UI'
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 8e. Synchronize Biometric Terminal Fleet with Cloud
+router.post('/firebase/sync-terminals', async (req, res) => {
+  try {
+    const { direction, orgId } = req.body || {};
+    const result = await firebaseService.syncTerminals({ direction: direction || 'two_way', orgId });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 8f. Synchronize Employee Groups with Cloud
+router.post('/firebase/sync-groups', async (req, res) => {
+  try {
+    const { direction, orgId } = req.body || {};
+    const result = await firebaseService.syncEmployeeGroups({ direction: direction || 'two_way', orgId });
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

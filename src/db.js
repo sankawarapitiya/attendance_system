@@ -570,6 +570,21 @@ async function initDatabase() {
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_terminals_ip ON terminals(ip)`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_terminals_status ON terminals(status)`);
 
+  // Cloud Sync safe columns migration for terminals and employee_groups
+  try {
+    await dbRun(`ALTER TABLE terminals ADD COLUMN synced_to_cloud INTEGER DEFAULT 0`);
+  } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE terminals ADD COLUMN cloud_synced_at DATETIME DEFAULT NULL`);
+  } catch (e) {}
+
+  try {
+    await dbRun(`ALTER TABLE employee_groups ADD COLUMN synced_to_cloud INTEGER DEFAULT 0`);
+  } catch (e) {}
+  try {
+    await dbRun(`ALTER TABLE employee_groups ADD COLUMN cloud_synced_at DATETIME DEFAULT NULL`);
+  } catch (e) {}
+
   // Seed default organization system users if empty
   const userCount = await dbGet(`SELECT COUNT(*) as count FROM system_users`);
   if (!userCount || userCount.count === 0) {
@@ -1202,7 +1217,7 @@ async function saveSystemUser(userData) {
   await dbRun(`
     INSERT INTO system_users (uid, email, username, password_hash, display_name, role, org_id, phone, firebase_uid, is_active)
     VALUES (?, ?, ?, COALESCE(NULLIF(?, ''), '123456'), ?, ?, ?, ?, ?, 1)
-    ON CONFLICT(uid, org_id) DO UPDATE SET
+    ON CONFLICT(uid) DO UPDATE SET
       email = excluded.email,
       username = excluded.username,
       display_name = excluded.display_name,
@@ -3098,8 +3113,9 @@ async function upsertEmployeesFromCloud(employeesList = [], targetOrgId = 'DSOFF
           user_id, name, department, role, employee_service_id, card_no,
           email, phone, nic, gender, birthday, appointment_date,
           employment_status, is_active, leave_category_id, photo, org_id,
+          shift_id, user_group,
           synced_to_cloud, cloud_synced_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
           name = CASE WHEN excluded.name IS NOT NULL AND excluded.name != '' THEN excluded.name ELSE employees.name END,
           department = COALESCE(excluded.department, employees.department),
@@ -3117,6 +3133,8 @@ async function upsertEmployeesFromCloud(employeesList = [], targetOrgId = 'DSOFF
           leave_category_id = COALESCE(excluded.leave_category_id, employees.leave_category_id),
           photo = COALESCE(excluded.photo, employees.photo),
           org_id = excluded.org_id,
+          shift_id = COALESCE(excluded.shift_id, employees.shift_id),
+          user_group = COALESCE(excluded.user_group, employees.user_group),
           synced_to_cloud = 1,
           cloud_synced_at = CURRENT_TIMESTAMP,
           updated_at = CURRENT_TIMESTAMP
@@ -3143,10 +3161,13 @@ async function upsertEmployeesFromCloud(employeesList = [], targetOrgId = 'DSOFF
         const photo = e.photoUrl || e.photo || null;
         const empOrg = (e.organizationId || e.org_id || org).trim().toUpperCase();
 
+        const shiftId = parseInt(e.shiftId || e.shift_id, 10) || 1;
+        const userGroup = e.userGroup || e.user_group || '';
         stmt.run(
           uid, name, dept, role, serviceId, cardNo,
           email, phone, nic, gender, bday, appDate,
           empStatus, isActive, leaveCatId, photo, empOrg,
+          shiftId, userGroup,
           function (err) {
             if (!err) count++;
           }
@@ -3213,7 +3234,7 @@ async function upsertSystemUsersFromCloud(usersList = [], targetOrgId = 'DSOFFIC
         uid, username, email, display_name, role, password_hash, org_id, phone, firebase_uid, is_active,
         synced_to_cloud, cloud_synced_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      ON CONFLICT(uid, org_id) DO UPDATE SET
+      ON CONFLICT(uid) DO UPDATE SET
         username = excluded.username,
         email = excluded.email,
         display_name = excluded.display_name,
@@ -3579,7 +3600,121 @@ async function assignGroupToEmployees({ groupName, userIds = [], department = ''
   return { success: true, count: targetUserIds.length, userIds: targetUserIds };
 }
 
+
+/**
+ * Upsert terminal downloaded from Cloud Firestore into local SQLite
+ */
+async function upsertTerminalFromCloud(data = {}) {
+  const ip = (data.ip || '').trim();
+  if (!ip) return null;
+  const name = (data.name || 'SpeedFace Terminal').trim();
+  const port = parseInt(data.port, 10) || 4370;
+  const commKey = String(data.comm_key || data.commKey || '0').trim();
+  const model = (data.model || 'SpeedFace-V5L').trim();
+  const location = (data.location || '').trim();
+  const isEnabled = data.is_enabled !== undefined ? (data.is_enabled ? 1 : 0) : (data.isEnabled !== undefined ? (data.isEnabled ? 1 : 0) : 1);
+  const autoSync = data.auto_sync !== undefined ? (data.auto_sync ? 1 : 0) : (data.autoSync !== undefined ? (data.autoSync ? 1 : 0) : 1);
+  const serialNumber = data.serial_number || data.serialNumber || '';
+  const firmware = data.firmware || '';
+  const status = data.status || 'OFFLINE';
+
+  const existing = await getTerminalByIp(ip);
+  if (existing) {
+    await dbRun(`
+      UPDATE terminals SET
+        name = ?, port = ?, comm_key = ?, model = ?, location = ?,
+        is_enabled = ?, auto_sync = ?, serial_number = COALESCE(NULLIF(?, ''), serial_number),
+        firmware = COALESCE(NULLIF(?, ''), firmware),
+        synced_to_cloud = 1, cloud_synced_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE ip = ?
+    `, [name, port, commKey, model, location, isEnabled, autoSync, serialNumber, firmware, ip]);
+    return existing.id;
+  } else {
+    const res = await dbRun(`
+      INSERT INTO terminals (name, ip, port, comm_key, model, location, is_enabled, auto_sync, status, serial_number, firmware, synced_to_cloud, cloud_synced_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+    `, [name, ip, port, commKey, model, location, isEnabled, autoSync, status, serialNumber, firmware]);
+    return res.lastID;
+  }
+}
+
+/**
+ * Upsert user-defined employee group downloaded from Cloud Firestore into local SQLite
+ */
+async function upsertEmployeeGroupFromCloud(data = {}, orgId = 'DSOFFICE_LUNUGAMWEHERA') {
+  const targetOrg = (orgId || data.org_id || data.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+  const name = (data.name || '').trim();
+  if (!name) return null;
+  const description = data.description || '';
+  const color = data.color || '#3b82f6';
+  const rawId = parseInt(data.id, 10);
+
+  let existing = null;
+  if (!isNaN(rawId) && rawId > 0) {
+    existing = await dbGet(`SELECT id FROM employee_groups WHERE id = ?`, [rawId]);
+  }
+  if (!existing) {
+    existing = await dbGet(`SELECT id FROM employee_groups WHERE name = ? AND org_id = ?`, [name, targetOrg]);
+  }
+
+  if (existing) {
+    await dbRun(`
+      UPDATE employee_groups SET
+        name = ?, description = ?, color = ?, org_id = ?,
+        synced_to_cloud = 1, cloud_synced_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `, [name, description, color, targetOrg, existing.id]);
+    return existing.id;
+  } else {
+    let res;
+    if (!isNaN(rawId) && rawId > 0) {
+      res = await dbRun(`
+        INSERT INTO employee_groups (id, name, description, color, org_id, synced_to_cloud, cloud_synced_at)
+        VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+      `, [rawId, name, description, color, targetOrg]);
+    } else {
+      res = await dbRun(`
+        INSERT INTO employee_groups (name, description, color, org_id, synced_to_cloud, cloud_synced_at)
+        VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+      `, [name, description, color, targetOrg]);
+    }
+    return res.lastID;
+  }
+}
+
+/**
+ * Mark system users as synced to cloud
+ */
+async function markSystemUsersCloudSynced(uids = []) {
+  if (!uids || uids.length === 0) return 0;
+  const placeholders = uids.map(() => '?').join(',');
+  const res = await dbRun(
+    `UPDATE system_users SET synced_to_cloud = 1, cloud_synced_at = CURRENT_TIMESTAMP WHERE uid IN (${placeholders})`,
+    uids
+  );
+  return res.changes || 0;
+}
+
+/**
+ * Mark employee groups as synced to cloud
+ */
+async function markEmployeeGroupsCloudSynced(groupIds = []) {
+  if (!groupIds || groupIds.length === 0) return 0;
+  const placeholders = groupIds.map(() => '?').join(',');
+  const res = await dbRun(
+    `UPDATE employee_groups SET synced_to_cloud = 1, cloud_synced_at = CURRENT_TIMESTAMP WHERE id IN (${placeholders})`,
+    groupIds
+  );
+  return res.changes || 0;
+}
+
 module.exports = {
+  getSettingsMap,
+  upsertSettings,
+  upsertTerminalFromCloud,
+  upsertEmployeeGroupFromCloud,
+  markSystemUsersCloudSynced,
+  markEmployeeGroupsCloudSynced,
   getEmployeeGroups,
   getEmployeeGroupById,
   saveEmployeeGroup,

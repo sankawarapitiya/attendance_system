@@ -309,15 +309,81 @@ document.addEventListener('DOMContentLoaded', () => {
   initLicenseManagement();
 });
 
-// Toast Notifications
+// Toast Notifications with smart deduplication & stack limit
+const recentToastMap = new Map();
+
 function showToast(message, type = 'info', duration = 4000) {
+  if (!message) return;
   const container = document.getElementById('toastContainer');
+  if (!container) return;
+
+  const now = Date.now();
+  const cleanMsg = String(message).trim();
+
+  // 1. Deduplicate identical toasts within 1500ms
+  const lastTime = recentToastMap.get(cleanMsg);
+  if (lastTime && (now - lastTime) < 1500) {
+    return;
+  }
+  recentToastMap.set(cleanMsg, now);
+  if (recentToastMap.size > 50) {
+    for (const [key, t] of recentToastMap.entries()) {
+      if (now - t > 10000) recentToastMap.delete(key);
+    }
+  }
+
+  // 2. If an identical toast is currently visible, don't spawn duplicate
+  const existingToasts = Array.from(container.querySelectorAll('.toast:not([data-removing])'));
+  for (const existing of existingToasts) {
+    if (existing.textContent.trim() === cleanMsg) {
+      return;
+    }
+  }
+
+  // 3. If a success or error toast arrives, dismiss pending in-progress 'info' toasts
+  if (type === 'success' || type === 'error') {
+    existingToasts.forEach(existing => {
+      if (existing.classList.contains('info')) {
+        existing.dataset.removing = 'true';
+        existing.style.opacity = '0';
+        existing.style.transform = 'translateX(30px)';
+        existing.style.transition = 'all 0.2s ease';
+        setTimeout(() => existing.remove(), 200);
+      }
+    });
+  }
+
+  // 4. Limit to at most 3 simultaneous toasts to prevent screen clutter
+  const activeToasts = container.querySelectorAll('.toast:not([data-removing])');
+  if (activeToasts.length >= 3) {
+    const oldest = activeToasts[0];
+    oldest.dataset.removing = 'true';
+    oldest.style.opacity = '0';
+    oldest.style.transform = 'translateX(30px)';
+    oldest.style.transition = 'all 0.2s ease';
+    setTimeout(() => oldest.remove(), 200);
+  }
+
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
+  toast.style.cursor = 'pointer';
+  toast.title = 'Click to dismiss';
   toast.innerHTML = `<span>${message}</span>`;
+
+  // Click to dismiss immediately
+  toast.addEventListener('click', () => {
+    toast.dataset.removing = 'true';
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(30px)';
+    toast.style.transition = 'all 0.2s ease';
+    setTimeout(() => toast.remove(), 200);
+  });
+
   container.appendChild(toast);
 
   setTimeout(() => {
+    if (toast.dataset.removing) return;
+    toast.dataset.removing = 'true';
     toast.style.opacity = '0';
     toast.style.transform = 'translateX(30px)';
     toast.style.transition = 'all 0.3s ease';
@@ -6769,7 +6835,11 @@ async function testAllFleetTerminals() {
   }
 }
 
+let isTerminalManagementInitialized = false;
+
 function initTerminalManagement() {
+  if (isTerminalManagementInitialized) return;
+  isTerminalManagementInitialized = true;
   document.getElementById('btnRefreshTerminalsList')?.addEventListener('click', loadTerminals);
   document.getElementById('btnOpenAddTerminalModal')?.addEventListener('click', openAddTerminalModal);
   document.getElementById('btnCloseTerminalModal')?.addEventListener('click', closeTerminalModal);
@@ -6886,9 +6956,11 @@ function initTerminalManagement() {
 
 
 // 5. Device Control & Diagnostics
+let isDeviceControlInitialized = false;
 async function initDeviceControl() {
+  if (isDeviceControlInitialized) return;
+  isDeviceControlInitialized = true;
   initTerminalManagement();
-  initFirebaseSync();
   document.getElementById('btnTestConn')?.addEventListener('click', testDeviceConnection);
   document.getElementById('btnActionSync')?.addEventListener('click', triggerManualSync);
   document.getElementById('btnActionStopSync')?.addEventListener('click', stopDeviceSync);
@@ -7817,7 +7889,11 @@ async function executeEraseLogs() {
   }
 }
 
+let isFleetEmployeeAndLogManagementInitialized = false;
+
 function initFleetEmployeeAndLogManagement() {
+  if (isFleetEmployeeAndLogManagementInitialized) return;
+  isFleetEmployeeAndLogManagementInitialized = true;
   // Toolbar openers
   document.getElementById('btnOpenFleetPushEmployeesModal')?.addEventListener('click', () => openPushEmployeesModal('all'));
   document.getElementById('btnOpenFleetEraseLogsModal')?.addEventListener('click', () => openEraseLogsModal('all'));
@@ -7855,7 +7931,11 @@ window.openEraseLogsModal = openEraseLogsModal;
 window.closePushEmployeesModal = closePushEmployeesModal;
 window.closeEraseLogsModal = closeEraseLogsModal;
 
+let isTimeSyncInitialized = false;
+
 function initTimeSync() {
+  if (isTimeSyncInitialized) return;
+  isTimeSyncInitialized = true;
   document.getElementById('btnActionOnlineSyncTime')?.addEventListener('click', () => syncDeviceTimeOnline(false));
   document.getElementById('btnActionOpenTimeModal')?.addEventListener('click', () => openTerminalTimeModal('all'));
   document.getElementById('btnQuickTimeOptions')?.addEventListener('click', () => openTerminalTimeModal('all'));
@@ -11017,7 +11097,12 @@ function fallbackCopyText(text, successMsg) {
 // FIREBASE FIRESTORE CLOUD SYNC & MULTI-ORGANIZATION UI LOGIC
 // ============================================================================
 
+let isFirebaseSyncInitialized = false;
+
 function initFirebaseSync() {
+  if (isFirebaseSyncInitialized) return;
+  isFirebaseSyncInitialized = true;
+
   const orgNameInput = document.getElementById('settingFirestoreOrgName');
   const orgIdInput = document.getElementById('settingFirestoreOrgId');
   const autoTag = document.getElementById('orgIdAutoTag');
@@ -11054,7 +11139,6 @@ function initFirebaseSync() {
     }
 
     try {
-      showToast(`Pairing location "${orgName}" with Cloud Partition "organizations/${orgId}"...`, 'info', 3000);
       const res = await fetch('/api/firebase/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -11062,7 +11146,7 @@ function initFirebaseSync() {
       });
       const data = await res.json();
       if (data.success) {
-        showToast(`🏛️ Successfully paired with Cloud Organization: "${data.orgName}" (Partition: organizations/${data.orgId})!`, 'success', 6000);
+        showToast(`🏛️ Successfully paired with Cloud Organization: "${data.orgName}" (Partition: organizations/${data.orgId})!`, 'success', 5000);
         updateFirebaseStatusUI(data.status);
       } else {
         showToast(data.error || 'Failed to pair with cloud', 'error');
@@ -11110,7 +11194,6 @@ function initFirebaseSync() {
     updateStopSyncButtonsUI();
 
     try {
-      showToast('Starting cloud upload to Firestore...', 'info');
       const res = await fetch('/api/firebase/sync-now', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -11297,7 +11380,6 @@ function initFirebaseSync() {
     if (twResultBadge) twResultBadge.style.display = 'none';
 
     try {
-      showToast(`Starting ${direction === 'two_way' ? 'Two-Way' : direction} synchronization for ${startDate} to ${endDate}...`, 'info', 4000);
       const res = await fetch('/api/firebase/two-way-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -11349,11 +11431,67 @@ function initFirebaseSync() {
     }
   });
 
-  // 4d. Settings & Configuration Cloud Sync Handlers
+  // Master Cloud-First Sync Handler
+  async function runMasterCloudSync(btn) {
+    const origHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Master Syncing...`;
+    }
+    state.cloudSyncing = true;
+    updateStopSyncButtonsUI();
+
+    try {
+      const res = await fetch('/api/firebase/sync-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true, daysBack: 30 })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`✓ Master Cloud Sync complete: ${data.totalItemsDownloaded || 0} cloud items checked, ${data.totalItemsUploaded || 0} local items pushed!`, 'success', 6000);
+      } else {
+        showToast(data.error || data.message || 'Master Cloud Sync could not complete', 'error');
+      }
+      await loadFirebaseStatus();
+      if (typeof loadDashboardStats === 'function') loadDashboardStats();
+      if (typeof loadAttendanceRecords === 'function') loadAttendanceRecords();
+    } catch (err) {
+      showToast(`Master sync error: ${err.message}`, 'error');
+    } finally {
+      state.cloudSyncing = false;
+      updateStopSyncButtonsUI();
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+      }
+    }
+  }
+
+  document.getElementById('btnMasterCloudSyncAll')?.addEventListener('click', (e) => {
+    runMasterCloudSync(e.currentTarget);
+  });
+  document.getElementById('btnTwoWayFullSync')?.addEventListener('click', (e) => {
+    runMasterCloudSync(e.currentTarget);
+  });
+
+    // 4d. Settings & Configuration Cloud Sync Handlers
   async function triggerSettingsSync(direction) {
     const badge = document.getElementById('settingsSyncResultBadge');
+    const btnMap = {
+      'upload': document.getElementById('btnPushSettingsToCloud'),
+      'download': document.getElementById('btnPullSettingsFromCloud'),
+      'two_way': document.getElementById('btnTwoWaySettingsSync')
+    };
+    const activeBtn = btnMap[direction] || document.getElementById('btnTwoWaySettingsSync');
+    const origHtml = activeBtn ? activeBtn.innerHTML : '';
+
+    if (activeBtn) {
+      activeBtn.disabled = true;
+      activeBtn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Syncing...`;
+    }
+
     try {
-      showToast(`Syncing system settings (${direction})...`, 'info', 2500);
       const res = await fetch('/api/firebase/sync-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -11374,6 +11512,11 @@ function initFirebaseSync() {
       }
     } catch (err) {
       showToast(`Settings sync error: ${err.message}`, 'error');
+    } finally {
+      if (activeBtn) {
+        activeBtn.disabled = false;
+        activeBtn.innerHTML = origHtml;
+      }
     }
   }
 
@@ -11475,7 +11618,6 @@ function initFirebaseSync() {
     if (detailText) detailText.textContent = 'Querying partition data...';
 
     try {
-      showToast(`Restoring local database from cloud partition (From ${fromDate})...`, 'info', 5000);
       const res = await fetch('/api/firebase/restore-from-cloud', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -15002,7 +15144,6 @@ async function pushLeavePoliciesToCloud() {
     btn.disabled = true;
     btn.innerHTML = `<span class="spin" style="width:13px;height:13px;border:2px solid #4338ca;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Pushing...`;
   }
-  showToast('Pushing leave categories & policies to Cloud Firestore...', 'info');
 
   try {
     const res = await fetch('/api/leave/sync-policies', {
@@ -15044,7 +15185,6 @@ async function pushSelectedCategoryToCloud() {
     btn.disabled = true;
     btn.innerHTML = `<span class="spin" style="width:13px;height:13px;border:2px solid #4338ca;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Pushing...`;
   }
-  showToast('Pushing category to Cloud...', 'info');
 
   try {
     const res = await fetch(`/api/leave/categories/${catId}/push-to-cloud`, {
@@ -16917,8 +17057,12 @@ async function deleteLeaveRequestConfirm(requestId) {
   }
 }
 
+let isLeaveManagementEventsInitialized = false;
+
 // Wire Event Listeners for Leave Management
 function initLeaveManagementEvents() {
+  if (isLeaveManagementEventsInitialized) return;
+  isLeaveManagementEventsInitialized = true;
   // Sub-tabs navigation
   document.getElementById('btnSubtabPolicies')?.addEventListener('click', () => switchLeaveSubtab('policies'));
   document.getElementById('btnSubtabBalances')?.addEventListener('click', () => switchLeaveSubtab('balances'));
@@ -17045,8 +17189,13 @@ function initLeaveManagementEvents() {
   document.getElementById('btnPushPoliciesToCloud')?.addEventListener('click', pushLeavePoliciesToCloud);
   document.getElementById('btnPushSelectedCategoryToCloud')?.addEventListener('click', pushSelectedCategoryToCloud);
   document.getElementById('btnPushLeaveBalancesOnly')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnPushLeaveBalancesOnly');
+    const oldHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Pushing...`;
+    }
     try {
-      showToast('Pushing employee leave balances to cloud...', 'info');
       const org = getActiveOrgFilter();
       const res = await fetch('/api/leave/sync-balances', {
         method: 'POST',
@@ -17060,6 +17209,11 @@ function initLeaveManagementEvents() {
       }
     } catch (e) {
       showToast('Error pushing balances: ' + e.message, 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+      }
     }
   });
 }

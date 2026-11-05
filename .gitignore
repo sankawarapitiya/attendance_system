@@ -23,6 +23,7 @@ public/uploads/photos/*
 # Temporary browser testing & scrap folders
 edge_temp/
 scratch_chrome/
+scratch/
 
 # Environment local secrets
 .env

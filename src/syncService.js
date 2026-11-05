@@ -810,22 +810,25 @@ function startAutoSync(intervalSeconds = 60, getSettingsFn) {
     }
   }, ms);
 
-  // 4. Periodic background cloud sync to Firebase Firestore
+  // 4. Periodic background cloud-first master sync to Firebase Firestore
   if (cloudSyncTimer) clearInterval(cloudSyncTimer);
   cloudSyncTimer = setInterval(async () => {
     try {
       const status = await firebaseService.getStatus();
-      if (status.configured && status.enabled && status.autoSync && status.stats.pendingAttendance > 0) {
+      if (status.configured && status.enabled && status.autoSync) {
         if (status.quotaExceeded && status.quotaExceededUntil && Date.now() < status.quotaExceededUntil) {
           // In quota backoff cooldown - skip this interval
           return;
         }
-        const cloudRes = await firebaseService.syncPendingAttendance({ limit: 500 });
-        if (cloudRes.success && cloudRes.uploadedCount > 0) {
+        // Cloud-first: checks cloud data first, then synchronizes local new records across multiple servers
+        const cloudRes = await firebaseService.syncAllCloudFirst({ reason: 'BACKGROUND_TIMER', daysBack: 7 });
+        if (cloudRes.success) {
           notifyWs('FIREBASE_SYNC_PROGRESS', cloudRes);
         }
       }
-    } catch (cErr) {}
+    } catch (cErr) {
+      console.warn('[SYNC] Scheduled cloud-first sync cycle error:', cErr.message);
+    }
   }, Math.max(30000, ms));
 }
 

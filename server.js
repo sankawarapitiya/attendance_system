@@ -316,6 +316,32 @@ async function start() {
       logger.info('SYSTEM', ` Target Device:  ${config.deviceIp}:${config.devicePort}`);
       logger.info('SYSTEM', '================================================================');
 
+      // Always initialize background sync & Cloud Firestore timers
+      startAutoSync(config.autoSyncInterval, async () => {
+        const ipRow = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
+        const portRow = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
+        const enabledRow = await dbGet(`SELECT value FROM settings WHERE key = 'auto_sync_enabled'`);
+        return {
+          device_ip: ipRow ? ipRow.value : config.deviceIp,
+          device_port: portRow ? portRow.value : String(config.devicePort),
+          auto_sync_enabled: enabledRow ? enabledRow.value : 'true'
+        };
+      });
+
+      // Startup Cloud-First Master Sync across multiple servers (non-blocking)
+      setTimeout(async () => {
+        try {
+          const fbStatus = await firebaseService.getStatus();
+          if (fbStatus.configured && fbStatus.enabled) {
+            logger.info('CLOUD', 'Initiating startup Cloud-First Master Sync across all partitions...');
+            const syncRes = await firebaseService.syncAllCloudFirst({ reason: 'STARTUP', daysBack: 30 });
+            logger.info('CLOUD', `Initial startup sync complete: ${syncRes.message}`);
+          }
+        } catch (err) {
+          logger.warn('CLOUD', `Startup cloud sync notice: ${err.message}`);
+        }
+      }, 3000);
+
       if (config.isCloudDeploy) {
         logger.info('CLOUD', '================================================================');
         logger.info('CLOUD', ' CLOUD DEPLOY MODE ACTIVE');
@@ -323,18 +349,6 @@ async function start() {
         logger.info('CLOUD', ' Primary data source: Google Cloud Firestore.');
         logger.info('CLOUD', '================================================================');
       } else {
-        // Schedule background sync
-        startAutoSync(config.autoSyncInterval, async () => {
-          const ipRow = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
-          const portRow = await dbGet(`SELECT value FROM settings WHERE key = 'device_port'`);
-          const enabledRow = await dbGet(`SELECT value FROM settings WHERE key = 'auto_sync_enabled'`);
-          return {
-            device_ip: ipRow ? ipRow.value : config.deviceIp,
-            device_port: portRow ? portRow.value : String(config.devicePort),
-            auto_sync_enabled: enabledRow ? enabledRow.value : 'true'
-          };
-        });
-
         // Initial device connectivity check
         setTimeout(async () => {
           logger.info('INIT', `Verifying initial connection with SpeedFace at ${config.deviceIp}:${config.devicePort}...`);

@@ -43,7 +43,14 @@ const {
   upsertSystemUsersFromCloud,
   upsertLeaveRequestsFromCloud,
   getSettingsMap,
-  upsertSettings
+  upsertSettings,
+  getAllTerminals,
+  getEmployeeGroups,
+  getLeaveRequests,
+  upsertTerminalFromCloud,
+  upsertEmployeeGroupFromCloud,
+  markSystemUsersCloudSynced,
+  markEmployeeGroupsCloudSynced
 } = require('./db');
 
 const CREDENTIALS_DIR = path.join(process.cwd(), 'data', 'credentials');
@@ -1296,9 +1303,35 @@ class FirebaseService {
     const orgConfig = await this.getOrganizationConfig();
     const orgId = (options.orgId || orgConfig.orgId || 'ORG_DEFAULT').trim().toUpperCase();
     const orgName = options.orgName || orgConfig.orgName || 'General Organization';
+    const direction = options.direction || 'two_way'; // 'two_way', 'upload', 'download'
     const forceAll = options.forceAll === true;
 
     try {
+      let downloadedCount = 0;
+
+      // 1. Download from Cloud Firestore if 'two_way' or 'download'
+      if (direction === 'two_way' || direction === 'download') {
+        try {
+          const empSnapshot = await this.firestore.collection(`organizations/${orgId}/employees`).get();
+          if (!empSnapshot.empty) {
+            const empList = empSnapshot.docs.map(d => d.data());
+            const empRes = await upsertEmployeesFromCloud(empList, orgId);
+            downloadedCount = empRes.inserted || 0;
+          }
+        } catch (downErr) {
+          console.warn('[FIREBASE] Employee cloud download warning:', downErr.message);
+        }
+      }
+
+      if (direction === 'download') {
+        return {
+          success: true,
+          count: downloadedCount,
+          downloaded: downloadedCount,
+          uploaded: 0,
+          orgId
+        };
+      }
       const employees = forceAll
         ? await dbAll(`SELECT e.*, c.name as leave_category_name FROM employees e LEFT JOIN leave_categories c ON COALESCE(e.leave_category_id, 1) = c.id ORDER BY e.user_id ASC`)
         : await dbAll(`SELECT e.*, c.name as leave_category_name FROM employees e LEFT JOIN leave_categories c ON COALESCE(e.leave_category_id, 1) = c.id WHERE e.synced_to_cloud = 0 OR e.synced_to_cloud IS NULL LIMIT 400`);
@@ -2625,6 +2658,650 @@ class FirebaseService {
       };
       this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
       return { success: false, error: err.message };
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  /**
+   * Consolidated two-way cloud-first sync for system users
+   */
+  async twoWaySyncSystemUsers(orgId) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const targetOrg = orgId || (await this.getOrganizationConfig()).orgId || 'DSOFFICE_LUNUGAMWEHERA';
+
+    // 1. Download from Cloud Firestore first
+    const pullRes = await this.syncSystemUsersFromCloud(targetOrg);
+
+    // 2. Upload any local users to Cloud
+    const pushRes = await this.syncSystemUsersToCloud(targetOrg);
+
+    return {
+      success: (pullRes.success !== false) && (pushRes.success !== false),
+      downloaded: pullRes.count || 0,
+      uploaded: pushRes.count || 0,
+      orgId: targetOrg
+    };
+  }
+
+  /**
+   * Synchronize Terminals Fleet for an organization partition (two-way, upload, or download).
+   * Firestore path: organizations/{orgId}/terminals/term_{cleanIp}
+   */
+  async syncTerminals(options = {}) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const orgConfig = await this.getOrganizationConfig();
+    const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const direction = options.direction || 'two_way';
+    const projectId = this.keyData.project_id;
+    const nowIso = new Date().toISOString();
+
+    let downloaded = 0;
+    let uploaded = 0;
+
+    try {
+      // 1. Download from Cloud Firestore if 'two_way' or 'download'
+      if (direction === 'two_way' || direction === 'download') {
+        const snap = await this.firestore.collection(`organizations/${orgId}/terminals`).get();
+        if (!snap.empty) {
+          for (const doc of snap.docs) {
+            const data = doc.data();
+            await upsertTerminalFromCloud(data);
+            downloaded++;
+          }
+        }
+      }
+
+      // 2. Upload local terminals to Cloud Firestore if 'two_way' or 'upload'
+      if (direction === 'two_way' || direction === 'upload') {
+        const terminals = await getAllTerminals();
+        if (terminals && terminals.length > 0) {
+          const writes = [];
+          for (const t of terminals) {
+            const cleanIp = String(t.ip || '').replace(/[^0-9a-zA-Z]/g, '_');
+            const docId = `term_${cleanIp}`;
+            const payload = {
+              name: t.name,
+              ip: t.ip,
+              port: t.port || 4370,
+              commKey: t.comm_key || '0',
+              model: t.model || 'SpeedFace-V5L',
+              serialNumber: t.serial_number || '',
+              firmware: t.firmware || '',
+              location: t.location || '',
+              isEnabled: Boolean(t.is_enabled),
+              autoSync: Boolean(t.auto_sync),
+              status: t.status || 'OFFLINE',
+              userCount: t.user_count || 0,
+              logCount: t.log_count || 0,
+              organizationId: orgId,
+              updatedAt: nowIso
+            };
+            writes.push({
+              update: {
+                name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/terminals/${docId}`,
+                fields: toFirestoreFields(payload)
+              }
+            });
+          }
+          if (writes.length > 0) {
+            await this._commitRestWrites(writes);
+            uploaded = writes.length;
+          }
+        }
+      }
+
+      return {
+        success: true,
+        orgId,
+        direction,
+        downloaded,
+        uploaded
+      };
+    } catch (err) {
+      console.warn(`[FIREBASE] Terminals sync notice: ${err.message}`);
+      return { success: false, error: err.message, orgId };
+    }
+  }
+
+  /**
+   * Synchronize user-defined employee groups for an organization partition (two-way, upload, or download).
+   * Firestore path: organizations/{orgId}/employee_groups/group_{groupId}
+   */
+  async syncEmployeeGroups(options = {}) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const orgConfig = await this.getOrganizationConfig();
+    const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const direction = options.direction || 'two_way';
+    const projectId = this.keyData.project_id;
+    const nowIso = new Date().toISOString();
+
+    let downloaded = 0;
+    let uploaded = 0;
+
+    try {
+      // 1. Download from Cloud Firestore if 'two_way' or 'download'
+      if (direction === 'two_way' || direction === 'download') {
+        const snap = await this.firestore.collection(`organizations/${orgId}/employee_groups`).get();
+        if (!snap.empty) {
+          for (const doc of snap.docs) {
+            const data = doc.data();
+            await upsertEmployeeGroupFromCloud(data, orgId);
+            downloaded++;
+          }
+        }
+      }
+
+      // 2. Upload local employee groups to Cloud Firestore if 'two_way' or 'upload'
+      if (direction === 'two_way' || direction === 'upload') {
+        const groups = await getEmployeeGroups(orgId);
+        if (groups && groups.length > 0) {
+          const writes = [];
+          const groupIds = [];
+          for (const g of groups) {
+            const docId = `group_${g.id}`;
+            const payload = {
+              id: g.id,
+              name: g.name,
+              description: g.description || '',
+              color: g.color || '#3b82f6',
+              organizationId: orgId,
+              updatedAt: nowIso
+            };
+            writes.push({
+              update: {
+                name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/employee_groups/${docId}`,
+                fields: toFirestoreFields(payload)
+              }
+            });
+            groupIds.push(g.id);
+          }
+          if (writes.length > 0) {
+            await this._commitRestWrites(writes);
+            await markEmployeeGroupsCloudSynced(groupIds);
+            uploaded = groupIds.length;
+          }
+        }
+      }
+
+      return {
+        success: true,
+        orgId,
+        direction,
+        downloaded,
+        uploaded
+      };
+    } catch (err) {
+      console.warn(`[FIREBASE] Employee groups sync notice: ${err.message}`);
+      return { success: false, error: err.message, orgId };
+    }
+  }
+
+  /**
+   * Synchronize Leave Requests for an organization partition (two-way, upload, or download).
+   * Firestore path: organizations/{orgId}/leave_requests/req_{requestId}
+   */
+  async syncLeaveRequests(options = {}) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    const orgConfig = await this.getOrganizationConfig();
+    const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const direction = options.direction || 'two_way';
+    const projectId = this.keyData.project_id;
+    const nowIso = new Date().toISOString();
+
+    let downloaded = 0;
+    let uploaded = 0;
+
+    try {
+      // 1. Download from Cloud Firestore if 'two_way' or 'download'
+      if (direction === 'two_way' || direction === 'download') {
+        const snap = await this.firestore.collection(`organizations/${orgId}/leave_requests`).get();
+        if (!snap.empty) {
+          const reqList = snap.docs.map(d => d.data());
+          const res = await upsertLeaveRequestsFromCloud(reqList, orgId);
+          downloaded = res.inserted || 0;
+        }
+      }
+
+      // 2. Upload local leave requests to Cloud Firestore if 'two_way' or 'upload'
+      if (direction === 'two_way' || direction === 'upload') {
+        const requests = await getLeaveRequests({ orgId, limit: 100 });
+        if (requests && requests.length > 0) {
+          const writes = [];
+          for (const r of requests) {
+            const docId = `req_${r.id}`;
+            const payload = {
+              id: r.id,
+              userId: r.user_id,
+              employeeName: r.employee_name || '',
+              leaveTypeId: r.leave_type_id,
+              leaveTypeName: r.leave_type_name || '',
+              startDate: r.start_date,
+              endDate: r.end_date,
+              daysRequested: r.days_requested,
+              dayType: r.day_type || 'FULL_DAY',
+              reason: r.reason || '',
+              emergencyContact: r.emergency_contact || '',
+              status: r.status || 'PENDING',
+              qualifyingDate: r.qualifying_date || null,
+              compensatorySourceType: r.compensatory_source_type || null,
+              organizationId: orgId,
+              updatedAt: nowIso
+            };
+            writes.push({
+              update: {
+                name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/leave_requests/${docId}`,
+                fields: toFirestoreFields(payload)
+              }
+            });
+          }
+          if (writes.length > 0) {
+            await this._commitRestWrites(writes);
+            uploaded = writes.length;
+          }
+        }
+      }
+
+      return {
+        success: true,
+        orgId,
+        direction,
+        downloaded,
+        uploaded
+      };
+    } catch (err) {
+      console.warn(`[FIREBASE] Leave requests sync notice: ${err.message}`);
+      return { success: false, error: err.message, orgId };
+    }
+  }
+
+  /**
+   * Internal helper for two-way attendance sync, supporting write-minimization and cloud-first deduplication.
+   */
+  async twoWaySyncAttendance(options = {}) {
+    await this.init();
+    if (!this.keyData) return { success: false, error: 'Firebase credentials missing' };
+
+    const orgConfig = await this.getOrganizationConfig();
+    const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const orgName = options.orgName || orgConfig.orgName || 'General Organization';
+    const projectId = this.keyData.project_id;
+    const nowIso = new Date().toISOString();
+
+    const today = new Date().toISOString().slice(0, 10);
+    const startDate = (options.startDate || today).slice(0, 10);
+    const endDate = (options.endDate || today).slice(0, 10);
+
+    let downloadedCount = 0;
+    let newInsertedCount = 0;
+    let totalUploaded = 0;
+    let writesSavedCount = 0;
+
+    // 1. Download from Cloud Firestore for date range
+    const attCol = this.firestore.collection(`organizations/${orgId}/attendance`);
+    const snapshot = await attCol
+      .where('punchDate', '>=', startDate)
+      .where('punchDate', '<=', endDate)
+      .get();
+
+    const cloudRecords = [];
+    const cloudDocIds = new Set();
+    snapshot.forEach(doc => {
+      cloudDocIds.add(doc.id);
+      const d = doc.data();
+      cloudRecords.push({
+        user_id: d.rawUserId || d.userId,
+        punch_time: d.punchTime,
+        verify_mode: d.verifyMode !== undefined ? d.verifyMode : 15,
+        verify_name: d.verifyName || 'Biometric',
+        punch_state: d.punchState !== undefined ? d.punchState : 0,
+        punch_state_name: d.punchStateName || 'Punch',
+        work_code: d.workCode || 0,
+        temperature: d.temperature !== undefined ? d.temperature : null,
+        mask_status: d.maskStatus !== undefined ? d.maskStatus : null,
+        device_ip: d.deviceIp || 'Cloud Firestore',
+        device_sn: d.deviceSn || '',
+        source: d.source || 'CLOUD_SYNC'
+      });
+    });
+
+    downloadedCount = cloudRecords.length;
+
+    // Insert new cloud punches into SQLite
+    if (cloudRecords.length > 0) {
+      const insertRes = await insertAttendanceFromCloud(cloudRecords);
+      newInsertedCount = insertRes.inserted || 0;
+    }
+
+    // 2. Upload local records that are not yet in cloud
+    const localRecords = await getAttendanceByDateRange(startDate, endDate, false);
+    const unsyncedFallback = await getUnsyncedAttendance(500);
+    const combinedMap = new Map();
+    localRecords.forEach(r => combinedMap.set(r.id, r));
+    unsyncedFallback.forEach(r => combinedMap.set(r.id, r));
+    const allRecordsToConsider = Array.from(combinedMap.values());
+
+    const batchSize = 50;
+    for (let i = 0; i < allRecordsToConsider.length; i += batchSize) {
+      if (this.stopRequested) break;
+      const batch = allRecordsToConsider.slice(i, i + batchSize);
+      const writes = [];
+      const syncedIds = [];
+      const alreadyInCloudIds = [];
+
+      for (const rec of batch) {
+        const rawUserId = String(rec.user_id || '').trim();
+        const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F-\x9F\/]/g, '_').trim() || 'USER';
+        const punchKey = this._formatPunchKey(rec.punch_time);
+        const docId = `${orgId}_${cleanUserId}_${punchKey}`;
+
+        // If punch already exists in cloud, skip billable write!
+        if (cloudDocIds.has(docId)) {
+          alreadyInCloudIds.push(rec.id);
+          writesSavedCount++;
+          continue;
+        }
+
+        const punchEpoch = Date.parse(rec.punch_time) || Date.now();
+        const punchIso = new Date(punchEpoch).toISOString();
+        const punchDate = rec.punch_time ? String(rec.punch_time).slice(0, 10) : punchIso.slice(0, 10);
+
+        const payload = {
+          id: docId,
+          organizationId: orgId,
+          organizationName: orgName,
+          userId: cleanUserId,
+          rawUserId: rawUserId,
+          employeeName: rec.employee_name || '',
+          department: rec.department || 'General',
+          role: rec.role || 'Staff',
+          serviceId: rec.employee_service_id || '',
+          cardNo: rec.card_no || '',
+          punchTime: rec.punch_time,
+          punchIso,
+          punchEpoch,
+          punchDate,
+          verifyMode: rec.verify_mode !== undefined ? rec.verify_mode : 15,
+          verifyName: rec.verify_name || 'Biometric',
+          punchState: rec.punch_state !== undefined ? rec.punch_state : 0,
+          punchStateName: rec.punch_state_name || 'Punch',
+          workCode: rec.work_code || 0,
+          temperature: rec.temperature !== null ? rec.temperature : null,
+          maskStatus: rec.mask_status !== null ? rec.mask_status : null,
+          deviceIp: rec.device_ip || '192.168.10.15',
+          deviceSn: rec.device_sn || '',
+          source: rec.source || 'DIRECT_SYNC',
+          syncedAt: nowIso
+        };
+
+        writes.push({
+          update: {
+            name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/attendance/${docId}`,
+            fields: toFirestoreFields(payload)
+          }
+        });
+        syncedIds.push(rec.id);
+      }
+
+      if (alreadyInCloudIds.length > 0) {
+        await markAttendanceCloudSynced(alreadyInCloudIds);
+      }
+
+      if (writes.length > 0) {
+        await this._commitRestWrites(writes);
+        await markAttendanceCloudSynced(syncedIds);
+        totalUploaded += syncedIds.length;
+      }
+    }
+
+    this.writesSavedCount = (this.writesSavedCount || 0) + writesSavedCount;
+
+    return {
+      success: true,
+      orgId,
+      startDate,
+      endDate,
+      downloaded: downloadedCount,
+      newInserted: newInsertedCount,
+      uploaded: totalUploaded,
+      writesSaved: writesSavedCount
+    };
+  }
+
+  /**
+   * Master Cloud-First Bidirectional Synchronization across all operational domains:
+   * 1. Settings & Terminal Fleet
+   * 2. System Users (admin, manager, staff)
+   * 3. Metadata (employees, groups, shifts, holidays, leave policies & requests)
+   * 4. Attendance Records
+   *
+   * Guaranteed Cloud-First: checks and merges cloud updates first, then uploads new local diffs.
+   * Highly optimized for multi-server deployments and Google Cloud Firestore free-tier quotas.
+   */
+  async syncAllCloudFirst(options = {}) {
+    if (this.isSyncing) {
+      return { success: false, inProgress: true, message: 'Sync already in progress', syncProgress: this.syncProgress };
+    }
+
+    await this.init();
+
+    if (!this.keyData) {
+      return { success: false, offline: true, error: 'Firebase credentials are not configured' };
+    }
+
+    const orgConfig = await this.getOrganizationConfig();
+    const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const orgName = options.orgName || orgConfig.orgName || 'General Organization';
+    const reason = options.reason || 'MANUAL';
+    const force = Boolean(options.force);
+
+    if (!orgConfig.enabled && !force) {
+      return { success: false, message: 'Cloud Firestore sync is disabled in settings' };
+    }
+
+    if (this.quotaExceeded && this.quotaExceededUntil && Date.now() < this.quotaExceededUntil && !force) {
+      return { success: false, quotaExceeded: true, message: 'In Firestore quota backoff cooldown' };
+    }
+
+    this.isSyncing = true;
+    this.stopRequested = false;
+    this.syncStartTime = Date.now();
+
+    const summary = {
+      settings: { downloaded: 0, uploaded: 0 },
+      terminals: { downloaded: 0, uploaded: 0 },
+      systemUsers: { downloaded: 0, uploaded: 0 },
+      employees: { downloaded: 0, uploaded: 0 },
+      employeeGroups: { downloaded: 0, uploaded: 0 },
+      shifts: { downloaded: 0, uploaded: 0 },
+      holidays: { downloaded: 0, uploaded: 0 },
+      leaveCategories: { downloaded: 0, uploaded: 0 },
+      leaveBalances: { downloaded: 0, uploaded: 0 },
+      leaveRequests: { downloaded: 0, uploaded: 0 },
+      attendance: { downloaded: 0, newInserted: 0, uploaded: 0, writesSaved: 0 }
+    };
+
+    const updateProgress = (percent, message) => {
+      this.syncProgress = {
+        isSyncing: true,
+        state: 'SYNCING',
+        percent,
+        message,
+        summary,
+        updatedAt: new Date().toISOString()
+      };
+      this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+    };
+
+    try {
+      updateProgress(5, `Starting Cloud-First Master Sync for ${orgName} (${orgId})...`);
+
+      // ----------------------------------------------------------------------
+      // PHASE 1: SETTINGS & TERMINALS (Cloud-First)
+      // ----------------------------------------------------------------------
+      updateProgress(10, 'Checking & synchronizing system settings and terminal fleet...');
+      const setRes = await this.syncSettings({ orgId, direction: 'two_way' });
+      summary.settings.downloaded = setRes.downloaded || 0;
+      summary.settings.uploaded = setRes.uploaded || 0;
+
+      const termRes = await this.syncTerminals({ orgId, direction: 'two_way' });
+      summary.terminals.downloaded = termRes.downloaded || 0;
+      summary.terminals.uploaded = termRes.uploaded || 0;
+
+      if (this.stopRequested) throw new Error('Sync stopped by user');
+
+      // ----------------------------------------------------------------------
+      // PHASE 2: SYSTEM USERS (Cloud-First)
+      // ----------------------------------------------------------------------
+      updateProgress(25, 'Checking & synchronizing system users (admin, manager, staff)...');
+      const userRes = await this.twoWaySyncSystemUsers(orgId);
+      summary.systemUsers.downloaded = userRes.downloaded || 0;
+      summary.systemUsers.uploaded = userRes.uploaded || 0;
+
+      if (this.stopRequested) throw new Error('Sync stopped by user');
+
+      // ----------------------------------------------------------------------
+      // PHASE 3: METADATA (Employees, Groups, Shifts, Holidays, Leave System)
+      // ----------------------------------------------------------------------
+      updateProgress(40, 'Checking & synchronizing employee profiles and metadata...');
+      const empRes = await this.syncEmployees({ orgId, direction: 'two_way' });
+      summary.employees.downloaded = empRes.downloaded || 0;
+      summary.employees.uploaded = empRes.uploaded || empRes.count || 0;
+
+      const grpRes = await this.syncEmployeeGroups({ orgId, direction: 'two_way' });
+      summary.employeeGroups.downloaded = grpRes.downloaded || 0;
+      summary.employeeGroups.uploaded = grpRes.uploaded || 0;
+
+      updateProgress(55, 'Checking & synchronizing working shifts and public holidays...');
+      const shiftRes = await this.syncWorkingShifts({ orgId, direction: 'two_way' });
+      summary.shifts.downloaded = shiftRes.downloadedCount || 0;
+      summary.shifts.uploaded = shiftRes.uploadedCount || 0;
+
+      const holRes = await this.syncHolidays({ orgId, direction: 'two_way' });
+      summary.holidays.downloaded = holRes.downloadedCount || 0;
+      summary.holidays.uploaded = holRes.uploadedCount || 0;
+
+      updateProgress(70, 'Checking & synchronizing leave policies, balances, and requests...');
+      const leaveRes = await this.twoWaySyncLeaveSystem({ orgId, direction: 'two_way' });
+      summary.leaveCategories.downloaded = leaveRes.categories?.downloadedCount || 0;
+      summary.leaveCategories.uploaded = leaveRes.categories?.uploadedCount || 0;
+      summary.leaveBalances.downloaded = leaveRes.balances?.downloadedCount || 0;
+      summary.leaveBalances.uploaded = leaveRes.balances?.uploadedCount || 0;
+
+      const reqRes = await this.syncLeaveRequests({ orgId, direction: 'two_way' });
+      summary.leaveRequests.downloaded = reqRes.downloaded || 0;
+      summary.leaveRequests.uploaded = reqRes.uploaded || 0;
+
+      if (this.stopRequested) throw new Error('Sync stopped by user');
+
+      // ----------------------------------------------------------------------
+      // PHASE 4: ATTENDANCE RECORDS (Cloud-First Bidirectional)
+      // ----------------------------------------------------------------------
+      updateProgress(85, 'Checking cloud attendance punches and synchronizing local punches...');
+      const today = new Date().toISOString().slice(0, 10);
+      const daysBack = parseInt(options.daysBack, 10) || 30;
+      const defaultStartDate = new Date(Date.now() - (daysBack * 86400000)).toISOString().slice(0, 10);
+      const startDate = (options.startDate || defaultStartDate).slice(0, 10);
+      const endDate = (options.endDate || today).slice(0, 10);
+
+      const attRes = await this.twoWaySyncAttendance({ orgId, orgName, startDate, endDate });
+      summary.attendance.downloaded = attRes.downloaded || 0;
+      summary.attendance.newInserted = attRes.newInserted || 0;
+      summary.attendance.uploaded = attRes.uploaded || 0;
+      summary.attendance.writesSaved = attRes.writesSaved || 0;
+
+      // ----------------------------------------------------------------------
+      // PHASE 5: TOUCH CLOUD METADATA & PERSIST LOG
+      // ----------------------------------------------------------------------
+      const nowIso = new Date().toISOString();
+      this.isOnline = true;
+      this.lastSyncTime = nowIso;
+      this.lastError = null;
+
+      try {
+        const orgMetaWrite = [{
+          update: {
+            name: `projects/${this.keyData.project_id}/databases/(default)/documents/organizations/${orgId}`,
+            fields: toFirestoreFields({
+              organizationId: orgId,
+              organizationName: orgName,
+              lastSyncAt: nowIso,
+              updatedAt: nowIso
+            })
+          }
+        }];
+        await this._commitRestWrites(orgMetaWrite).catch(() => {});
+      } catch (e) {}
+
+      const totalItemsDownloaded = 
+        summary.settings.downloaded + summary.terminals.downloaded + summary.systemUsers.downloaded +
+        summary.employees.downloaded + summary.employeeGroups.downloaded + summary.shifts.downloaded +
+        summary.holidays.downloaded + summary.leaveCategories.downloaded + summary.leaveBalances.downloaded +
+        summary.leaveRequests.downloaded + summary.attendance.newInserted;
+
+      const totalItemsUploaded =
+        summary.settings.uploaded + summary.terminals.uploaded + summary.systemUsers.uploaded +
+        summary.employees.uploaded + summary.employeeGroups.uploaded + summary.shifts.uploaded +
+        summary.holidays.uploaded + summary.leaveCategories.uploaded + summary.leaveBalances.uploaded +
+        summary.leaveRequests.uploaded + summary.attendance.uploaded;
+
+      const completeMsg = `Cloud-first master sync completed successfully (${reason}): ${totalItemsDownloaded} items downloaded/verified from cloud (${summary.attendance.newInserted} new local punches), ${totalItemsUploaded} items uploaded to cloud. Saved ${summary.attendance.writesSaved} billable writes.`;
+
+      this.syncProgress = {
+        isSyncing: false,
+        state: 'COMPLETED',
+        percent: 100,
+        message: completeMsg,
+        summary,
+        totalItemsDownloaded,
+        totalItemsUploaded,
+        updatedAt: nowIso
+      };
+      this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+      await dbRun(`
+        INSERT INTO sync_logs (sync_type, status, records_synced, total_records, message)
+        VALUES ('MASTER_CLOUD_FIRST_SYNC', 'SUCCESS', ?, ?, ?)
+      `, [totalItemsDownloaded + totalItemsUploaded, totalItemsDownloaded + totalItemsUploaded, completeMsg]).catch(() => {});
+
+      return {
+        success: true,
+        orgId,
+        reason,
+        message: completeMsg,
+        summary,
+        totalItemsDownloaded,
+        totalItemsUploaded,
+        syncProgress: this.syncProgress
+      };
+    } catch (err) {
+      this.lastError = err.message;
+      this.syncProgress = {
+        isSyncing: false,
+        state: 'ERROR',
+        percent: 0,
+        message: `Sync failed: ${err.message}`,
+        summary,
+        updatedAt: new Date().toISOString()
+      };
+      this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
+
+      await dbRun(`
+        INSERT INTO sync_logs (sync_type, status, records_synced, total_records, message)
+        VALUES ('MASTER_CLOUD_FIRST_SYNC', 'ERROR', 0, 0, ?)
+      `, [`Master cloud-first sync failed (${reason}): ${err.message}`]).catch(() => {});
+
+      return {
+        success: false,
+        error: err.message,
+        reason,
+        summary,
+        syncProgress: this.syncProgress
+      };
     } finally {
       this.isSyncing = false;
     }
