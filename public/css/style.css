@@ -446,6 +446,248 @@ html, body {
   height: 12px;
 }
 
+/* ==========================================================================
+   Sidebar Terminals Fleet Stack Status View
+   ========================================================================== */
+.sidebar-terminals-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 6px 7px;
+}
+
+.sidebar-terminals-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1px 4px 1px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.sidebar-terminals-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sidebar-terminals-title:hover .sidebar-terminals-label {
+  color: var(--primary);
+}
+
+.sidebar-terminals-icon {
+  font-size: 0.82rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.sidebar-terminals-label {
+  font-size: 0.67rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+  transition: color 0.15s ease;
+}
+
+.sidebar-terminals-count {
+  font-size: 0.62rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  background: #e2e8f0;
+  color: #475569;
+  line-height: 1.2;
+}
+
+.sidebar-terminals-count.all-online {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.sidebar-terminals-count.has-offline {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.sidebar-terminals-count.all-offline {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.sidebar-terminals-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.btn-icon-xs {
+  padding: 3px !important;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-terminals-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+}
+
+.sidebar-terminals-stack::-webkit-scrollbar {
+  width: 3px;
+}
+.sidebar-terminals-stack::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-terminals-stack::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.sidebar-terminal-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.sidebar-terminal-item:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  transform: translateX(1px);
+}
+
+.sidebar-terminal-item.is-online {
+  border-left: 2.5px solid #10b981;
+}
+
+.sidebar-terminal-item.is-offline {
+  background: #fffafa;
+  border-left: 2.5px solid #ef4444;
+}
+
+.sidebar-terminal-item.is-disabled {
+  opacity: 0.55;
+  border-left: 2.5px solid #94a3b8;
+}
+
+.sidebar-terminal-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #cbd5e1;
+}
+
+.sidebar-terminal-dot.online {
+  background: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
+  animation: pulse-live 1.8s infinite;
+}
+
+.sidebar-terminal-dot.offline {
+  background: #ef4444;
+}
+
+.sidebar-terminal-dot.syncing,
+.sidebar-terminal-dot.connecting {
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25);
+}
+
+.sidebar-terminal-dot.disabled {
+  background: #94a3b8;
+}
+
+.sidebar-terminal-info {
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sidebar-terminal-name {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.sidebar-terminal-meta {
+  font-size: 0.63rem;
+  color: var(--text-muted);
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.1;
+}
+
+.sidebar-terminal-sync-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.sidebar-terminal-sync-btn:hover {
+  color: var(--primary);
+  background: #e2e8f0;
+}
+
+.sidebar-terminal-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  background: #ffffff;
+  border: 1px dashed #cbd5e1;
+  border-radius: var(--radius-sm);
+}
+
+.sidebar-terminal-empty:hover {
+  background: #f1f5f9;
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.sidebar-terminal-add-link {
+  font-weight: 600;
+  color: var(--primary);
+  font-size: 0.72rem;
+}
+
 .device-mini-card {
   display: flex;
   align-items: center;

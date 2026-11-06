@@ -583,6 +583,11 @@ async function loadDashboardStats() {
 
     // Load today's recent logs
     loadTodayPreview();
+
+    // Keep sidebar terminal status in sync
+    if (typeof loadTerminals === 'function') {
+      loadTerminals();
+    }
   } catch (err) {
     console.error('Failed to load stats:', err);
   }
@@ -6478,6 +6483,162 @@ function closeDeleteEmployeeModal() {
 
 let terminalsCache = [];
 
+// ==========================================
+// SIDEBAR TERMINALS FLEET STACK STATUS VIEW
+// ==========================================
+
+function renderSidebarTerminals(terminalsList, kpi) {
+  const stack = document.getElementById('sidebarTerminalsStack');
+  const countBadge = document.getElementById('sidebarTerminalsCount');
+  if (!stack) return;
+
+  const list = Array.isArray(terminalsList) ? terminalsList : (terminalsCache || []);
+  const total = list.length;
+  const online = list.filter(t => t.status === 'ONLINE' && t.is_enabled !== 0).length;
+
+  if (countBadge) {
+    if (total === 0) {
+      countBadge.textContent = '0 Terminals';
+      countBadge.className = 'sidebar-terminals-count';
+    } else {
+      countBadge.textContent = `${online}/${total} Online`;
+      if (online === total) {
+        countBadge.className = 'sidebar-terminals-count all-online';
+      } else if (online === 0) {
+        countBadge.className = 'sidebar-terminals-count all-offline';
+      } else {
+        countBadge.className = 'sidebar-terminals-count has-offline';
+      }
+    }
+  }
+
+  if (total === 0) {
+    stack.innerHTML = `
+      <div class="sidebar-terminal-empty" onclick="if(typeof switchTab==='function')switchTab('tab-device')" title="Configure biometric terminals">
+        <span>No terminals added</span>
+        <span class="sidebar-terminal-add-link">+ Add</span>
+      </div>
+    `;
+    return;
+  }
+
+  stack.innerHTML = list.map((t, idx) => {
+    const isOnline = t.status === 'ONLINE';
+    const isSyncing = t.status === 'SYNCING';
+    const isConnecting = t.status === 'CONNECTING';
+    const isEnabled = t.is_enabled !== 0;
+
+    let dotClass = 'offline';
+    let statusText = 'Offline';
+    if (!isEnabled) {
+      dotClass = 'disabled';
+      statusText = 'Disabled';
+    } else if (isOnline) {
+      dotClass = 'online';
+      statusText = 'Online';
+    } else if (isSyncing) {
+      dotClass = 'syncing';
+      statusText = 'Syncing...';
+    } else if (isConnecting) {
+      dotClass = 'connecting';
+      statusText = 'Connecting...';
+    }
+
+    const itemClass = !isEnabled ? 'is-disabled' : (isOnline ? 'is-online' : 'is-offline');
+    const firstDotId = idx === 0 ? 'id="miniDeviceStatusDot"' : '';
+    const firstIpId = idx === 0 ? 'id="miniDeviceIp"' : '';
+
+    let subMeta = escapeHtml(t.ip || '');
+    if (t.location) {
+      subMeta += ` · ${escapeHtml(t.location)}`;
+    } else if (t.model && t.model !== 'SpeedFace-V5L') {
+      subMeta += ` · ${escapeHtml(t.model)}`;
+    }
+
+    const titleAttr = `${escapeHtml(t.name)} (${escapeHtml(t.ip || '')}:${t.port || 4370}) - ${statusText}\nLocation: ${escapeHtml(t.location || 'N/A')}\nClick to view terminal settings`;
+
+    return `
+      <div class="sidebar-terminal-item ${itemClass}" 
+           onclick="selectTerminalFromSidebar(${t.id})" 
+           title="${titleAttr}">
+        <div class="sidebar-terminal-dot ${dotClass}" ${firstDotId}></div>
+        <div class="sidebar-terminal-info">
+          <div class="sidebar-terminal-name">${escapeHtml(t.name || 'Terminal')}</div>
+          <div class="sidebar-terminal-meta" ${firstIpId}>${subMeta}</div>
+        </div>
+        <button type="button" 
+                class="sidebar-terminal-sync-btn" 
+                onclick="syncTerminalFromSidebar(event, ${t.id})" 
+                title="Sync ${escapeHtml(t.name)} Now">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 12px; height: 12px;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+window.renderSidebarTerminals = renderSidebarTerminals;
+
+function selectTerminalFromSidebar(terminalId) {
+  if (typeof switchTab === 'function') {
+    switchTab('tab-device');
+  }
+  setTimeout(() => {
+    const el = document.querySelector(`.terminal-card[data-terminal-id="${terminalId}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.style.transition = 'box-shadow 0.3s ease, border-color 0.3s ease';
+      el.style.boxShadow = '0 0 0 3px rgba(2, 132, 199, 0.4)';
+      el.style.borderColor = '#0284c7';
+      setTimeout(() => {
+        el.style.boxShadow = '';
+        el.style.borderColor = '';
+      }, 2500);
+    }
+  }, 100);
+}
+window.selectTerminalFromSidebar = selectTerminalFromSidebar;
+
+async function syncTerminalFromSidebar(event, terminalId) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  const btn = event?.currentTarget;
+  const icon = btn?.querySelector('svg');
+  if (icon) icon.classList.add('spin');
+  try {
+    if (typeof syncSingleTerminal === 'function') {
+      await syncSingleTerminal(terminalId);
+    }
+  } finally {
+    if (icon) icon.classList.remove('spin');
+  }
+}
+window.syncTerminalFromSidebar = syncTerminalFromSidebar;
+
+async function syncAllTerminalsFromSidebar(event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  const icon = document.getElementById('quickSyncIcon');
+  if (icon) icon.classList.add('spin');
+  try {
+    if (window.IS_CLOUD_MODE) {
+      if (typeof triggerManualSync === 'function') await triggerManualSync();
+    } else {
+      if (typeof syncAllFleetTerminals === 'function') {
+        await syncAllFleetTerminals();
+      } else if (typeof triggerManualSync === 'function') {
+        await triggerManualSync();
+      }
+    }
+  } finally {
+    if (icon) icon.classList.remove('spin');
+  }
+}
+window.syncAllTerminalsFromSidebar = syncAllTerminalsFromSidebar;
+
 async function loadTerminals() {
   const container = document.getElementById('terminalsGrid');
   const statTotal = document.getElementById('fleetStatTotal');
@@ -6500,6 +6661,9 @@ async function loadTerminals() {
       statAutoSync.textContent = kpi.autoSyncEnabled ? `Every ${kpi.autoSyncInterval || 60}s (Active)` : 'Disabled';
       statAutoSync.style.color = kpi.autoSyncEnabled ? '#0284c7' : '#94a3b8';
     }
+
+    // Always update sidebar terminal status stack
+    renderSidebarTerminals(terminalsCache, kpi);
 
     if (!container) return;
 
@@ -6641,6 +6805,7 @@ async function loadTerminals() {
     if (container) {
       container.innerHTML = `<div class="alert alert-danger" style="grid-column:1/-1;">Failed to load biometric terminals: ${escapeHtml(err.message)}</div>`;
     }
+    renderSidebarTerminals(terminalsCache || []);
   }
 }
 
@@ -6723,6 +6888,10 @@ function closeTerminalModal() {
 window.openAddTerminalModal = openAddTerminalModal;
 window.openEditTerminalModal = openEditTerminalModal;
 window.closeTerminalModal = closeTerminalModal;
+window.loadTerminals = loadTerminals;
+window.syncSingleTerminal = syncSingleTerminal;
+window.syncAllFleetTerminals = syncAllFleetTerminals;
+window.testSingleTerminal = testSingleTerminal;
 
 async function testSingleTerminal(id) {
   const term = terminalsCache.find(x => String(x.id) === String(id));
@@ -8802,6 +8971,7 @@ function handleWebSocketMessage(msg) {
     if (typeof loadTerminals === 'function') loadTerminals();
   } else if (msg.type === 'DEVICE_STATUS') {
     const dev = msg.data;
+    if (typeof loadTerminals === 'function') loadTerminals();
     const isOnline = Boolean(dev.online);
     state.device.online = isOnline;
 

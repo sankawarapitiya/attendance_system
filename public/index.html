@@ -204,16 +204,29 @@
       </nav>
 
       <div class="sidebar-footer">
-        <!-- 1. Device Connection Status Mini Card -->
-        <div class="device-mini-card" id="sidebarDeviceCard" title="SpeedFace Biometric Device Status">
-          <div class="status-indicator online" id="miniDeviceStatusDot"></div>
-          <div class="mini-info">
-            <div class="mini-label">SpeedFace-V5L</div>
-            <div class="mini-ip" id="miniDeviceIp">192.168.10.15</div>
+        <!-- 1. Terminals Stack Status View -->
+        <div class="sidebar-terminals-wrapper" id="sidebarTerminalsContainer">
+          <div class="sidebar-terminals-header">
+            <div class="sidebar-terminals-title" onclick="switchTab('tab-device')" title="Manage Terminals Fleet">
+              <span class="sidebar-terminals-icon">📟</span>
+              <span class="sidebar-terminals-label">Terminals</span>
+              <span class="sidebar-terminals-count" id="sidebarTerminalsCount">0 Online</span>
+            </div>
+            <div class="sidebar-terminals-actions">
+              <button class="btn-icon btn-icon-xs" id="quickSyncBtn" title="Sync All Terminals Now" onclick="syncAllTerminalsFromSidebar(event)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="quickSyncIcon" style="width: 12px; height: 12px;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              </button>
+            </div>
           </div>
-          <button class="btn-icon" id="quickSyncBtn" title="Sync Records Now">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="quickSyncIcon"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-          </button>
+          <div class="sidebar-terminals-stack" id="sidebarTerminalsStack">
+            <div class="device-mini-card" id="sidebarDeviceCard" title="SpeedFace Biometric Device Status">
+              <div class="status-indicator online" id="miniDeviceStatusDot"></div>
+              <div class="mini-info">
+                <div class="mini-label">SpeedFace-V5L</div>
+                <div class="mini-ip" id="miniDeviceIp">192.168.10.15</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- 2. System Status Indicators (Cloud Sync & Live WebSocket) -->
