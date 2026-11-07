@@ -664,6 +664,8 @@ class FirebaseService {
     this.syncProgress = {
       isSyncing: true,
       state: 'SYNCING',
+      direction: 'upload',
+      action: 'UPLOADING',
       uploadedCount: 0,
       totalPending: totalPendingCount,
       percent: 0,
@@ -801,6 +803,8 @@ class FirebaseService {
         this.syncProgress = {
           isSyncing: true,
           state: 'SYNCING',
+          direction: 'upload',
+          action: 'UPLOADING',
           uploadedCount: totalUploaded,
           totalPending: Math.max(0, totalPendingCount - totalUploaded),
           percent,
@@ -880,6 +884,8 @@ class FirebaseService {
       this.syncProgress = {
         isSyncing: false,
         state: 'COMPLETED',
+        direction: null,
+        action: 'IN_SYNC',
         uploadedCount: totalUploaded,
         totalPending: Math.max(0, totalPendingCount - totalUploaded),
         percent: 100,
@@ -1020,7 +1026,8 @@ class FirebaseService {
     this.syncProgress = {
       isSyncing: true,
       state: 'SYNCING',
-      direction,
+      direction: (direction === 'upload') ? 'upload' : 'download',
+      action: (direction === 'upload') ? 'UPLOADING' : 'DOWNLOADING',
       startDate,
       endDate,
       downloaded: 0,
@@ -1042,6 +1049,8 @@ class FirebaseService {
       // PHASE 1: DOWNLOAD FROM FIRESTORE (if 'two_way' or 'download')
       // -------------------------------------------------------------
       if (direction === 'two_way' || direction === 'download') {
+        this.syncProgress.direction = 'download';
+        this.syncProgress.action = 'DOWNLOADING';
         this.syncProgress.message = `Querying Firestore partition (${orgId}) for ${startDate} to ${endDate}...`;
         this.syncProgress.percent = 15;
         this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
@@ -1100,6 +1109,8 @@ class FirebaseService {
       // PHASE 2: UPLOAD LOCAL TO FIRESTORE (if 'two_way' or 'upload')
       // -------------------------------------------------------------
       if (direction === 'two_way' || direction === 'upload') {
+        this.syncProgress.direction = 'upload';
+        this.syncProgress.action = 'UPLOADING';
         this.syncProgress.message = `Gathering local records for ${startDate} to ${endDate}...`;
         this.syncProgress.percent = (direction === 'upload') ? 15 : 55;
         this.notify('CLOUD_SYNC_STATUS', this.syncProgress);
@@ -3126,10 +3137,12 @@ class FirebaseService {
       attendance: { downloaded: 0, newInserted: 0, uploaded: 0, writesSaved: 0 }
     };
 
-    const updateProgress = (percent, message) => {
+    const updateProgress = (percent, message, dir = 'download') => {
       this.syncProgress = {
         isSyncing: true,
         state: 'SYNCING',
+        direction: dir,
+        action: dir === 'upload' ? 'UPLOADING' : 'DOWNLOADING',
         percent,
         message,
         summary,
@@ -3202,13 +3215,14 @@ class FirebaseService {
       // ----------------------------------------------------------------------
       // PHASE 4: ATTENDANCE RECORDS (Cloud-First Bidirectional)
       // ----------------------------------------------------------------------
-      updateProgress(85, 'Checking cloud attendance punches and synchronizing local punches...');
+      updateProgress(80, 'Downloading cloud attendance punches...', 'download');
       const today = new Date().toISOString().slice(0, 10);
       const daysBack = parseInt(options.daysBack, 10) || 30;
       const defaultStartDate = new Date(Date.now() - (daysBack * 86400000)).toISOString().slice(0, 10);
       const startDate = (options.startDate || defaultStartDate).slice(0, 10);
       const endDate = (options.endDate || today).slice(0, 10);
 
+      updateProgress(90, 'Uploading local attendance records to cloud...', 'upload');
       const attRes = await this.twoWaySyncAttendance({ orgId, orgName, startDate, endDate });
       summary.attendance.downloaded = attRes.downloaded || 0;
       summary.attendance.newInserted = attRes.newInserted || 0;
@@ -3255,6 +3269,8 @@ class FirebaseService {
       this.syncProgress = {
         isSyncing: false,
         state: 'COMPLETED',
+        direction: null,
+        action: 'IN_SYNC',
         percent: 100,
         message: completeMsg,
         summary,

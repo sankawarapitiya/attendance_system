@@ -9200,6 +9200,13 @@ async function triggerShiftsHolidaysSync(direction = 'two_way') {
     if (btn) btn.disabled = true;
     if (statusText) statusText.textContent = `Syncing (${direction})...`;
     showToast(`Synchronizing shifts & holidays with Cloud Partition (${orgId})...`, 'info', 3000);
+    updateCloudSyncProgressUI({
+      isSyncing: true,
+      direction,
+      action: direction === 'upload' ? 'UPLOADING' : (direction === 'download' ? 'DOWNLOADING' : 'TWO_WAY'),
+      message: direction === 'upload' ? 'Pushing shifts & holidays to cloud...' : (direction === 'download' ? 'Pulling shifts & holidays from cloud...' : 'Two-way syncing shifts & holidays...'),
+      percent: 15
+    });
 
     const res = await fetch('/api/firebase/sync-shifts-holidays', {
       method: 'POST',
@@ -11362,6 +11369,13 @@ function initFirebaseSync() {
     btnSyncNow.innerHTML = `<span class="spin" style="width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:6px;"></span> Uploading...`;
     state.cloudSyncing = true;
     updateStopSyncButtonsUI();
+    updateCloudSyncProgressUI({
+      isSyncing: true,
+      direction: 'upload',
+      action: 'UPLOADING',
+      message: 'Uploading attendance punches to Firestore...',
+      percent: 15
+    });
 
     try {
       const res = await fetch('/api/firebase/sync-now', {
@@ -11669,6 +11683,14 @@ function initFirebaseSync() {
       });
       const data = await res.json();
       if (data.success) {
+        updateCloudSyncProgressUI({
+          isSyncing: false,
+          state: 'COMPLETED',
+          direction: null,
+          action: 'IN_SYNC',
+          percent: 100,
+          message: data.message
+        });
         showToast(`✓ ${data.message}`, 'success', 4000);
         if (badge) {
           badge.style.display = 'inline-block';
@@ -11939,13 +11961,62 @@ async function loadFirebaseStatus() {
   }
 }
 
-function updateSidebarCloudIndicator(label, dotColor, isPulsing) {
+function resolveCloudDirection(prog) {
+  if (!prog) return 'upload';
+  if (prog.direction) {
+    const d = String(prog.direction).toLowerCase();
+    if (d === 'upload' || d === 'push') return 'upload';
+    if (d === 'download' || d === 'pull' || d === 'restore') return 'download';
+    if (d === 'two_way') return 'two_way';
+  }
+  if (prog.action) {
+    const a = String(prog.action).toUpperCase();
+    if (a.includes('UPLOAD')) return 'upload';
+    if (a.includes('DOWNLOAD')) return 'download';
+  }
+  const msg = String(prog.message || '').toLowerCase();
+  if (msg.includes('upload') || msg.includes('push') || msg.includes('sent')) return 'upload';
+  if (msg.includes('download') || msg.includes('pull') || msg.includes('restor') || msg.includes('fetch') || msg.includes('checking') || msg.includes('query')) return 'download';
+  if (Number(prog.uploadedCount || 0) > 0 && !prog.downloadedCount) return 'upload';
+  if (Number(prog.downloadedCount || 0) > 0 && !prog.uploadedCount) return 'download';
+  return 'upload';
+}
+window.resolveCloudDirection = resolveCloudDirection;
+
+function updateSidebarCloudIndicator(label, dotColor, isPulsing, direction = null) {
   const sDot = document.getElementById('sidebarCloudSyncDot');
   const sText = document.getElementById('sidebarCloudSyncText');
+  const sArrow = document.getElementById('sidebarCloudDirArrow');
+  const sPill = document.getElementById('sidebarCloudSyncPill');
+
   if (sDot) {
     sDot.style.background = dotColor || '#94a3b8';
     sDot.style.animation = isPulsing ? 'pulse 1.2s infinite' : 'none';
   }
+
+  if (sPill) {
+    sPill.classList.remove('status-uploading', 'status-downloading', 'status-synced');
+    if (direction === 'upload') sPill.classList.add('status-uploading');
+    else if (direction === 'download') sPill.classList.add('status-downloading');
+    else if (dotColor === '#16a34a' || (label && label.includes('Synced'))) sPill.classList.add('status-synced');
+  }
+
+  if (sArrow) {
+    if (direction === 'upload') {
+      sArrow.style.display = 'inline-flex';
+      sArrow.className = 'cloud-dir-arrow-sm arrow-up';
+      sArrow.textContent = '↑';
+      sArrow.title = 'Uploading to Cloud';
+    } else if (direction === 'download') {
+      sArrow.style.display = 'inline-flex';
+      sArrow.className = 'cloud-dir-arrow-sm arrow-down';
+      sArrow.textContent = '↓';
+      sArrow.title = 'Downloading from Cloud';
+    } else {
+      sArrow.style.display = 'none';
+    }
+  }
+
   if (sText && label) {
     sText.textContent = label;
   }
@@ -11957,6 +12028,8 @@ function updateCloudSyncProgressUI(prog) {
 
   const headerPill = document.getElementById('headerCloudSyncPill');
   const headerDot = document.getElementById('headerCloudSyncDot');
+  const headerArrow = document.getElementById('headerCloudDirArrow');
+  const headerBadge = document.getElementById('headerCloudDirBadge');
   const headerText = document.getElementById('headerCloudSyncText');
 
   const banner = document.getElementById('fbLiveSyncBanner');
@@ -11974,77 +12047,150 @@ function updateCloudSyncProgressUI(prog) {
   if (prog.isSyncing) {
     state.cloudSyncing = true;
     updateStopSyncButtonsUI();
-    updateSidebarCloudIndicator(`Syncing (${Number(prog.uploadedCount || 0).toLocaleString()})`, '#1d4ed8', true);
 
-    // Header Pill
+    const direction = resolveCloudDirection(prog);
+    const isUpload = (direction === 'upload');
+    const isDownload = (direction === 'download');
+    const isTwoWay = (direction === 'two_way');
+
+    const uploaded = Number(prog.uploadedCount || 0);
+    const downloaded = Number(prog.downloadedCount || 0);
+
+    // 1. Sidebar update
+    let sidebarLabel = 'Cloud: Syncing...';
+    if (isUpload) {
+      sidebarLabel = uploaded > 0 ? `↑ Upload (${uploaded.toLocaleString()})` : '↑ Uploading...';
+      updateSidebarCloudIndicator(sidebarLabel, '#2563eb', true, 'upload');
+    } else if (isDownload) {
+      sidebarLabel = downloaded > 0 ? `↓ Download (${downloaded.toLocaleString()})` : '↓ Downloading...';
+      updateSidebarCloudIndicator(sidebarLabel, '#7c3aed', true, 'download');
+    } else {
+      sidebarLabel = '⇅ Two-Way Sync';
+      updateSidebarCloudIndicator(sidebarLabel, '#0d9488', true, 'upload');
+    }
+
+    // 2. Header Pill update
     if (headerPill) {
-      headerPill.style.background = '#f0f9ff';
-      headerPill.style.borderColor = '#38bdf8';
-      headerPill.style.color = '#0369a1';
+      headerPill.classList.remove('status-uploading', 'status-downloading', 'status-synced');
+      if (isUpload) headerPill.classList.add('status-uploading');
+      else if (isDownload) headerPill.classList.add('status-downloading');
+      else headerPill.classList.add('status-uploading');
     }
     if (headerDot) {
-      headerDot.style.background = '#1d4ed8';
+      headerDot.style.background = isDownload ? '#7c3aed' : (isTwoWay ? '#0d9488' : '#2563eb');
       headerDot.style.animation = 'pulse 1.2s infinite';
     }
+    if (headerArrow) {
+      headerArrow.style.display = 'inline-flex';
+      headerArrow.className = isDownload ? 'cloud-dir-arrow arrow-down' : 'cloud-dir-arrow arrow-up';
+      headerArrow.textContent = isDownload ? '↓' : (isTwoWay ? '⇅' : '↑');
+    }
+    if (headerBadge) {
+      headerBadge.style.display = 'inline-flex';
+      headerBadge.className = isDownload ? 'cloud-dir-badge badge-down' : (isTwoWay ? 'cloud-dir-badge badge-twoway' : 'cloud-dir-badge badge-up');
+      headerBadge.textContent = isDownload ? '↓ DOWN' : (isTwoWay ? '⇅ SYNC' : '↑ UP');
+    }
     if (headerText) {
-      headerText.innerHTML = `☁️ Syncing Now (${Number(prog.uploadedCount || 0).toLocaleString()} uploaded)`;
+      if (isUpload) {
+        headerText.textContent = uploaded > 0 ? `Uploading (${uploaded.toLocaleString()} records)` : (prog.message || 'Uploading to Cloud...');
+      } else if (isDownload) {
+        headerText.textContent = downloaded > 0 ? `Downloading (${downloaded.toLocaleString()} items)` : (prog.message || 'Downloading from Cloud...');
+      } else {
+        headerText.textContent = prog.message || 'Cloud: Syncing...';
+      }
     }
 
-    // Badge
+    // 3. Badge in settings
     if (badge) {
-      badge.innerHTML = `<span class="spin" style="width:10px;height:10px;border:2px solid #1d4ed8;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Syncing...`;
-      badge.style.background = '#f0f9ff';
-      badge.style.color = '#0369a1';
+      const bColor = isDownload ? '#7c3aed' : '#2563eb';
+      const bText = isDownload ? '↓ Downloading...' : (isTwoWay ? '⇅ Two-Way Sync...' : '↑ Uploading...');
+      badge.innerHTML = `<span class="spin" style="width:10px;height:10px;border:2px solid ${bColor};border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> ${bText}`;
+      badge.style.background = isDownload ? '#faf5ff' : '#eff6ff';
+      badge.style.color = isDownload ? '#7e22ce' : '#1d4ed8';
     }
 
-    // Banner
+    // 4. Live Banner in Settings
     if (banner) {
-      banner.style.background = '#f0f9ff';
-      banner.style.borderColor = '#93c5fd';
+      banner.style.background = isDownload ? '#faf5ff' : '#eff6ff';
+      banner.style.borderColor = isDownload ? '#d8b4fe' : '#93c5fd';
     }
     if (bannerIcon) {
-      bannerIcon.innerHTML = `<span class="spin" style="width:20px;height:20px;border:2.5px solid #1d4ed8;border-top-color:transparent;border-radius:50%;display:inline-block;"></span>`;
-      bannerIcon.style.background = '#e0f2fe';
+      if (isUpload) {
+        bannerIcon.innerHTML = `<span style="animation: cloudFloatUp 1.1s infinite ease-in-out; font-size:1.3rem; display:inline-block; color:#2563eb;">⬆️</span>`;
+        bannerIcon.style.background = '#dbeafe';
+      } else if (isDownload) {
+        bannerIcon.innerHTML = `<span style="animation: cloudFloatDown 1.1s infinite ease-in-out; font-size:1.3rem; display:inline-block; color:#7c3aed;">⬇️</span>`;
+        bannerIcon.style.background = '#f3e8ff';
+      } else {
+        bannerIcon.innerHTML = `<span class="spin" style="width:20px;height:20px;border:2.5px solid #0d9488;border-top-color:transparent;border-radius:50%;display:inline-block;"></span>`;
+        bannerIcon.style.background = '#ccfbf1';
+      }
     }
     if (bannerTitle) {
-      bannerTitle.innerHTML = `Cloud Sync Engine Active <span style="font-size:0.75rem; font-weight:700; color:#1d4ed8; background:#e0f2fe; padding:2px 8px; border-radius:12px;">UPLOADING</span>`;
+      if (isUpload) {
+        bannerTitle.innerHTML = `Cloud Sync Engine Active <span class="badge-sync-direction up"><span style="animation: cloudFloatUp 1.1s infinite ease-in-out; display:inline-block;">↑</span> UPLOADING TO CLOUD</span>`;
+      } else if (isDownload) {
+        bannerTitle.innerHTML = `Cloud Sync Engine Active <span class="badge-sync-direction down"><span style="animation: cloudFloatDown 1.1s infinite ease-in-out; display:inline-block;">↓</span> DOWNLOADING FROM CLOUD</span>`;
+      } else {
+        bannerTitle.innerHTML = `Cloud Sync Engine Active <span class="badge-sync-direction twoway">⇅ TWO-WAY SYNC</span>`;
+      }
     }
     if (bannerSubtitle) {
-      bannerSubtitle.textContent = prog.message || 'Actively uploading attendance punch batches to Firestore...';
+      bannerSubtitle.textContent = prog.message || (isUpload ? 'Actively uploading records to Firestore partition...' : 'Actively downloading updates from Cloud...');
     }
     if (bannerState) {
-      bannerState.textContent = 'SYNCING NOW';
-      bannerState.style.background = '#e0f2fe';
-      bannerState.style.color = '#0369a1';
+      if (isUpload) {
+        bannerState.textContent = '↑ UPLOADING';
+        bannerState.style.background = '#dbeafe';
+        bannerState.style.color = '#1d4ed8';
+      } else if (isDownload) {
+        bannerState.textContent = '↓ DOWNLOADING';
+        bannerState.style.background = '#f3e8ff';
+        bannerState.style.color = '#7e22ce';
+      } else {
+        bannerState.textContent = '⇅ TWO-WAY SYNC';
+        bannerState.style.background = '#ccfbf1';
+        bannerState.style.color = '#0f766e';
+      }
     }
     if (progressWrap) progressWrap.style.display = 'block';
     const pct = prog.percent || 0;
-    if (progressBar) progressBar.style.width = `${pct}%`;
+    if (progressBar) {
+      progressBar.style.width = `${pct}%`;
+      progressBar.style.background = isDownload ? 'linear-gradient(90deg, #c084fc, #7c3aed)' : 'linear-gradient(90deg, #38bdf8, #1d4ed8)';
+    }
     if (bannerPercent) {
       bannerPercent.style.display = 'inline-block';
       bannerPercent.textContent = `${pct}%`;
     }
     if (progressDetails) {
-      progressDetails.textContent = `Batch ${prog.currentBatch || 1} of ${prog.totalBatches || 1}`;
+      progressDetails.textContent = prog.message || (isUpload ? `Batch ${prog.currentBatch || 1} of ${prog.totalBatches || 1}` : 'Synchronizing cloud partition...');
     }
     if (progressRatio) {
-      progressRatio.textContent = `${Number(prog.uploadedCount || 0).toLocaleString()} punches uploaded`;
+      if (isUpload) {
+        progressRatio.textContent = `${uploaded.toLocaleString()} punches uploaded`;
+      } else if (isDownload) {
+        progressRatio.textContent = `${downloaded.toLocaleString()} records downloaded`;
+      } else {
+        progressRatio.textContent = `${uploaded + downloaded} records processed`;
+      }
     }
   } else {
     state.cloudSyncing = false;
     updateStopSyncButtonsUI();
 
     if (prog.state === 'COMPLETED') {
-      updateSidebarCloudIndicator('Cloud: Synced', '#16a34a', false);
+      updateSidebarCloudIndicator('Cloud: Synced', '#16a34a', false, null);
       if (headerPill) {
-        headerPill.style.background = '#f0fdf4';
-        headerPill.style.borderColor = '#86efac';
-        headerPill.style.color = '#166534';
+        headerPill.classList.remove('status-uploading', 'status-downloading');
+        headerPill.classList.add('status-synced');
       }
       if (headerDot) {
         headerDot.style.background = '#16a34a';
         headerDot.style.animation = 'none';
       }
+      if (headerArrow) headerArrow.style.display = 'none';
+      if (headerBadge) headerBadge.style.display = 'none';
       if (headerText) headerText.textContent = '☁️ Cloud: Synced';
 
       if (banner) {
@@ -12056,7 +12202,7 @@ function updateCloudSyncProgressUI(prog) {
         bannerIcon.style.background = '#dcfce7';
       }
       if (bannerTitle) bannerTitle.textContent = 'Cloud Synchronization: Complete';
-      if (bannerSubtitle) bannerSubtitle.textContent = prog.message || 'All local records successfully uploaded!';
+      if (bannerSubtitle) bannerSubtitle.textContent = prog.message || 'All local records successfully synchronized!';
       if (bannerState) {
         bannerState.textContent = 'IN SYNC';
         bannerState.style.background = '#dcfce7';
@@ -12065,16 +12211,16 @@ function updateCloudSyncProgressUI(prog) {
       if (progressWrap) progressWrap.style.display = 'none';
       if (bannerPercent) bannerPercent.style.display = 'none';
     } else if (prog.state === 'STOPPED') {
-      updateSidebarCloudIndicator('Cloud: Paused', '#94a3b8', false);
+      updateSidebarCloudIndicator('Cloud: Paused', '#94a3b8', false, null);
       if (headerPill) {
-        headerPill.style.background = '#f8fafc';
-        headerPill.style.borderColor = '#cbd5e1';
-        headerPill.style.color = '#475569';
+        headerPill.classList.remove('status-uploading', 'status-downloading', 'status-synced');
       }
       if (headerDot) {
         headerDot.style.background = '#94a3b8';
         headerDot.style.animation = 'none';
       }
+      if (headerArrow) headerArrow.style.display = 'none';
+      if (headerBadge) headerBadge.style.display = 'none';
       if (headerText) headerText.textContent = `☁️ Cloud: Paused (${Number(prog.totalPending || 0).toLocaleString()} Safe)`;
 
       if (banner) {
@@ -12096,14 +12242,14 @@ function updateCloudSyncProgressUI(prog) {
       if (bannerPercent) bannerPercent.style.display = 'none';
     } else if (prog.state === 'QUOTA_EXHAUSTED') {
       if (headerPill) {
-        headerPill.style.background = '#fff7ed';
-        headerPill.style.borderColor = '#fdba74';
-        headerPill.style.color = '#c2410c';
+        headerPill.classList.remove('status-uploading', 'status-downloading', 'status-synced');
       }
       if (headerDot) {
         headerDot.style.background = '#ea580c';
         headerDot.style.animation = 'none';
       }
+      if (headerArrow) headerArrow.style.display = 'none';
+      if (headerBadge) headerBadge.style.display = 'none';
       if (headerText) headerText.textContent = `☁️ Cloud: Quota Limit (${Number(prog.totalPending || 0).toLocaleString()} Safe)`;
 
       if (banner) {
@@ -12125,14 +12271,14 @@ function updateCloudSyncProgressUI(prog) {
       if (bannerPercent) bannerPercent.style.display = 'none';
     } else if (prog.state === 'OFFLINE') {
       if (headerPill) {
-        headerPill.style.background = '#fee2e2';
-        headerPill.style.borderColor = '#fca5a5';
-        headerPill.style.color = '#991b1b';
+        headerPill.classList.remove('status-uploading', 'status-downloading', 'status-synced');
       }
       if (headerDot) {
         headerDot.style.background = '#dc2626';
         headerDot.style.animation = 'none';
       }
+      if (headerArrow) headerArrow.style.display = 'none';
+      if (headerBadge) headerBadge.style.display = 'none';
       if (headerText) headerText.textContent = '☁️ Cloud: Offline';
 
       if (banner) {
@@ -12155,6 +12301,7 @@ function updateCloudSyncProgressUI(prog) {
     }
   }
 }
+window.updateCloudSyncProgressUI = updateCloudSyncProgressUI;
 
 function updateFirebaseStatusUI(status) {
   if (!status) return;
@@ -12246,57 +12393,13 @@ function updateFirebaseStatusUI(status) {
 
   // Visual State Determination: SYNCING, STOPPED, NOT CONFIGURED, OFFLINE, QUEUED, or IN SYNC
   if (isSyncing) {
-    state.cloudSyncing = true;
-    updateStopSyncButtonsUI();
-    updateSidebarCloudIndicator(`Syncing (${Number(prog.uploadedCount || 0).toLocaleString()})`, '#1d4ed8', true);
-
-    // 1. SYNCING ACTIVE
-    if (headerPill) {
-      headerPill.style.background = '#f0f9ff';
-      headerPill.style.borderColor = '#38bdf8';
-      headerPill.style.color = '#0369a1';
-    }
-    if (headerDot) {
-      headerDot.style.background = '#1d4ed8';
-      headerDot.style.animation = 'pulse 1.2s infinite';
-    }
-    if (headerText) headerText.innerHTML = `☁️ Syncing Now (${Number(prog.uploadedCount || 0).toLocaleString()} uploaded)`;
-
-    if (badge) {
-      badge.innerHTML = `<span class="spin" style="width:10px;height:10px;border:2px solid #1d4ed8;border-top-color:transparent;border-radius:50%;display:inline-block;margin-right:4px;"></span> Syncing Now...`;
-      badge.style.background = '#f0f9ff';
-      badge.style.color = '#0369a1';
-    }
-
-    if (banner) {
-      banner.style.background = '#f0f9ff';
-      banner.style.borderColor = '#93c5fd';
-    }
-    if (bannerIcon) {
-      bannerIcon.innerHTML = `<span class="spin" style="width:20px;height:20px;border:2.5px solid #1d4ed8;border-top-color:transparent;border-radius:50%;display:inline-block;"></span>`;
-      bannerIcon.style.background = '#e0f2fe';
-    }
-    if (bannerTitle) {
-      bannerTitle.innerHTML = `Cloud Sync Engine Active <span style="font-size:0.75rem; font-weight:700; color:#1d4ed8; background:#e0f2fe; padding:2px 8px; border-radius:12px;">UPLOADING</span>`;
-    }
-    if (bannerSubtitle) {
-      bannerSubtitle.textContent = prog.message || `Uploading pending punches to partition "${status.orgId}" in Firestore...`;
-    }
-    if (bannerState) {
-      bannerState.textContent = 'SYNCING NOW';
-      bannerState.style.background = '#e0f2fe';
-      bannerState.style.color = '#0369a1';
-    }
-    if (progressWrap) progressWrap.style.display = 'block';
-    const pct = prog.percent || 0;
-    if (progressBar) progressBar.style.width = `${pct}%`;
-    if (bannerPercent) {
-      bannerPercent.style.display = 'inline-block';
-      bannerPercent.textContent = `${pct}%`;
-    }
-    if (progressDetails) progressDetails.textContent = `Target Partition: organizations/${status.orgId}/attendance`;
-    if (progressRatio) progressRatio.textContent = `${Number(prog.uploadedCount || 0).toLocaleString()} / ${Number(pendingCount).toLocaleString()} records`;
-
+    updateCloudSyncProgressUI(prog && prog.isSyncing ? prog : {
+      isSyncing: true,
+      direction: 'upload',
+      action: 'UPLOADING',
+      uploadedCount: prog.uploadedCount || 0,
+      message: prog.message || `Uploading pending punches to partition "${status.orgId}" in Firestore...`
+    });
   } else {
     state.cloudSyncing = false;
     updateStopSyncButtonsUI();

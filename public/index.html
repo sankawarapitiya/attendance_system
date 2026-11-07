@@ -233,6 +233,7 @@
         <div class="sidebar-status-pills">
           <div class="sidebar-status-pill" id="sidebarCloudSyncPill" title="Firebase Firestore Cloud Sync - Click to manage">
             <span class="status-dot-sm" id="sidebarCloudSyncDot" style="background:#94a3b8;"></span>
+            <span class="cloud-dir-arrow-sm" id="sidebarCloudDirArrow" style="display: none;"></span>
             <span id="sidebarCloudSyncText">Cloud: Standby</span>
           </div>
           <div class="sidebar-status-pill" id="sidebarLiveSyncPill" title="Live WebSocket Connection">
@@ -337,10 +338,17 @@
             <span id="btnStopSyncHeaderText">Stop Sync</span>
           </button>
 
+          <!-- Cloud Sync & Directional Transfer Indicator (UP / DOWN / IN SYNC) -->
+          <div class="header-cloud-pill" id="headerCloudSyncPill" title="Firebase Firestore Cloud Sync - Click to manage">
+            <span class="status-dot-sm" id="headerCloudSyncDot" style="background:#94a3b8;"></span>
+            <span class="cloud-dir-arrow" id="headerCloudDirArrow" style="display: none;"></span>
+            <span class="cloud-dir-badge" id="headerCloudDirBadge" style="display: none;"></span>
+            <span id="headerCloudSyncText">Cloud: Standby</span>
+          </div>
+
           <!-- Legacy Header Indicators (Kept hidden so existing JS element lookups stay 100% safe) -->
           <div style="display:none;" aria-hidden="true">
             <div id="headerLicensePill"><span id="headerLicenseDaysText">License: Active</span></div>
-            <div id="headerCloudSyncPill"><span id="headerCloudSyncDot"></span><span id="headerCloudSyncText">Cloud: Standby</span></div>
             <div id="headerUserAuthContainer">
               <div id="headerLoggedInBox">
                 <div id="headerUserAuthPill"><span id="headerUserAvatar">A</span><span id="headerUserName">Admin User</span><span id="headerUserRoleBadge">ADMIN</span></div>
@@ -9581,7 +9589,7 @@ Loading application logs...
   <div class="toast-container" id="toastContainer"></div>
 
 <script src="js/cloudAdapter.js?v=2.9.8"></script>
-  <script src="js/app.js?v=3.8.0"></script>
+  <script src="js/app.js?v=3.9.0"></script>
 
   <!-- Modal: Cloud Disaster Recovery & Database Restore -->
   <div class="modal" id="modalCloudRestore">
