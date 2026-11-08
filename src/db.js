@@ -3263,12 +3263,18 @@ async function upsertLeaveRequestsFromCloud(requestsList = [], targetOrgId = 'DS
 
   let count = 0;
   for (const r of requestsList) {
-    const id = parseInt(r.id || r.requestId, 10);
-    const userId = String(r.userId || r.user_id || '').trim();
+    let id = null;
+    if (r.numericId && !isNaN(parseInt(r.numericId, 10))) {
+      id = parseInt(r.numericId, 10);
+    } else {
+      const match = String(r.id || r.requestId || r.docId || '').match(/\d+/);
+      if (match) id = parseInt(match[0], 10);
+    }
+    const userId = String(r.rawUserId || r.fingerprintId || r.fingerprint_id || r.user_id || r.userId || '').replace(/^emp_/, '').trim();
     const leaveTypeId = parseInt(r.leaveTypeId || r.leave_type_id, 10) || 1;
     const startDate = r.startDate || r.start_date;
     const endDate = r.endDate || r.end_date || startDate;
-    const daysReq = parseFloat(r.daysRequested || r.days_requested) || 1.0;
+    const daysReq = parseFloat(r.daysRequested || r.days_requested || r.days || r.totalDays) || 1.0;
     const dayType = r.dayType || r.day_type || 'FULL_DAY';
     const reason = r.reason || '';
     const contact = r.emergencyContact || r.emergency_contact || '';

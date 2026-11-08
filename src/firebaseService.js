@@ -211,6 +211,9 @@ class FirebaseService {
 
     // Non-blocking ping test
     this.testConnection().catch(() => {});
+
+    // Start real-time Firestore leave requests listener
+    this.startLeaveRequestsListener();
   }
 
   /**
@@ -2147,6 +2150,18 @@ class FirebaseService {
         return { success: true, count: 0, message: 'No employee leave balances to sync' };
       }
 
+      // Query pending leave requests across the batch
+      const pendingRows = await dbAll(`
+        SELECT user_id, leave_type_id, SUM(days_count) as pending_days
+        FROM leave_requests
+        WHERE status = 'pending'
+        GROUP BY user_id, leave_type_id
+      `).catch(() => []);
+      const pendingMap = new Map();
+      (pendingRows || []).forEach(r => {
+        pendingMap.set(`${r.user_id}_${r.leave_type_id}`, parseFloat(r.pending_days) || 0);
+      });
+
       const batchSize = 50;
       for (let i = 0; i < empBalances.length; i += batchSize) {
         if (this.stopRequested) break;
@@ -2168,18 +2183,22 @@ class FirebaseService {
             leaveCategoryId: eb.leave_category_id,
             leaveCategoryName: eb.leave_category_name,
             leaveCategoryColor: eb.leave_category_color,
-            balances: (eb.balances || []).map(b => ({
-              leaveTypeId: b.leave_type_id,
-              leaveTypeName: b.leave_type_name,
-              code: b.leave_type_code,
-              allocatedDays: b.allocated_days,
-              carriedForwardDays: b.carried_forward_days || 0.0,
-              usedDays: b.used_days,
-              remainingDays: b.remaining_days,
-              notes: b.notes || '',
-              color: b.leave_type_color,
-              isPaid: Boolean(b.type_is_paid)
-            })),
+            balances: (eb.balances || []).map(b => {
+              const pendingDays = pendingMap.get(`${rawUserId}_${b.leave_type_id}`) || 0;
+              return {
+                leaveTypeId: b.leave_type_id,
+                leaveTypeName: b.leave_type_name,
+                code: b.leave_type_code,
+                allocatedDays: b.allocated_days,
+                carriedForwardDays: b.carried_forward_days || 0.0,
+                usedDays: b.used_days,
+                remainingDays: b.remaining_days,
+                pendingDays: pendingDays,
+                notes: b.notes || '',
+                color: b.leave_type_color,
+                isPaid: Boolean(b.type_is_paid)
+              };
+            }),
             updatedAt: nowIso
           };
 
@@ -2204,6 +2223,50 @@ class FirebaseService {
           });
         }
 
+        if (this.firestore) {
+          try {
+            const batch = this.firestore.batch();
+            for (const eb of slice) {
+              const rawUserId = String(eb.user_id || '').trim();
+              const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F\/]/g, '_').trim() || 'USER';
+              const p = {
+                userId: cleanUserId,
+                rawUserId: rawUserId,
+                name: eb.name || '',
+                department: eb.department || '',
+                organizationId: orgId,
+                year: eb.year,
+                leaveCategoryId: eb.leave_category_id,
+                leaveCategoryName: eb.leave_category_name,
+                leaveCategoryColor: eb.leave_category_color,
+                balances: (eb.balances || []).map(b => ({
+                  leaveTypeId: b.leave_type_id,
+                  leaveTypeName: b.leave_type_name,
+                  code: b.leave_type_code,
+                  allocatedDays: b.allocated_days,
+                  carriedForwardDays: b.carried_forward_days || 0.0,
+                  usedDays: b.used_days,
+                  remainingDays: b.remaining_days,
+                  notes: b.notes || '',
+                  color: b.leave_type_color,
+                  isPaid: Boolean(b.type_is_paid)
+                })),
+                updatedAt: nowIso
+              };
+              batch.set(this.firestore.doc(`organizations/${orgId}/leave_balances/${cleanUserId}`), p, { merge: true });
+              batch.set(this.firestore.doc(`leave_balances/${cleanUserId}`), p, { merge: true });
+            }
+            await batch.commit();
+            if (balanceIds.length > 0) {
+              await markEmployeeBalancesCloudSynced(balanceIds);
+            }
+            uploadedCount += slice.length;
+            continue;
+          } catch (batchErr) {
+            console.warn('[FIREBASE] Admin batch balance sync notice, fallback to REST:', batchErr.message);
+          }
+        }
+
         if (writes.length > 0) {
           await this._commitRestWrites(writes);
           if (balanceIds.length > 0) {
@@ -2223,6 +2286,103 @@ class FirebaseService {
       console.warn(`[FIREBASE] Employee leaves sync notice: ${err.message}`);
       return { success: false, error: err.message, orgId };
     }
+  }
+
+  /**
+   * Synchronize a single employee's leave balance to Firestore.
+   * Path: organizations/{orgId}/leave_balances/{cleanUserId} & leave_balances/{cleanUserId}
+   */
+  async syncSingleEmployeeBalance(userId, year, orgId) {
+    if (!userId) return { success: false, error: 'No userId provided' };
+    await this.init();
+    const yr = parseInt(year, 10) || new Date().getFullYear();
+    const rawUserId = String(userId).replace(/^emp_/, '').trim();
+    const empBal = await getEmployeeLeaveBalances(rawUserId, yr);
+    if (!empBal) return { success: false, error: `No balance found for user ${rawUserId}` };
+
+    const orgConfig = await this.getOrganizationConfig();
+    const targetOrg = (orgId || empBal.org_id || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F\/]/g, '_').trim() || 'USER';
+    const nowIso = new Date().toISOString();
+
+    // Query pending leave requests for this user
+    const pendingRows = await dbAll(`
+      SELECT leave_type_id, SUM(days_count) as pending_days
+      FROM leave_requests
+      WHERE user_id = ? AND status = 'pending'
+      GROUP BY leave_type_id
+    `, [rawUserId]).catch(() => []);
+    const pendingMap = new Map();
+    (pendingRows || []).forEach(r => {
+      pendingMap.set(r.leave_type_id, parseFloat(r.pending_days) || 0);
+    });
+
+    const payload = {
+      userId: cleanUserId,
+      rawUserId: rawUserId,
+      name: empBal.name || '',
+      department: empBal.department || '',
+      organizationId: targetOrg,
+      year: yr,
+      leaveCategoryId: empBal.leave_category_id,
+      leaveCategoryName: empBal.leave_category_name,
+      leaveCategoryColor: empBal.leave_category_color,
+      balances: (empBal.balances || []).map(b => {
+        const pendingDays = pendingMap.get(b.leave_type_id) || 0;
+        return {
+          leaveTypeId: b.leave_type_id,
+          leaveTypeName: b.leave_type_name,
+          code: b.leave_type_code,
+          allocatedDays: b.allocated_days,
+          carriedForwardDays: b.carried_forward_days || 0.0,
+          usedDays: b.used_days,
+          remainingDays: b.remaining_days,
+          pendingDays: pendingDays,
+          notes: b.notes || '',
+          color: b.leave_type_color,
+          isPaid: Boolean(b.type_is_paid)
+        };
+      }),
+      updatedAt: nowIso
+    };
+
+    if (this.firestore) {
+      try {
+        const batch = this.firestore.batch();
+        batch.set(this.firestore.doc(`organizations/${targetOrg}/leave_balances/${cleanUserId}`), payload, { merge: true });
+        batch.set(this.firestore.doc(`leave_balances/${cleanUserId}`), payload, { merge: true });
+        await batch.commit();
+        return { success: true, cleanUserId, orgId: targetOrg };
+      } catch (adminErr) {
+        console.warn('[FIREBASE] Admin batch single balance save notice, fallback to REST:', adminErr.message);
+      }
+    }
+
+    if (this.keyData) {
+      const projectId = this.keyData.project_id;
+      const writes = [
+        {
+          update: {
+            name: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/leave_balances/${cleanUserId}`,
+            fields: toFirestoreFields(payload)
+          }
+        },
+        {
+          update: {
+            name: `projects/${projectId}/databases/(default)/documents/leave_balances/${cleanUserId}`,
+            fields: toFirestoreFields(payload)
+          }
+        }
+      ];
+      try {
+        await this._commitRestWrites(writes);
+        return { success: true, cleanUserId, orgId: targetOrg };
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    }
+
+    return { success: false, error: 'Firebase not ready' };
   }
 
   /**
@@ -2349,53 +2509,157 @@ class FirebaseService {
   }
 
   /**
-   * Save / Sync Single Leave Request to Firestore
-   * Path: organizations/{orgId}/leave_requests/request_{id}
+   * Start real-time Firestore listener for organization leave requests.
+   * Immediately ingests any mobile-submitted or cloud-updated leave requests into SQLite,
+   * updates balances, and broadcasts live WebSocket events to all open desktop client browsers.
+   */
+  startLeaveRequestsListener(orgId = 'DSOFFICE_LUNUGAMWEHERA') {
+    if (this._leaveRequestsUnsub) {
+      try { this._leaveRequestsUnsub(); } catch (_) {}
+      this._leaveRequestsUnsub = null;
+    }
+    if (!this.firestore) {
+      console.warn('[FIREBASE] Firestore not initialized, cannot start leave_requests listener.');
+      return;
+    }
+
+    const targetOrg = (orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+
+    try {
+      this._leaveRequestsUnsub = this.firestore
+        .collection(`organizations/${targetOrg}/leave_requests`)
+        .onSnapshot(async (snapshot) => {
+          const docChanges = snapshot.docChanges();
+          if (!docChanges || docChanges.length === 0) return;
+
+          const toUpsert = [];
+          for (const change of docChanges) {
+            if (change.type === 'added' || change.type === 'modified') {
+              const data = change.doc.data();
+              toUpsert.push({ docId: change.doc.id, ...data });
+            }
+          }
+
+          if (toUpsert.length > 0) {
+            try {
+              const res = await upsertLeaveRequestsFromCloud(toUpsert, targetOrg);
+              console.log(`[FIREBASE] Real-time leave_requests ingested ${res.inserted || toUpsert.length} change(s) for ${targetOrg}`);
+
+              // Broadcast live WebSocket event to all connected desktop web clients
+              this.notify('LEAVE_REQUEST_UPDATED', {
+                count: toUpsert.length,
+                latest: toUpsert[toUpsert.length - 1],
+                orgId: targetOrg
+              });
+            } catch (err) {
+              console.warn('[FIREBASE] Real-time leave_requests upsert warning:', err.message);
+            }
+          }
+        }, (err) => {
+          console.warn('[FIREBASE] Real-time leave_requests listener error:', err.message);
+        });
+
+      console.log(`[FIREBASE] Real-time leave_requests listener active for ${targetOrg}`);
+    } catch (err) {
+      console.warn('[FIREBASE] Failed to start real-time leave_requests listener:', err.message);
+    }
+  }
+
+  /**
+   * Save / Sync Single Leave Request to Firestore across both organization partition and root mirror.
+   * Path: organizations/{orgId}/leave_requests/req_{id} & leave_requests/req_{id}
    */
   async saveLeaveRequestToCloud(request) {
     if (!request || !request.id) return { success: false, error: 'Invalid leave request object' };
     await this.init();
-    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    if (!this.keyData && !this.firestore) return { success: false, error: 'Firebase is not configured' };
 
     const orgConfig = await this.getOrganizationConfig();
     const targetOrg = (request.org_id || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
-    const projectId = this.keyData.project_id;
-    const docId = `request_${request.id}`;
+    const projectId = this.keyData ? this.keyData.project_id : 'officeattendancesystem-ddae3';
+    const docId = `req_${request.id}`;
     const nowIso = new Date().toISOString();
+    const cleanUserId = String(request.user_id || request.userId || '').replace(/^emp_/, '').trim();
 
     const payload = {
+      id: request.id,
       requestId: request.id,
-      userId: String(request.user_id),
-      employeeName: request.employee_name || '',
+      numericId: request.id,
+      userId: cleanUserId,
+      user_id: cleanUserId,
+      employeeName: request.employee_name || request.userName || '',
+      userName: request.employee_name || request.userName || '',
       employeeServiceId: request.employee_service_id || '',
-      department: request.employee_department || '',
-      leaveTypeId: request.leave_type_id,
-      leaveTypeName: request.leave_type_name || '',
-      leaveTypeCode: request.leave_type_code || '',
-      leaveTypeColor: request.leave_type_color || '#2563eb',
-      startDate: request.start_date,
-      endDate: request.end_date,
-      daysRequested: parseFloat(request.days_requested) || 1.0,
-      dayType: request.day_type || 'FULL_DAY',
+      department: request.employee_department || request.department || 'General',
+      leaveTypeId: request.leave_type_id || request.leaveTypeId,
+      leave_type_id: request.leave_type_id || request.leaveTypeId,
+      leaveTypeName: request.leave_type_name || request.leaveTypeName || '',
+      leave_type_name: request.leave_type_name || request.leaveTypeName || '',
+      leaveTypeCode: request.leave_type_code || request.leaveTypeCode || '',
+      leave_type_code: request.leave_type_code || request.leaveTypeCode || '',
+      leaveTypeColor: request.leave_type_color || request.leaveColor || '#2563eb',
+      leaveColor: request.leave_type_color || request.leaveColor || '#2563eb',
+      startDate: request.start_date || request.startDate,
+      start_date: request.start_date || request.startDate,
+      endDate: request.end_date || request.endDate || request.start_date || request.startDate,
+      end_date: request.end_date || request.endDate || request.start_date || request.startDate,
+      daysRequested: parseFloat(request.days_requested || request.daysRequested || request.totalDays) || 1.0,
+      days_requested: parseFloat(request.days_requested || request.daysRequested || request.totalDays) || 1.0,
+      totalDays: parseFloat(request.days_requested || request.daysRequested || request.totalDays) || 1.0,
+      dayType: request.day_type || request.dayType || 'FULL_DAY',
+      day_type: request.day_type || request.dayType || 'FULL_DAY',
       reason: request.reason || '',
-      emergencyContact: request.emergency_contact || '',
-      status: request.status || 'PENDING',
-      actionBy: request.action_by || '',
-      actionAt: request.action_at || null,
-      actionRemarks: request.action_remarks || '',
+      emergencyContact: request.emergency_contact || request.emergencyContact || '',
+      emergency_contact: request.emergency_contact || request.emergencyContact || '',
+      status: String(request.status || 'PENDING').toLowerCase(),
+      status_upper: String(request.status || 'PENDING').toUpperCase(),
+      actionBy: request.action_by || request.actionBy || '',
+      action_by: request.action_by || request.actionBy || '',
+      actionAt: request.action_at || request.actionAt || null,
+      action_at: request.action_at || request.actionAt || null,
+      actionRemarks: request.action_remarks || request.actionRemarks || '',
+      action_remarks: request.action_remarks || request.actionRemarks || '',
       organizationId: targetOrg,
+      org_id: targetOrg,
       updatedAt: nowIso
     };
 
-    const write = {
-      update: {
-        name: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/leave_requests/${docId}`,
-        fields: toFirestoreFields(payload)
+    if (this.firestore) {
+      try {
+        const batch = this.firestore.batch();
+        batch.set(this.firestore.doc(`organizations/${targetOrg}/leave_requests/${docId}`), payload, { merge: true });
+        batch.set(this.firestore.doc(`leave_requests/${docId}`), payload, { merge: true });
+        await batch.commit();
+        await dbRun(`UPDATE leave_requests SET sync_status = 'SYNCED', cloud_synced_at = CURRENT_TIMESTAMP WHERE id = ?`, [request.id]);
+
+        const reqYear = parseInt((request.start_date || request.startDate || '').substring(0, 4), 10) || new Date().getFullYear();
+        this.syncSingleEmployeeBalance(cleanUserId, reqYear, targetOrg).catch(e => {
+          console.warn('[FIREBASE] Background balance sync on saveLeaveRequest error:', e.message);
+        });
+
+        return { success: true, docId, orgId: targetOrg };
+      } catch (adminErr) {
+        console.warn('[FIREBASE] Admin batch save notice, fallback to REST:', adminErr.message);
       }
-    };
+    }
+
+    const writes = [
+      {
+        update: {
+          name: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/leave_requests/${docId}`,
+          fields: toFirestoreFields(payload)
+        }
+      },
+      {
+        update: {
+          name: `projects/${projectId}/databases/(default)/documents/leave_requests/${docId}`,
+          fields: toFirestoreFields(payload)
+        }
+      }
+    ];
 
     try {
-      await this._commitRestWrites([write]);
+      await this._commitRestWrites(writes);
       await dbRun(`UPDATE leave_requests SET sync_status = 'SYNCED', cloud_synced_at = CURRENT_TIMESTAMP WHERE id = ?`, [request.id]);
       return { success: true, docId, orgId: targetOrg };
     } catch (err) {
@@ -2404,22 +2668,47 @@ class FirebaseService {
   }
 
   /**
-   * Delete Leave Request from Firestore
+   * Delete Leave Request from Firestore across both organization partition and root mirror.
    */
   async deleteLeaveRequestFromCloud(orgId, requestId) {
+    let actualOrg = orgId;
+    let actualId = requestId;
+    if (typeof orgId === 'number' || (typeof orgId === 'string' && /^\d+$/.test(orgId))) {
+      actualId = orgId;
+      actualOrg = requestId || 'DSOFFICE_LUNUGAMWEHERA';
+    }
+    const cleanId = String(actualId || '').replace(/^req_/, '').trim();
+    if (!cleanId) return { success: false, error: 'Invalid requestId' };
+
     await this.init();
+    const targetOrg = (actualOrg || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+    const docId = `req_${cleanId}`;
+
+    if (this.firestore) {
+      try {
+        const batch = this.firestore.batch();
+        batch.delete(this.firestore.doc(`organizations/${targetOrg}/leave_requests/${docId}`));
+        batch.delete(this.firestore.doc(`leave_requests/${docId}`));
+        await batch.commit();
+        return { success: true, docId, orgId: targetOrg };
+      } catch (adminErr) {
+        console.warn('[FIREBASE] Admin batch delete notice, fallback to REST:', adminErr.message);
+      }
+    }
+
     if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
-
-    const targetOrg = (orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
     const projectId = this.keyData.project_id;
-    const docId = `request_${requestId}`;
-
-    const write = {
-      delete: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/leave_requests/${docId}`
-    };
+    const writes = [
+      {
+        delete: `projects/${projectId}/databases/(default)/documents/organizations/${targetOrg}/leave_requests/${docId}`
+      },
+      {
+        delete: `projects/${projectId}/databases/(default)/documents/leave_requests/${docId}`
+      }
+    ];
 
     try {
-      await this._commitRestWrites([write]);
+      await this._commitRestWrites(writes);
       return { success: true, docId, orgId: targetOrg };
     } catch (err) {
       return { success: false, error: err.message };

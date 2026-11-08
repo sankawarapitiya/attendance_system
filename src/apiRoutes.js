@@ -4831,6 +4831,12 @@ router.post('/leave/requests', async (req, res) => {
       orgId
     });
 
+    if (created) {
+      firebaseService.saveLeaveRequestToCloud(created).catch(e => {
+        console.warn('[FIREBASE] Background save leave request notice:', e.message);
+      });
+    }
+
     res.status(201).json({
       success: true,
       message: `Leave request #${created.id} submitted successfully (Pending Approval).`,
@@ -4891,6 +4897,16 @@ router.post('/leave/requests/:id/action', async (req, res) => {
       orgId
     });
 
+    if (updated) {
+      const reqYear = parseInt((updated.start_date || '').substring(0, 4), 10) || new Date().getFullYear();
+      firebaseService.saveLeaveRequestToCloud(updated).catch(e => {
+        console.warn('[FIREBASE] Background save leave request action notice:', e.message);
+      });
+      firebaseService.syncSingleEmployeeBalance(updated.user_id, reqYear, orgId).catch(e => {
+        console.warn('[FIREBASE] Background sync leave balance action notice:', e.message);
+      });
+    }
+
     res.json({
       success: true,
       message: `Leave request #${id} ${targetStatus.toLowerCase()} successfully by ${reviewerDisplayName}.`,
@@ -4907,6 +4923,10 @@ router.delete('/leave/requests/:id', async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const deleted = await deleteLeaveRequest(id);
     if (!deleted) return res.status(404).json({ success: false, error: `Leave request #${id} not found` });
+    const orgId = req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    firebaseService.deleteLeaveRequestFromCloud(orgId, id).catch(e => {
+      console.warn('[FIREBASE] Background delete leave request notice:', e.message);
+    });
     res.json({ success: true, message: `Leave request #${id} deleted successfully.` });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

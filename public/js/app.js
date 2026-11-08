@@ -9055,6 +9055,16 @@ function handleWebSocketMessage(msg) {
         devOnlineBadge.textContent = isOnline ? '🟢 ONLINE' : '🔴 OFFLINE';
       }
     }
+  } else if (msg.type === 'LEAVE_REQUEST_UPDATED') {
+    if (typeof loadLeaveRequests === 'function') loadLeaveRequests();
+    if (typeof loadLeaveRequestStats === 'function') loadLeaveRequestStats();
+    if (document.getElementById('yearlyLeaveBalancesTableBody') && typeof loadYearlyLeaveBalances === 'function') {
+      loadYearlyLeaveBalances();
+    }
+    const item = msg.data?.latest;
+    const name = item?.employeeName || item?.userName || (item?.userId ? ('Employee #' + item.userId) : 'Leave Request');
+    const status = (item?.status || 'UPDATED').toUpperCase();
+    showToast('Leave request updated: ' + name + ' (' + status + ')', 'info');
   }
 }
 
