@@ -328,15 +328,23 @@
           </div>
         </div>
         <div class="topbar-actions">
-          <!-- Primary Machine Sync Controls -->
-          <button class="btn btn-primary" id="btnSyncHeader" title="Sync punches directly with biometric device">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-            <span class="sync-btn-text">Sync Machine</span>
-          </button>
-          <button class="btn btn-danger-outline" id="btnStopSyncHeader" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 15px; font-weight: 600;" title="Stop or pause synchronization">
-            <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>
-            <span id="btnStopSyncHeaderText">Stop Sync</span>
-          </button>
+          <!-- Multi-Organization Partition Switcher -->
+          <div class="header-org-switcher" id="headerOrgSwitcherContainer" title="Active Organization Cloud Partition" style="display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1.5px solid #0284c7; border-radius: 8px; padding: 4px 10px; box-shadow: 0 1px 3px rgba(2,132,199,0.12);">
+            <span style="font-size: 0.95rem;">🏛️</span>
+            <div style="display: flex; flex-direction: column; gap: 1px;">
+              <span style="font-size: 0.62rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1;">Organization Partition</span>
+              <select id="headerOrgPartitionSelect" style="border: none; background: transparent; font-weight: 800; font-size: 0.82rem; color: #0284c7; cursor: pointer; outline: none; padding: 0; font-family: inherit;">
+                <option value="DSOFFICE_LUNUGAMWEHERA">DSOFFICE_LUNUGAMWEHERA</option>
+                <option value="DSOFFICE_TISSAMAHARAMA">DSOFFICE_TISSAMAHARAMA</option>
+                <option value="ALL">🌐 All Organizations</option>
+              </select>
+            </div>
+            <button type="button" id="btnSyncActivePartitionNow" class="btn-icon btn-icon-xs" title="Download & sync this partition from Google Cloud Firestore now" style="background: rgba(2,132,199,0.1); color: #0284c7; border-radius: 4px; padding: 3px 6px; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 12px; height: 12px;"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            </button>
+          </div>
+
+          <!-- Automated Live Sync Active (Sync Machine & Stop Sync buttons removed for zero-touch automation) -->
 
           <!-- Cloud Sync & Directional Transfer Indicator (UP / DOWN / IN SYNC) -->
           <div class="header-cloud-pill" id="headerCloudSyncPill" title="Firebase Firestore Cloud Sync - Click to manage">
@@ -348,6 +356,8 @@
 
           <!-- Legacy Header Indicators (Kept hidden so existing JS element lookups stay 100% safe) -->
           <div style="display:none;" aria-hidden="true">
+            <button class="btn btn-primary" id="btnSyncHeader"><span class="sync-btn-text">Sync Machine</span></button>
+            <button class="btn btn-danger-outline" id="btnStopSyncHeader"><span id="btnStopSyncHeaderText">Stop Sync</span></button>
             <div id="headerLicensePill"><span id="headerLicenseDaysText">License: Active</span></div>
             <div id="headerUserAuthContainer">
               <div id="headerLoggedInBox">
@@ -7277,6 +7287,147 @@ Loading application logs...
             </div>
           </div>
         </div>
+      
+        <!-- Database Maintenance & Cold Storage Card -->
+        <div class="card" id="cardDbMaintenancePrune" style="box-shadow: var(--shadow-sm); border: 1px solid var(--border); margin-bottom: 24px; overflow: hidden; background: #fff;">
+          <div class="card-header" style="padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; background: #f8fafc;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 1.25rem;">📦</span>
+                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #1e293b;">Automated SQLite Pruning &amp; Cold Storage Export</h3>
+                <span class="badge" style="background: #2563eb; color: #fff; font-weight: 700; font-size: 0.72rem; padding: 3px 8px; border-radius: 999px;">STORAGE OPTIMIZER</span>
+              </div>
+              <p style="margin: 4px 0 0 0; font-size: 0.82rem; color: #64748b;">
+                Prevent SQLite bloat by archiving historical punch logs into standalone cold storage files (JSON/CSV) before safe pruning.
+              </p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button type="button" class="btn btn-sm btn-outline" id="btnRefreshMaintArchives" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; font-weight: 600; padding: 6px 12px;">
+                <span>🔄</span> Refresh Status
+              </button>
+              <button type="button" class="btn btn-sm btn-danger" id="btnExecutePruneNow" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; font-weight: 700; padding: 6px 14px; background: #dc2626; border-color: #dc2626; color: #fff;">
+                <span>⚡</span> Export Cold Storage &amp; Prune Now
+              </button>
+            </div>
+          </div>
+
+          <div class="card-body" style="padding: 20px;">
+            <!-- Live Storage Metrics Row -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px;">
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px;">
+                <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 700; margin-bottom: 4px;">Active Punch Records</div>
+                <div id="maintStatTotalRecords" style="font-size: 1.4rem; font-weight: 800; color: #0f172a;">--</div>
+                <div style="font-size: 0.72rem; color: #94a3b8; margin-top: 2px;">Stored in SQLite database</div>
+              </div>
+
+              <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 14px 16px;">
+                <div style="font-size: 0.75rem; text-transform: uppercase; color: #991b1b; font-weight: 700; margin-bottom: 4px;">Eligible for Cold Storage</div>
+                <div id="maintStatPrunableRecords" style="font-size: 1.4rem; font-weight: 800; color: #b91c1c;">--</div>
+                <div style="font-size: 0.72rem; color: #ef4444; margin-top: 2px;">Older than retention cutoff</div>
+              </div>
+
+              <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 16px;">
+                <div style="font-size: 0.75rem; text-transform: uppercase; color: #166534; font-weight: 700; margin-bottom: 4px;">Database File Size</div>
+                <div id="maintStatDbSize" style="font-size: 1.4rem; font-weight: 800; color: #15803d;">--</div>
+                <div style="font-size: 0.72rem; color: #22c55e; margin-top: 2px;">DB + WAL storage footprint</div>
+              </div>
+
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px;">
+                <div style="font-size: 0.75rem; text-transform: uppercase; color: #64748b; font-weight: 700; margin-bottom: 4px;">Retention Cutoff Date</div>
+                <div id="maintStatCutoffDate" style="font-size: 1.25rem; font-weight: 800; color: #334155;">--</div>
+                <div style="font-size: 0.72rem; color: #94a3b8; margin-top: 2px;">Punches before this are pruned</div>
+              </div>
+
+              <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px 16px;">
+                <div style="font-size: 0.75rem; text-transform: uppercase; color: #1e40af; font-weight: 700; margin-bottom: 4px;">Cold Storage Archives</div>
+                <div style="display: flex; align-items: baseline; gap: 6px;">
+                  <span id="maintStatTotalArchives" style="font-size: 1.4rem; font-weight: 800; color: #1d4ed8;">--</span>
+                  <span style="font-size: 0.8rem; color: #3b82f6;">batches</span>
+                </div>
+                <div style="font-size: 0.72rem; color: #60a5fa; margin-top: 2px;"><span id="maintStatArchivedRecords">--</span> records archived</div>
+              </div>
+            </div>
+
+            <!-- Retention Policy Configuration Controls -->
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                <div style="font-weight: 700; color: #1e293b; font-size: 0.92rem; display: flex; align-items: center; gap: 6px;">
+                  <span>⚙️</span> Retention Policy &amp; Automated Scheduler
+                </div>
+                <button type="button" class="btn btn-sm btn-primary" id="btnSaveMaintSettings" style="font-size: 0.8rem; font-weight: 700; padding: 5px 14px;">
+                  💾 Save Retention Settings
+                </button>
+              </div>
+
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; align-items: flex-end;">
+                <div>
+                  <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #475569; margin-bottom: 6px;">
+                    Historical Retention Period
+                  </label>
+                  <select id="maintInputRetentionDays" class="form-control" style="width: 100%; font-size: 0.85rem; padding: 7px 10px; border-radius: 6px;">
+                    <option value="30">30 Days (1 Month)</option>
+                    <option value="60">60 Days (2 Months)</option>
+                    <option value="90" selected>90 Days (Quarterly / Recommended)</option>
+                    <option value="180">180 Days (Half Year)</option>
+                    <option value="365">365 Days (1 Full Year)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #475569; margin-bottom: 6px;">
+                    Cold Storage Export Format
+                  </label>
+                  <select id="maintSelectFormat" class="form-control" style="width: 100%; font-size: 0.85rem; padding: 7px 10px; border-radius: 6px;">
+                    <option value="JSON" selected>Structured JSON (.json)</option>
+                    <option value="CSV">Delimited Spreadsheet CSV (.csv)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; color: #334155; font-weight: 600;">
+                    <input type="checkbox" id="maintToggleAutoPrune" style="width: 16px; height: 16px;">
+                    <span>Enable Automated Nightly Export &amp; Prune (02:00 AM)</span>
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.82rem; color: #64748b; margin-top: 6px;">
+                    <input type="checkbox" id="maintCheckRequireSynced" checked style="width: 15px; height: 15px;">
+                    <span>Only prune records confirmed synced to Cloud Firestore</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Cold Storage Archives History Table -->
+            <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+              <div style="background: #f1f5f9; padding: 10px 16px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-weight: 700; color: #334155; font-size: 0.85rem;">📁 Cold Storage Archive History &amp; Backups</span>
+                <span style="font-size: 0.75rem; color: #64748b;">Stored securely in <code>data/archives/</code></span>
+              </div>
+              <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                  <thead>
+                    <tr style="background: #f8fafc; border-bottom: 1px solid #e2e8f0; font-size: 0.72rem; text-transform: uppercase; color: #64748b;">
+                      <th style="padding: 10px 12px; width: 40px;">#</th>
+                      <th style="padding: 10px 12px;">Archive File &amp; Batch ID</th>
+                      <th style="padding: 10px 12px; width: 70px;">Format</th>
+                      <th style="padding: 10px 12px;">Records</th>
+                      <th style="padding: 10px 12px;">Date Range</th>
+                      <th style="padding: 10px 12px;">File Size</th>
+                      <th style="padding: 10px 12px;">Archived On</th>
+                      <th style="padding: 10px 12px; text-align: right;">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="maintArchivesTableBody">
+                    <!-- Populated via MaintenanceModule.loadArchives() -->
+                  </tbody>
+                </table>
+              </div>
+              <div id="maintArchivesEmptyState" style="display: none; padding: 24px; text-align: center; color: #94a3b8; font-size: 0.85rem;">
+                No cold storage archives created yet. Use "Export Cold Storage &amp; Prune Now" to create your first archive batch.
+              </div>
+            </div>
+          </div>
+        </div>
+
       </section>
     </main>
   </div>
@@ -9189,14 +9340,18 @@ Loading application logs...
         </div>
 
         <form id="formSystemLogin">
-          <!-- 1. Organization Partition Input (User Enters) -->
+          <!-- 1. Organization Partition Selection -->
           <div class="form-group" style="margin-bottom: 14px;">
-            <label for="inputLoginOrgId" style="font-weight: 700; font-size: 0.83rem; color: #334155; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
-              <span>🏛️ Organization Partition ID <span class="text-danger">*</span></span>
-              <span style="font-weight: normal; font-size: 0.72rem; color: #64748b;">(Required)</span>
+            <label for="selectLoginOrgId" style="font-weight: 700; font-size: 0.83rem; color: #334155; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center;">
+              <span>🏛️ Organization Partition <span class="text-danger">*</span></span>
+              <span id="btnToggleCustomOrgId" style="font-weight: 600; font-size: 0.72rem; color: #0284c7; cursor: pointer; text-decoration: underline;">+ Custom Partition</span>
             </label>
-            <input type="text" id="inputLoginOrgId" class="form-control font-mono" placeholder="e.g. DSOFFICE_LUNUGAMWEHERA" required style="height: 40px; font-size: 0.9rem; font-weight: 700; color: #0284c7; text-transform: uppercase;">
-            <small class="form-hint" style="color: #64748b; font-size: 0.74rem;">Partition ID determines database and cloud sync partition</small>
+            <select id="selectLoginOrgId" class="form-control font-mono" style="height: 40px; font-size: 0.88rem; font-weight: 700; color: #0284c7; background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 6px;">
+              <option value="DSOFFICE_LUNUGAMWEHERA">🏛️ DSOFFICE_LUNUGAMWEHERA</option>
+              <option value="DSOFFICE_TISSAMAHARAMA">🏛️ DSOFFICE_TISSAMAHARAMA</option>
+            </select>
+            <input type="text" id="inputLoginOrgId" class="form-control font-mono" placeholder="e.g. DSOFFICE_LUNUGAMWEHERA" style="display: none; height: 40px; font-size: 0.9rem; font-weight: 700; color: #0284c7; text-transform: uppercase; margin-top: 6px;">
+            <small class="form-hint" style="color: #64748b; font-size: 0.74rem;">Select your office partition to load its employees, shifts, records & license</small>
           </div>
 
           <!-- 2. Username or Email -->
@@ -9588,7 +9743,10 @@ Loading application logs...
 
   <div class="toast-container" id="toastContainer"></div>
 
-<script src="js/cloudAdapter.js?v=2.9.8"></script>
+<script src="js/modules/rbac.js?v=4.0.0"></script>
+  <script src="js/modules/partition.js?v=4.0.0"></script>
+  <script src="js/modules/maintenance.js?v=4.0.0"></script>
+  <script src="js/cloudAdapter.js?v=2.9.8"></script>
   <script src="js/app.js?v=3.9.0"></script>
 
   <!-- Modal: Cloud Disaster Recovery & Database Restore -->

@@ -276,10 +276,228 @@ const state = {
 };
 
 function getActiveOrgFilter() {
+  if (state.selectedOrgPartition) {
+    return state.selectedOrgPartition;
+  }
+  const saved = localStorage.getItem('speedface_cloud_org_id');
+  if (saved) {
+    return saved;
+  }
   if (state.currentUser && state.currentUser.orgId) {
     return state.currentUser.orgId;
   }
-  return localStorage.getItem('speedface_cloud_org_id') || 'DSOFFICE_LUNUGAMWEHERA';
+  return 'DSOFFICE_LUNUGAMWEHERA';
+}
+
+async function initHeaderOrgPartitionSwitcher() {
+  const select = document.getElementById('headerOrgPartitionSelect');
+  const syncBtn = document.getElementById('btnSyncActivePartitionNow');
+  const loginSelect = document.getElementById('selectLoginOrgId');
+  const loginInput = document.getElementById('inputLoginOrgId');
+  const btnToggleCustom = document.getElementById('btnToggleCustomOrgId');
+
+  // Toggle custom partition input in login modal
+  btnToggleCustom?.addEventListener('click', () => {
+    if (loginInput && loginSelect) {
+      if (loginInput.style.display === 'none') {
+        loginInput.style.display = 'block';
+        loginSelect.style.display = 'none';
+        btnToggleCustom.textContent = '← Choose Enrolled Partition';
+        loginInput.focus();
+      } else {
+        loginInput.style.display = 'none';
+        loginSelect.style.display = 'block';
+        btnToggleCustom.textContent = '+ Custom Partition';
+      }
+    }
+  });
+
+  try {
+    const res = await fetch('/api/partition/list');
+    const data = await res.json();
+    const partitionList = data.partitions || data.organizations || [];
+
+    if (data.success && partitionList.length > 0) {
+      const activeOrg = getActiveOrgFilter();
+
+      // Populate topbar select
+      if (select) {
+        let html = '';
+        partitionList.forEach(p => {
+          const isSel = p.orgId === activeOrg ? 'selected' : '';
+          const staffCount = p.employeeCount !== undefined ? ` (${p.employeeCount} staff)` : '';
+          html += `<option value="${escapeHtml(p.orgId)}" ${isSel}>${escapeHtml(p.orgName || p.orgId)}${staffCount}</option>`;
+        });
+        if (partitionList.length > 1) {
+          const isAll = activeOrg === 'ALL' ? 'selected' : '';
+          html += `<option value="ALL" ${isAll}>🌐 All Organizations</option>`;
+        }
+        select.innerHTML = html;
+        select.value = activeOrg;
+      }
+
+      // Populate login modal select
+      if (loginSelect) {
+        let lHtml = '';
+        partitionList.forEach(p => {
+          const isSel = p.orgId === activeOrg ? 'selected' : '';
+          lHtml += `<option value="${escapeHtml(p.orgId)}" ${isSel}>🏛️ ${escapeHtml(p.orgName || p.orgId)}</option>`;
+        });
+        loginSelect.innerHTML = lHtml;
+        loginSelect.value = activeOrg;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to load partition list:', err.message);
+  }
+
+  select?.addEventListener('change', async (e) => {
+    const targetOrg = e.target.value;
+    await switchOrganizationPartitionUI(targetOrg);
+  });
+
+  if (syncBtn) {
+    syncBtn.addEventListener('click', async () => {
+      const activeOrg = getActiveOrgFilter();
+      showToast(`Initiating full sync from Cloud for partition "${activeOrg}"...`, 'info', 3000);
+      syncBtn.disabled = true;
+      const svg = syncBtn.querySelector('svg');
+      if (svg) svg.classList.add('spin');
+
+      try {
+        const res = await fetch('/api/firebase/sync-all', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-organization-id': activeOrg },
+          body: JSON.stringify({ orgId: activeOrg, forceDirection: 'download' })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`✅ Synced partition "${activeOrg}": ${data.syncedRecords || 0} records, ${data.syncedEmployees || 0} employees.`, 'success', 5000);
+          await refreshAllPartitionData();
+        } else {
+          showToast(`Sync error: ${data.error || 'Failed to sync'}`, 'error', 5000);
+        }
+      } catch (err) {
+        showToast(`Sync request failed: ${err.message}`, 'error', 5000);
+      } finally {
+        syncBtn.disabled = false;
+        if (svg) svg.classList.remove('spin');
+      }
+    });
+  }
+}
+
+async function switchOrganizationPartitionUI(targetOrgId, orgName) {
+  if (!targetOrgId) return;
+
+  state.selectedOrgPartition = targetOrgId;
+  localStorage.setItem('speedface_cloud_org_id', targetOrgId);
+
+  if (state.currentUser) {
+    state.currentUser.orgId = targetOrgId;
+    try {
+      localStorage.setItem('speedface_auth_user', JSON.stringify(state.currentUser));
+    } catch (e) {}
+  }
+
+  // Update topbar select if not already matching
+  const select = document.getElementById('headerOrgPartitionSelect');
+  if (select && select.value !== targetOrgId) {
+    select.value = targetOrgId;
+  }
+
+  // Update all badges and label elements across all tabs
+  const badgeIds = [
+    'shiftsOrgPartitionBadge',
+    'shiftsOrgPathSpan',
+    'leaveOrgPartitionBadge',
+    'leaveOrgPathSpan',
+    'settingsOrgIdDisplay',
+    'twoWayOrgIdDisplay',
+    'fbPairedOrgIdText',
+    'displayUserOrgId',
+    'modalLicOrgId'
+  ];
+  badgeIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = targetOrgId;
+  });
+
+  const settingsInput = document.getElementById('settingFirestoreOrgId');
+  if (settingsInput) {
+    settingsInput.value = targetOrgId;
+  }
+
+  showToast(`Switching partition to "${targetOrgId}"...`, 'info', 2000);
+
+  // Notify backend to update active partition and switch Cloud Firestore listener
+  try {
+    const switchRes = await fetch('/api/partition/switch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orgId: targetOrgId })
+    });
+    const switchData = await switchRes.json();
+    if (switchData.success && switchData.autoSynced) {
+      showToast(`☁️ Auto-synced ${switchData.syncedCount || 0} records for "${targetOrgId}" from Cloud`, 'success', 3500);
+    }
+  } catch (err) {
+    console.warn('Backend partition switch notice failed:', err.message);
+  }
+
+  // Refresh data across the entire system
+  await refreshAllPartitionData();
+  showToast(`Active partition loaded: "${targetOrgId}"`, 'success', 3000);
+}
+
+async function refreshAllPartitionData() {
+  // Always reload dashboard stats, live feed, and license status
+  await Promise.all([
+    loadDashboardStats().catch(() => {}),
+    loadLiveFeed().catch(() => {}),
+    loadLicenseStatus().catch(() => {})
+  ]);
+
+  // Tab-specific reloads
+  if (state.currentTab === 'tab-records' || !state.currentTab || state.currentTab === 'tab-dashboard') {
+    if (typeof state.records === 'object') state.records.page = 1;
+    if (typeof state.daily === 'object') state.daily.page = 1;
+    await loadRecords().catch(() => {});
+  }
+
+  if (state.currentTab === 'tab-reports') {
+    if (typeof populateReportEmployeeDropdown === 'function') {
+      await populateReportEmployeeDropdown().catch(() => {});
+    }
+    await loadReportData().catch(() => {});
+  }
+
+  if (state.currentTab === 'tab-employees') {
+    if (typeof state.empRegistry === 'object') state.empRegistry.page = 1;
+    await loadEmployees().catch(() => {});
+  }
+
+  if (state.currentTab === 'tab-shifts') {
+    await loadShiftsAndHolidays().catch(() => {});
+    if (typeof updateShiftsOrgPartitionUI === 'function') {
+      await updateShiftsOrgPartitionUI().catch(() => {});
+    }
+  }
+
+  if (state.currentTab === 'tab-leave') {
+    if (typeof loadLeaveManagement === 'function') await loadLeaveManagement().catch(() => {});
+    if (typeof loadLeaveRequests === 'function') await loadLeaveRequests().catch(() => {});
+    if (typeof loadLeaveRequestStats === 'function') await loadLeaveRequestStats().catch(() => {});
+  }
+
+  if (state.currentTab === 'tab-settings') {
+    if (typeof loadOrganizationUsers === 'function') await loadOrganizationUsers().catch(() => {});
+    if (typeof loadFirebaseStatus === 'function') await loadFirebaseStatus().catch(() => {});
+  }
+
+  if (typeof updateStopSyncButtonsUI === 'function') {
+    updateStopSyncButtonsUI();
+  }
 }
 
 
@@ -307,6 +525,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initSystemAuth();
   loadLicenseStatus();
   initLicenseManagement();
+  initHeaderOrgPartitionSwitcher();
 });
 
 // Toast Notifications with smart deduplication & stack limit
@@ -4900,14 +5119,16 @@ async function initEmployees() {
   });
 
   document.getElementById('btnExportEmployeesExcel')?.addEventListener('click', () => {
-    showToast('Generating Employees Excel export...', 'info');
-    const org = getActiveOrgFilter(); const orgParam = org && org !== 'ALL' ? `&orgId=${encodeURIComponent(org)}` : '';
+    const org = getActiveOrgFilter();
+    const orgParam = (org && org !== 'ALL') ? `&orgId=${encodeURIComponent(org)}` : '';
+    showToast(`Generating Employees Excel export for partition "${org}"...`, 'info');
     window.location.href = `/api/employees/export?format=xlsx${orgParam}`;
   });
 
   document.getElementById('btnExportEmployeesCsv')?.addEventListener('click', () => {
-    showToast('Generating Employees CSV export...', 'info');
-    const org = getActiveOrgFilter(); const orgParam = org && org !== 'ALL' ? `&orgId=${encodeURIComponent(org)}` : '';
+    const org = getActiveOrgFilter();
+    const orgParam = (org && org !== 'ALL') ? `&orgId=${encodeURIComponent(org)}` : '';
+    showToast(`Generating Employees CSV export for partition "${org}"...`, 'info');
     window.location.href = `/api/employees/export?format=csv${orgParam}`;
   });
 
@@ -6232,7 +6453,7 @@ async function loadEmployees() {
 
   try {
     const org = getActiveOrgFilter();
-    const url = org && org !== 'ALL' ? `/api/employees?status=all&orgId=${encodeURIComponent(org)}` : '/api/employees?status=all';
+    const url = (org && org !== 'ALL') ? `/api/employees?status=all&orgId=${encodeURIComponent(org)}` : '/api/employees?status=all';
     const res = await fetch(url, { headers: { 'x-organization-id': org || '' } });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
@@ -8655,17 +8876,9 @@ function updateStopSyncButtonsUI() {
   const btnFb = document.getElementById('btnStopFirestoreSync');
   const btnBanner = document.getElementById('fbLiveSyncStopBtn');
 
+  // Automated live sync - header sync & stop buttons remain permanently hidden
   if (btnHeader) {
-    btnHeader.style.display = 'inline-flex';
-    if (isSyncing) {
-      btnHeader.className = 'btn btn-danger';
-      btnHeader.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg> <span id="btnStopSyncHeaderText">Stop Active Sync</span>`;
-      btnHeader.title = 'Halt active synchronization immediately';
-    } else {
-      btnHeader.className = 'btn btn-danger-outline';
-      btnHeader.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg> <span id="btnStopSyncHeaderText">Stop Sync</span>`;
-      btnHeader.title = 'Stop or pause synchronization';
-    }
+    btnHeader.style.display = 'none';
   }
 
   if (btnAction) {
@@ -8695,11 +8908,7 @@ function updateStopSyncButtonsUI() {
   }
 
   if (btnBanner) {
-    if (state.cloudSyncing) {
-      btnBanner.style.display = 'inline-flex';
-    } else {
-      btnBanner.style.display = 'none';
-    }
+    btnBanner.style.display = 'none';
   }
 }
 
@@ -13082,6 +13291,9 @@ async function syncSystemUsersOnLogin(targetOrg = null, force = false) {
 window.syncSystemUsersOnLogin = syncSystemUsersOnLogin;
 
 function lockSystem() {
+  if (window.RBAC) {
+    window.RBAC.clearSession();
+  }
   document.body.classList.add('system-locked');
   const modal = document.getElementById('modalSystemLogin');
   if (modal) {
@@ -13580,7 +13792,11 @@ function initSystemAuth() {
   // Form Submission
   formLogin?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const orgId = orgInput?.value.trim();
+    const loginCustomInput = document.getElementById('inputLoginOrgId');
+    const loginSelectInput = document.getElementById('selectLoginOrgId');
+    const orgId = (loginCustomInput && loginCustomInput.style.display !== 'none'
+      ? loginCustomInput.value.trim()
+      : (loginSelectInput?.value || orgInput?.value || '')).trim();
     const identifier = userInput?.value.trim();
     const password = pwdInput?.value;
 
@@ -13624,10 +13840,18 @@ function initSystemAuth() {
           localStorage.setItem('speedface_auth_user', JSON.stringify(data.user));
           localStorage.setItem('speedface_cloud_org_id', data.user.orgId);
           if (data.token) localStorage.setItem('speedface_auth_token', data.token);
+        if (window.RBAC) {
+          window.RBAC.setSession(data.token, data.user);
+        }
+        if (window.PartitionManager) {
+          window.PartitionManager.setActivePartition(data.user.orgId);
+          window.PartitionManager.populateDropdowns();
+        }
         } catch (e) {}
 
         unlockSystem();
         applyRolePermissions(data.user);
+        await switchOrganizationPartitionUI(data.user.orgId, data.user.orgName);
         showToast(`Welcome back, ${data.user.displayName}! Signed in with ${data.user.role.toUpperCase()} role under partition "${data.user.orgId}".`, 'success', 5000);
 
         if (state.currentTab === 'tab-settings') {
@@ -14278,8 +14502,9 @@ let isLicenseManagementInitialized = false;
 async function loadLicenseStatus() {
   const curOrg = getActiveOrgFilter();
   try {
-    const res = await fetch(`/api/license/status?orgId=${encodeURIComponent(curOrg)}`, {
-      headers: { 'X-Organization-Id': curOrg }
+    const orgParam = (curOrg && curOrg !== 'ALL') ? `?orgId=${encodeURIComponent(curOrg)}` : '';
+    const res = await fetch(`/api/license/status${orgParam}`, {
+      headers: { 'X-Organization-Id': curOrg || '' }
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'Failed to fetch license status');

@@ -13,6 +13,8 @@ const { setupAdmsRoutes, setWebSocketBroadcast } = require('./src/admsServer');
 const { syncFromDevice, startAutoSync, stopAutoSync, setSyncWsBroadcast } = require('./src/syncService');
 const apiRoutes = require('./src/apiRoutes');
 const { firebaseService } = require('./src/firebaseService');
+const { setMaintenanceWsBroadcast, initAutoPruneScheduler } = require('./src/maintenanceService');
+
 
 const app = express();
 const server = http.createServer(app);
@@ -224,6 +226,7 @@ function broadcastToClients(messageObj) {
 setWebSocketBroadcast(broadcastToClients);
 setSyncWsBroadcast(broadcastToClients);
 firebaseService.setWsBroadcast(broadcastToClients);
+setMaintenanceWsBroadcast(broadcastToClients);
 
 wss.on('connection', (ws, req) => {
   ws.isAlive = true;
@@ -304,7 +307,12 @@ async function start() {
 
     // 3. Initialize Firebase Firestore Cloud Service
     const { firebaseService } = require('./src/firebaseService');
+const { setMaintenanceWsBroadcast, initAutoPruneScheduler } = require('./src/maintenanceService');
+
     await firebaseService.init();
+
+    // 4. Initialize Automated SQLite Pruning & Cold Storage Scheduler
+    initAutoPruneScheduler();
 
     // 4. Start HTTP Listener
     server.listen(config.port, config.host, () => {

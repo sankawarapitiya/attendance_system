@@ -585,6 +585,62 @@ async function initDatabase() {
     await dbRun(`ALTER TABLE employee_groups ADD COLUMN cloud_synced_at DATETIME DEFAULT NULL`);
   } catch (e) {}
 
+  // Organization Partitions Table (Multi-Tenant Partition Registry)
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS organization_partitions (
+      org_id TEXT PRIMARY KEY,
+      org_name TEXT NOT NULL,
+      license_key TEXT,
+      license_status TEXT DEFAULT 'ACTIVE',
+      license_valid_until TEXT,
+      is_active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_org_part_active ON organization_partitions(is_active)`);
+
+  // Cold Storage Archives Table
+  await dbRun(`
+    CREATE TABLE IF NOT EXISTS cold_storage_archives (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      archive_id TEXT UNIQUE NOT NULL,
+      org_id TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      format TEXT DEFAULT 'JSON',
+      record_count INTEGER NOT NULL,
+      start_date TEXT,
+      end_date TEXT,
+      file_size_bytes INTEGER NOT NULL,
+      sha256_hash TEXT,
+      retention_days INTEGER,
+      status TEXT DEFAULT 'COMPLETED',
+      pruned INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_by TEXT DEFAULT 'SYSTEM'
+    )
+  `);
+  await dbRun(`CREATE INDEX IF NOT EXISTS idx_archive_org ON cold_storage_archives(org_id)`);
+
+  // Auto-seed Organization Partitions if empty
+  const partCount = await dbGet(`SELECT COUNT(*) as count FROM organization_partitions`);
+  if (!partCount || partCount.count === 0) {
+    const existingLic = await dbGet(`SELECT value FROM settings WHERE key = 'system_license_data'`);
+    const licString = existingLic ? existingLic.value : null;
+
+    await dbRun(`
+      INSERT OR IGNORE INTO organization_partitions (org_id, org_name, license_key, is_active)
+      VALUES 
+        ('DSOFFICE_LUNUGAMWEHERA', 'Divisional Secretariat Office Lunugamwehera', ?, 1),
+        ('DSOFFICE_TISSAMAHARAMA', 'Divisional Secretariat Office Tissamaharama', ?, 1)
+    `, [licString, licString]);
+    console.log('[DB] Initialized organization partitions: DSOFFICE_LUNUGAMWEHERA, DSOFFICE_TISSAMAHARAMA');
+  }
+
+  try {
+  } catch (e) {}
+
   // Seed default organization system users if empty
   const userCount = await dbGet(`SELECT COUNT(*) as count FROM system_users`);
   if (!userCount || userCount.count === 0) {
@@ -598,6 +654,29 @@ async function initDatabase() {
         ('usr_staff_1', 'staff@lunugamwehera.gov.lk', 'staff', 'staff123', 'Office Staff Member', 'staff', ?)
     `, [defaultOrg, defaultOrg, defaultOrg]);
     console.log('[DB] Seeded default organization system users (admin, manager, staff).');
+  }
+
+  // Ensure Master Super Administrator exists
+  const superAdminExists = await dbGet(`SELECT id FROM system_users WHERE role = 'super_admin' OR username = 'superadmin'`);
+  if (!superAdminExists) {
+    await dbRun(`
+      INSERT OR IGNORE INTO system_users (uid, email, username, password_hash, display_name, role, org_id)
+      VALUES ('usr_superadmin', 'superadmin@system.gov.lk', 'superadmin', 'admin123', 'System Master Administrator', 'super_admin', 'SYSTEM_MASTER')
+    `);
+    console.log('[DB] Seeded master super_admin user (superadmin).');
+  }
+
+  // Ensure Tissamaharama tenant users exist for tenant RBAC testing
+  const tissaUsers = await dbGet(`SELECT COUNT(*) as count FROM system_users WHERE org_id = 'DSOFFICE_TISSAMAHARAMA'`);
+  if (!tissaUsers || tissaUsers.count === 0) {
+    await dbRun(`
+      INSERT OR IGNORE INTO system_users (uid, email, username, password_hash, display_name, role, org_id)
+      VALUES 
+        ('usr_admin_tissa', 'admin@tissamaharama.gov.lk', 'admin_tissa', 'admin123', 'Tissa Office Administrator', 'admin', 'DSOFFICE_TISSAMAHARAMA'),
+        ('usr_manager_tissa', 'manager@tissamaharama.gov.lk', 'manager_tissa', 'manager123', 'Tissa HR Manager', 'manager', 'DSOFFICE_TISSAMAHARAMA'),
+        ('usr_staff_tissa', 'staff@tissamaharama.gov.lk', 'staff_tissa', 'staff123', 'Tissa Staff Member', 'staff', 'DSOFFICE_TISSAMAHARAMA')
+    `);
+    console.log('[DB] Seeded tenant-level users for DSOFFICE_TISSAMAHARAMA (admin_tissa, manager_tissa, staff_tissa).');
   }
 
   // Seed default shifts if empty
@@ -1112,7 +1191,7 @@ async function getSystemUserByIdentifier(identifier, orgId) {
         OR LOWER(REPLACE(display_name, ' ', '')) = ?
         OR LOWER(REPLACE(email, ' ', '')) = ?
       ) 
-      AND (LOWER(TRIM(org_id)) = ? OR org_id = 'DEFAULT' OR org_id IS NULL) 
+      AND (LOWER(TRIM(org_id)) = ? OR org_id = 'DEFAULT' OR org_id IS NULL OR role = 'super_admin' OR org_id = 'SYSTEM_MASTER') 
       AND COALESCE(is_active, 1) = 1
     `, [clean, clean, clean, cleanNoSpaces, cleanNoSpaces, cleanNoSpaces, cleanOrg]);
     return user || null;
@@ -1187,7 +1266,7 @@ async function getValidOrganizationIds() {
 async function getSystemUserByUid(uid, orgId = null) {
   if (!uid) return null;
   if (orgId) {
-    return dbGet(`SELECT * FROM system_users WHERE uid = ? AND org_id = ?`, [uid, orgId]);
+    return dbGet(`SELECT * FROM system_users WHERE uid = ? AND (org_id = ? OR role = 'super_admin' OR org_id = 'SYSTEM_MASTER')`, [uid, orgId]);
   }
   return dbGet(`SELECT * FROM system_users WHERE uid = ? ORDER BY id DESC LIMIT 1`, [uid]);
 }
@@ -3715,7 +3794,234 @@ async function markEmployeeGroupsCloudSynced(groupIds = []) {
   return res.changes || 0;
 }
 
+// ==========================================
+// Organization Partition Helper Functions
+// ==========================================
+
+async function getOrganizationPartitions() {
+  const partitions = await dbAll(`
+    SELECT p.*,
+      (SELECT COUNT(*) FROM employees e WHERE COALESCE(e.org_id, 'DSOFFICE_LUNUGAMWEHERA') = p.org_id) as employee_count,
+      (SELECT COUNT(*) FROM attendance_records a LEFT JOIN employees e ON a.user_id = e.user_id WHERE COALESCE(e.org_id, a.org_id, 'DSOFFICE_LUNUGAMWEHERA') = p.org_id) as record_count
+    FROM organization_partitions p
+    ORDER BY p.is_active DESC, p.created_at ASC
+  `);
+  return partitions;
+}
+
+async function getPartitionById(orgId) {
+  if (!orgId) return null;
+  const cleanId = String(orgId).trim().toUpperCase();
+  return dbGet(`SELECT * FROM organization_partitions WHERE org_id = ?`, [cleanId]);
+}
+
+async function savePartition({ org_id, org_name, license_key = null, is_active = 1 }) {
+  if (!org_id || !org_name) throw new Error('org_id and org_name are required');
+  const cleanId = String(org_id).trim().toUpperCase();
+  await dbRun(`
+    INSERT INTO organization_partitions (org_id, org_name, license_key, is_active, updated_at)
+    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(org_id) DO UPDATE SET
+      org_name = excluded.org_name,
+      license_key = COALESCE(excluded.license_key, organization_partitions.license_key),
+      is_active = excluded.is_active,
+      updated_at = CURRENT_TIMESTAMP
+  `, [cleanId, org_name.trim(), license_key, is_active ? 1 : 0]);
+  return getPartitionById(cleanId);
+}
+
+async function deletePartition(orgId) {
+  if (!orgId) return false;
+  const cleanId = String(orgId).trim().toUpperCase();
+  await dbRun(`DELETE FROM organization_partitions WHERE org_id = ?`, [cleanId]);
+  return true;
+}
+
+async function getPartitionLicense(orgId) {
+  if (!orgId) return null;
+  const cleanId = String(orgId).trim().toUpperCase();
+  const p = await getPartitionById(cleanId);
+  if (p && p.license_key) return p.license_key;
+  const s = await dbGet(`SELECT value FROM settings WHERE key = ?`, [`license_data_${cleanId}`]);
+  if (s && s.value) return s.value;
+  return null;
+}
+
+async function savePartitionLicense(orgId, licenseKey) {
+  if (!orgId || !licenseKey) return false;
+  const cleanId = String(orgId).trim().toUpperCase();
+  await dbRun(`
+    INSERT INTO organization_partitions (org_id, org_name, license_key)
+    VALUES (?, ?, ?)
+    ON CONFLICT(org_id) DO UPDATE SET license_key = excluded.license_key, updated_at = CURRENT_TIMESTAMP
+  `, [cleanId, cleanId.replace(/_/g, ' '), licenseKey]);
+  await dbRun(`
+    INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)
+  `, [`license_data_${cleanId}`, licenseKey]);
+  return true;
+}
+
+// ==========================================
+// Cold Storage & Maintenance Helper Functions
+// ==========================================
+
+async function saveColdStorageArchive(data) {
+  const {
+    archive_id,
+    org_id,
+    filename,
+    file_path,
+    format = 'JSON',
+    record_count,
+    start_date,
+    end_date,
+    file_size_bytes,
+    sha256_hash,
+    retention_days = 90,
+    status = 'COMPLETED',
+    pruned = 1,
+    created_by = 'SYSTEM'
+  } = data;
+
+  await dbRun(`
+    INSERT INTO cold_storage_archives (
+      archive_id, org_id, filename, file_path, format, record_count,
+      start_date, end_date, file_size_bytes, sha256_hash, retention_days,
+      status, pruned, created_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
+    archive_id, org_id, filename, file_path, format, record_count,
+    start_date, end_date, file_size_bytes, sha256_hash, retention_days,
+    status, pruned, created_by
+  ]);
+  return getColdStorageArchiveById(archive_id);
+}
+
+async function getColdStorageArchives(orgId = 'ALL') {
+  if (orgId && orgId !== 'ALL') {
+    return dbAll(`
+      SELECT * FROM cold_storage_archives
+      WHERE org_id = ? OR org_id = 'ALL'
+      ORDER BY created_at DESC
+    `, [orgId]);
+  }
+  return dbAll(`
+    SELECT * FROM cold_storage_archives
+    ORDER BY created_at DESC
+  `);
+}
+
+async function getColdStorageArchiveById(archiveId) {
+  return dbGet(`SELECT * FROM cold_storage_archives WHERE archive_id = ?`, [archiveId]);
+}
+
+async function deleteColdStorageArchive(archiveId) {
+  return dbRun(`DELETE FROM cold_storage_archives WHERE archive_id = ?`, [archiveId]);
+}
+
+async function getPrunableAttendanceCount(cutoffDate, orgId = 'ALL', requireSynced = true) {
+  let query = `
+    SELECT COUNT(a.id) as count 
+    FROM attendance_records a
+    LEFT JOIN employees e ON a.user_id = e.user_id
+    WHERE a.punch_time <= ?
+  `;
+  const params = [cutoffDate];
+
+  if (orgId && orgId !== 'ALL') {
+    query += ` AND (COALESCE(e.org_id, a.org_id) = ? OR a.org_id IS NULL)`;
+    params.push(orgId);
+  }
+
+  if (requireSynced) {
+    query += ` AND a.synced_to_cloud = 1`;
+  }
+
+  const row = await dbGet(query, params);
+  return row?.count || 0;
+}
+
+async function getPrunableAttendanceRecords(cutoffDate, orgId = 'ALL', requireSynced = true, limit = 100000) {
+  let query = `
+    SELECT 
+      a.id, a.user_sn, a.user_id, a.punch_time, a.verify_mode, a.verify_name,
+      a.punch_state, a.punch_state_name, a.work_code, a.temperature, a.mask_status,
+      a.device_ip, a.device_sn, a.source, a.synced_to_cloud, a.cloud_synced_at,
+      COALESCE(e.org_id, a.org_id) as org_id,
+      e.user_id as emp_code, e.name, e.first_name, e.last_name, e.department, e.role
+    FROM attendance_records a
+    LEFT JOIN employees e ON a.user_id = e.user_id
+    WHERE a.punch_time <= ?
+  `;
+  const params = [cutoffDate];
+
+  if (orgId && orgId !== 'ALL') {
+    query += ` AND (COALESCE(e.org_id, a.org_id) = ? OR a.org_id IS NULL)`;
+    params.push(orgId);
+  }
+
+  if (requireSynced) {
+    query += ` AND a.synced_to_cloud = 1`;
+  }
+
+  query += ` ORDER BY a.punch_time ASC LIMIT ?`;
+  params.push(limit);
+
+  return dbAll(query, params);
+}
+
+async function deleteAttendanceRecordsByIds(ids) {
+  if (!ids || ids.length === 0) return 0;
+  let totalDeleted = 0;
+  const chunkSize = 500;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => '?').join(',');
+    await dbRun(`DELETE FROM attendance_records WHERE id IN (${placeholders})`, chunk);
+    totalDeleted += chunk.length;
+  }
+  return totalDeleted;
+}
+
+async function getMaintenanceDbStats(orgId = 'ALL') {
+  let totalAttQuery = `SELECT COUNT(*) as count FROM attendance_records a`;
+  let params = [];
+  if (orgId && orgId !== 'ALL') {
+    totalAttQuery += ` LEFT JOIN employees e ON a.user_id = e.emp_code OR a.user_sn = e.uid WHERE (COALESCE(e.org_id, a.org_id) = ?)`;
+    params.push(orgId);
+  }
+  const totalAtt = await dbGet(totalAttQuery, params);
+  const oldestAtt = await dbGet(`SELECT MIN(punch_time) as oldest, MAX(punch_time) as newest FROM attendance_records`);
+  const archiveCount = await dbGet(`SELECT COUNT(*) as count, COALESCE(SUM(record_count), 0) as total_archived_records, COALESCE(SUM(file_size_bytes), 0) as total_archive_bytes FROM cold_storage_archives`);
+
+  return {
+    totalRecords: totalAtt?.count || 0,
+    oldestPunch: oldestAtt?.oldest || null,
+    newestPunch: oldestAtt?.newest || null,
+    totalArchives: archiveCount?.count || 0,
+    totalArchivedRecords: archiveCount?.total_archived_records || 0,
+    totalArchiveBytes: archiveCount?.total_archive_bytes || 0
+  };
+}
+
 module.exports = {
+  // Partition Management
+  getOrganizationPartitions,
+  getPartitionById,
+  savePartition,
+  deletePartition,
+  getPartitionLicense,
+  savePartitionLicense,
+
+  // Cold Storage & Maintenance
+  saveColdStorageArchive,
+  getColdStorageArchives,
+  getColdStorageArchiveById,
+  deleteColdStorageArchive,
+  getPrunableAttendanceCount,
+  getPrunableAttendanceRecords,
+  deleteAttendanceRecordsByIds,
+  getMaintenanceDbStats,
   getSettingsMap,
   upsertSettings,
   upsertTerminalFromCloud,

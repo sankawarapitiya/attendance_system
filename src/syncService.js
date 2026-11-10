@@ -125,6 +125,7 @@ async function checkTerminalHealth(termOrId, localAddress = null) {
 
     if (connInfo && connInfo.success) {
       const now = new Date().toISOString();
+      const prevLogs = terminal.log_count || 0;
       await updateTerminalMetrics(terminal.id, {
         status: 'ONLINE',
         last_seen: now,
@@ -133,6 +134,12 @@ async function checkTerminalHealth(termOrId, localAddress = null) {
         serial_number: connInfo.serialNumber || terminal.serial_number,
         firmware: connInfo.firmware || terminal.firmware
       });
+
+      // Live punch watcher: If terminal log count increased, trigger live sync immediately!
+      if (connInfo.logCounts && prevLogs > 0 && connInfo.logCounts > prevLogs) {
+        console.log(`[LIVE SYNC] New punch detected on terminal ${terminal.name || deviceIp} (${prevLogs} -> ${connInfo.logCounts}). Syncing punches live...`);
+        setTimeout(() => syncTerminal(terminal.id), 100);
+      }
 
       notifyWs('TERMINAL_STATUS', {
         terminalId: terminal.id,
@@ -613,7 +620,16 @@ async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, loc
 
     console.log(`[SYNC] Pulled ${records.length} records from ${deviceIp}. Inserting into database...`);
 
-    const insertResult = await insertAttendanceBatch(records);
+    // Resolve active organization partition for incoming biometric records
+    let targetOrgId = null;
+    try {
+      const orgRow = await dbGet(`SELECT value FROM settings WHERE key = 'firestore_org_id'`);
+      targetOrgId = (orgRow && orgRow.value ? orgRow.value.trim() : 'DSOFFICE_LUNUGAMWEHERA').toUpperCase();
+    } catch (e) {
+      targetOrgId = 'DSOFFICE_LUNUGAMWEHERA';
+    }
+
+    const insertResult = await insertAttendanceBatch(records, targetOrgId);
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
 
     lastSyncStatus.lastSyncTime = new Date().toISOString();
@@ -680,13 +696,16 @@ async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, loc
       deviceOnline: true
     });
 
-    // Auto-upload pending records to Firebase Firestore (non-blocking)
+    // Live Auto-Upload: Instantly upload new/pending records to Firebase Firestore organization partition
     if (!stopSyncRequested) {
-      firebaseService.syncPendingAttendance({ limit: 500 }).then(cloudRes => {
-        if (cloudRes.success && cloudRes.uploadedCount > 0) {
+      firebaseService.syncPendingAttendance({ orgId: targetOrgId, limit: 500 }).then(cloudRes => {
+        if (cloudRes && cloudRes.success && cloudRes.uploadedCount > 0) {
+          console.log(`[LIVE SYNC] Uploaded ${cloudRes.uploadedCount} latest punch(es) to Firestore partition: ${targetOrgId}`);
           notifyWs('FIREBASE_SYNC_PROGRESS', cloudRes);
         }
-      }).catch(() => {});
+      }).catch(err => {
+        console.warn('[LIVE SYNC] Cloud partition upload notice:', err.message);
+      });
     }
 
     return {

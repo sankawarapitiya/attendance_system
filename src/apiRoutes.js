@@ -113,6 +113,21 @@ const XLSX = require('xlsx');
 
 const router = express.Router();
 
+const {
+  authenticateToken,
+  optionalAuth,
+  enforceTenantBoundary,
+  requireRoles,
+  requireSuperAdmin,
+  requireTenantAdmin,
+  requireManagerOrAbove
+} = require('./middleware/rbac');
+const maintenanceService = require('./maintenanceService');
+
+// Apply RBAC session parser and Tenant Boundary Enforcer globally on API routes
+router.use(optionalAuth);
+router.use(enforceTenantBoundary);
+
 function ipToLong(ip) {
   try {
     return ip.split('.').reduce((acc, octet) => ((acc << 8) + parseInt(octet, 10)) >>> 0, 0);
@@ -4263,6 +4278,109 @@ router.post('/auth/sync-users-from-cloud', async (req, res) => {
 });
 
 
+
+// ============================================================================
+// AUTOMATED SQLITE PRUNING & COLD STORAGE EXPORT API ROUTES
+// ============================================================================
+
+// 1. Get Maintenance Status & DB Storage Metrics
+router.get('/maintenance/status', async (req, res) => {
+  try {
+    const isSuper = req.user?.role === 'super_admin';
+    const targetOrg = isSuper ? (req.query.orgId || 'ALL') : (req.user?.orgId || 'ALL');
+    const status = await maintenanceService.getMaintenanceStatus(targetOrg);
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 2. Save Maintenance Settings (Retention Days, Auto-Prune Toggle, Require Cloud Synced, Format)
+router.post('/maintenance/settings', authenticateToken, requireTenantAdmin, async (req, res) => {
+  try {
+    const { retentionDays, autoPruneEnabled, requireSynced, archiveFormat } = req.body || {};
+    const updated = await maintenanceService.saveMaintenanceSettings({
+      retentionDays,
+      autoPruneEnabled,
+      requireSynced,
+      archiveFormat
+    });
+    res.json({ success: true, message: 'Maintenance settings saved successfully.', settings: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 3. Trigger Cold Storage Export & Pruning Now
+router.post('/maintenance/prune', authenticateToken, requireTenantAdmin, async (req, res) => {
+  try {
+    const isSuper = req.user?.role === 'super_admin';
+    const targetOrg = isSuper ? (req.body?.orgId || 'ALL') : req.user.orgId;
+    const { retentionDays, requireSynced, format } = req.body || {};
+
+    const result = await maintenanceService.executeColdStorageExportAndPrune({
+      orgId: targetOrg,
+      retentionDays,
+      requireSynced,
+      format: format || 'JSON',
+      createdBy: req.user?.username || req.user?.email || 'ADMIN',
+      isAuto: false
+    });
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 4. List Cold Storage Archives
+router.get('/maintenance/archives', async (req, res) => {
+  try {
+    const isSuper = req.user?.role === 'super_admin';
+    const targetOrg = isSuper ? (req.query.orgId || 'ALL') : (req.user?.orgId || 'ALL');
+    const archives = await maintenanceService.getArchiveList(targetOrg);
+    res.json({ success: true, archives });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 5. Download Cold Storage Archive
+router.get('/maintenance/archives/:id/download', async (req, res) => {
+  try {
+    const archiveId = req.params.id;
+    const fileInfo = await maintenanceService.getArchiveDownloadInfo(archiveId);
+
+    // Tenant boundary check if user authenticated
+    if (req.user && req.user.role !== 'super_admin') {
+      const archive = await dbGet('SELECT org_id FROM cold_storage_archives WHERE archive_id = ?', [archiveId]);
+      if (archive && archive.org_id !== 'ALL' && archive.org_id.toUpperCase() !== req.user.orgId.toUpperCase()) {
+        return res.status(403).json({ success: false, error: 'Forbidden: Cannot download cold storage archive belonging to another partition.' });
+      }
+    }
+
+    res.setHeader('Content-Disposition', 'attachment; filename="' + fileInfo.filename + '"');
+    res.setHeader('Content-Type', fileInfo.format === 'CSV' ? 'text/csv' : 'application/json');
+    res.setHeader('Content-Length', fileInfo.fileSizeBytes);
+
+    const fileStream = fs.createReadStream(fileInfo.filePath);
+    fileStream.pipe(res);
+  } catch (err) {
+    res.status(404).json({ success: false, error: err.message });
+  }
+});
+
+// 6. Delete Cold Storage Archive (Super Admin Only)
+router.delete('/maintenance/archives/:id', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const archiveId = req.params.id;
+    await maintenanceService.deleteArchive(archiveId);
+    res.json({ success: true, message: 'Archive "' + archiveId + '" deleted successfully.' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ==========================================================================
 // Leave Management API Routes
 // ==========================================================================
@@ -4933,5 +5051,160 @@ router.delete('/leave/requests/:id', async (req, res) => {
   }
 });
 
+
+
+// ==========================================
+// Organization Partition Management APIs
+// ==========================================
+
+// GET /api/partition/list - List all registered organization partitions with live metadata
+router.get('/partition/list', async (req, res) => {
+  try {
+    const { getOrganizationPartitions, getPartitionLicense, dbAll } = require('./db');
+    const { getStoredLicenseStatus } = require('./licenseService');
+
+    let partitions = await getOrganizationPartitions();
+
+    // Check if any additional partitions exist in employees or attendance_records
+    const empOrgs = await dbAll(`SELECT DISTINCT org_id FROM employees WHERE org_id IS NOT NULL AND org_id != ''`);
+    const attOrgs = await dbAll(`SELECT DISTINCT org_id FROM attendance_records WHERE org_id IS NOT NULL AND org_id != ''`);
+
+    const knownIds = new Set(partitions.map(p => p.org_id));
+    for (const r of [...empOrgs, ...attOrgs]) {
+      const cleanId = (r.org_id || '').trim().toUpperCase();
+      if (cleanId && !knownIds.has(cleanId)) {
+        const { savePartition } = require('./db');
+        await savePartition({ org_id: cleanId, org_name: cleanId.replace(/_/g, ' ') });
+        knownIds.add(cleanId);
+      }
+    }
+
+    // Reload partitions
+    partitions = await getOrganizationPartitions();
+
+    const orgConfig = await firebaseService.getOrganizationConfig();
+    const activeOrgId = orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA';
+
+    const enhanced = await Promise.all(partitions.map(async p => {
+      let licStatus = 'ACTIVE';
+      let licDays = 365;
+      try {
+        const lic = await getStoredLicenseStatus(p.org_id);
+        licStatus = lic.status;
+        licDays = lic.remainingDays;
+      } catch (e) {}
+      return {
+        orgId: p.org_id,
+        orgName: p.org_name,
+        employeeCount: p.employee_count || 0,
+        recordCount: p.record_count || 0,
+        licenseStatus: licStatus,
+        licenseRemainingDays: licDays,
+        isActive: Boolean(p.is_active)
+      };
+    }));
+
+    res.json({
+      success: true,
+      activeOrgId,
+      activeOrgName: orgConfig.orgName,
+      partitions: enhanced,
+      organizations: enhanced
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/partition/switch - Switch active organization partition
+router.post('/partition/switch', async (req, res) => {
+  if (req.user && req.user.role !== 'super_admin') {
+    const userOrg = String(req.user.orgId || '').trim().toUpperCase();
+    const reqOrg = String(req.body?.orgId || '').trim().toUpperCase();
+    if (reqOrg && reqOrg !== userOrg) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Tenant user "' + req.user.username + '" is bound to partition "' + userOrg + '" and cannot switch to partition "' + reqOrg + '". Only super_admin can switch partitions.'
+      });
+    }
+  }
+  try {
+    const { orgId } = req.body || {};
+    if (!orgId) return res.status(400).json({ success: false, error: 'Partition orgId required' });
+    const cleanOrgId = String(orgId).trim().toUpperCase();
+
+    const { getPartitionById, savePartition, dbRun, dbGet } = require('./db');
+    let partition = await getPartitionById(cleanOrgId);
+    if (!partition && cleanOrgId !== 'ALL') {
+      await savePartition({ org_id: cleanOrgId, org_name: cleanOrgId.replace(/_/g, ' ') });
+      partition = await getPartitionById(cleanOrgId);
+    }
+
+    // Update SQLite settings for active partition
+    if (cleanOrgId !== 'ALL') {
+      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_org_id', ?)`, [cleanOrgId]);
+      await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('cloud_org_id', ?)`, [cleanOrgId]);
+      if (partition?.org_name) {
+        await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_org_name', ?)`, [partition.org_name]);
+        await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('org_name', ?)`, [partition.org_name]);
+      }
+    }
+
+    // Switch Firebase real-time listeners and active orgId
+    let autoSynced = false;
+    let syncedCount = 0;
+    if (firebaseService) {
+      await firebaseService.switchActivePartition(cleanOrgId);
+
+      // If local SQLite has 0 records for this partition, attempt cloud pull
+      if (cleanOrgId !== 'ALL') {
+        const empRow = await dbGet(`SELECT COUNT(*) as count FROM employees WHERE org_id = ?`, [cleanOrgId]);
+        if (!empRow || empRow.count === 0) {
+          try {
+            if (typeof firebaseService.syncAllCloudFirst === 'function') {
+              const pullRes = await firebaseService.syncAllCloudFirst({ orgId: cleanOrgId });
+              autoSynced = true;
+              syncedCount = pullRes?.syncedAttendance || 0;
+            }
+            autoSynced = true;
+            syncedCount = pullRes?.syncedAttendance || 0;
+          } catch (syncErr) {
+            console.warn('[PARTITION] Auto-sync notice:', syncErr.message);
+          }
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      orgId: cleanOrgId,
+      orgName: partition?.org_name || cleanOrgId,
+      autoSynced,
+      syncedCount
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/partition/create - Register a new organization partition
+router.post('/partition/create', async (req, res) => {
+  try {
+    const { orgId, orgName, licenseKey } = req.body || {};
+    if (!orgId) return res.status(400).json({ success: false, error: 'Partition ID is required' });
+    const { savePartition, savePartitionLicense } = require('./db');
+    const cleanId = String(orgId).trim().toUpperCase();
+    const cleanName = String(orgName || cleanId.replace(/_/g, ' ')).trim();
+
+    await savePartition({ org_id: cleanId, org_name: cleanName, license_key: licenseKey || null });
+    if (licenseKey) {
+      await savePartitionLicense(cleanId, licenseKey);
+    }
+
+    res.json({ success: true, orgId: cleanId, orgName: cleanName });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 module.exports = router;

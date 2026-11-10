@@ -449,7 +449,10 @@ class FirebaseService {
       const { getStoredLicenseStatus } = require('./licenseService');
       const lic = await getStoredLicenseStatus();
       if (lic && lic.valid && lic.payload?.orgId && lic.payload.orgId !== '*' && lic.payload.orgId !== 'ALL') {
-        orgId = String(lic.payload.orgId).trim().toUpperCase();
+        const hasMultiOrg = Array.isArray(lic.payload?.features) && lic.payload.features.includes('multi_organization_partitioning');
+        if (!hasMultiOrg) {
+          orgId = String(lic.payload.orgId).trim().toUpperCase();
+        }
         if (lic.payload.orgName && !params.orgName) {
           orgName = String(lic.payload.orgName).trim();
         }
@@ -624,7 +627,8 @@ class FirebaseService {
    */
   async syncPendingAttendance(options = {}) {
     if (this.isSyncing) {
-      return { success: false, message: 'Sync already in progress', syncProgress: this.syncProgress };
+      this._pendingUploadRequested = true;
+      return { success: false, inProgress: true, message: 'Sync already in progress (queued for next tick)', syncProgress: this.syncProgress };
     }
 
     await this.init();
@@ -689,7 +693,7 @@ class FirebaseService {
         }
 
         // 1. Fetch pending records from local SQLite
-        const pending = await getUnsyncedAttendance(batchSize);
+        const pending = await getUnsyncedAttendance(batchSize, orgId);
         if (!pending || pending.length === 0) {
           break; // All pending records have been uploaded
         }
@@ -705,21 +709,22 @@ class FirebaseService {
         const alreadySyncedIds = [];
         const nowIso = new Date().toISOString();
 
-        // Build mapping of docId -> rec
+        // Build mapping of docId -> rec with partition routing
         const docIdToRec = {};
         for (const rec of pending) {
           const rawUserId = String(rec.user_id || '').trim();
           const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F-\x9F\/]/g, '_').trim() || 'USER';
           const punchKey = this._formatPunchKey(rec.punch_time);
-          const docId = `${orgId}_${cleanUserId}_${punchKey}`;
-          docIdToRec[docId] = rec;
+          const recOrg = (rec.org_id || orgId).trim().toUpperCase();
+          const docId = `${recOrg}_${cleanUserId}_${punchKey}`;
+          docIdToRec[docId] = { rec, recOrg };
         }
 
         // Differential Pre-Check: Check which document IDs already exist in Firestore
         const cloudExistingDocIds = new Set();
         if (this.firestore) {
           try {
-            const docRefs = Object.keys(docIdToRec).map(id => this.firestore.doc(`organizations/${orgId}/attendance/${id}`));
+            const docRefs = Object.entries(docIdToRec).map(([id, item]) => this.firestore.doc(`organizations/${item.recOrg}/attendance/${id}`));
             const docSnapshots = await this.firestore.getAll(...docRefs, { fieldMask: ['id'] });
             docSnapshots.forEach(snap => {
               if (snap.exists) cloudExistingDocIds.add(snap.id);
@@ -729,7 +734,8 @@ class FirebaseService {
           }
         }
 
-        for (const [docId, rec] of Object.entries(docIdToRec)) {
+        for (const [docId, item] of Object.entries(docIdToRec)) {
+          const { rec, recOrg } = item;
           if (cloudExistingDocIds.has(docId)) {
             // Document already exists in Firestore! Skip write!
             alreadySyncedIds.push(rec.id);
@@ -746,8 +752,8 @@ class FirebaseService {
 
           const payload = {
             id: docId,
-            organizationId: orgId,
-            organizationName: orgName,
+            organizationId: recOrg,
+            organizationName: recOrg === orgId ? orgName : recOrg.replace(/_/g, ' '),
             userId: cleanUserId,
             rawUserId: rawUserId,
             employeeName: rec.employee_name || '',
@@ -774,7 +780,7 @@ class FirebaseService {
 
           writes.push({
             update: {
-              name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/attendance/${docId}`,
+              name: `projects/${projectId}/databases/(default)/documents/organizations/${recOrg}/attendance/${docId}`,
               fields: toFirestoreFields(payload)
             }
           });
@@ -986,6 +992,10 @@ class FirebaseService {
       };
     } finally {
       this.isSyncing = false;
+      if (this._pendingUploadRequested) {
+        this._pendingUploadRequested = false;
+        setTimeout(() => this.syncPendingAttendance(options).catch(() => {}), 200);
+      }
     }
   }
 
@@ -2513,6 +2523,14 @@ class FirebaseService {
    * Immediately ingests any mobile-submitted or cloud-updated leave requests into SQLite,
    * updates balances, and broadcasts live WebSocket events to all open desktop client browsers.
    */
+  async switchActivePartition(newOrgId) {
+    if (!newOrgId || newOrgId === 'ALL') return;
+    const cleanId = String(newOrgId).trim().toUpperCase();
+    this.orgId = cleanId;
+    this.startLeaveRequestsListener(cleanId);
+    console.log(`[FIREBASE] Switched active cloud partition to: ${cleanId}`);
+  }
+
   startLeaveRequestsListener(orgId = 'DSOFFICE_LUNUGAMWEHERA') {
     if (this._leaveRequestsUnsub) {
       try { this._leaveRequestsUnsub(); } catch (_) {}

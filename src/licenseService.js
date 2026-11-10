@@ -194,7 +194,8 @@ function verifyLicense(rawContent, targetOrgId = null) {
     if (targetOrgId) {
       const cleanTarget = String(targetOrgId).trim().toUpperCase();
       const licOrg = String(payload.orgId || '').trim().toUpperCase();
-      if (licOrg !== '*' && licOrg !== 'ALL' && licOrg !== cleanTarget) {
+      const hasMultiOrg = Array.isArray(payload.features) && payload.features.includes('multi_organization_partitioning');
+      if (cleanTarget !== 'ALL' && cleanTarget !== '*' && licOrg !== '*' && licOrg !== 'ALL' && !hasMultiOrg && licOrg !== cleanTarget) {
         return {
           valid: false,
           status: 'ORG_MISMATCH',
@@ -231,14 +232,25 @@ function verifyLicense(rawContent, targetOrgId = null) {
  */
 async function getStoredLicenseStatus(targetOrgId = null) {
   try {
+    const { getPartitionLicense } = require('./db');
+    if (targetOrgId && targetOrgId !== 'ALL' && targetOrgId !== '*') {
+      const partLic = await getPartitionLicense(targetOrgId);
+      if (partLic) {
+        const checkPart = verifyLicense(partLic, targetOrgId);
+        if (checkPart.valid) {
+          return checkPart;
+        }
+      }
+    }
+
     const row = await dbGet(`SELECT value FROM settings WHERE key = 'system_license_data'`);
     if (!row || !row.value) {
       // Auto-generate an initial 30-day starter evaluation license if none exists
       const orgRow = await dbGet(`SELECT value FROM settings WHERE key = 'firestore_org_id'`);
-      const defaultOrg = orgRow ? orgRow.value : 'DSOFFICE_LUNUGAMWEHERA';
+      const defaultOrg = orgRow ? orgRow.value : (targetOrgId || 'DSOFFICE_LUNUGAMWEHERA');
       const initial = generateLicense({
         orgId: defaultOrg,
-        orgName: 'DS Office Lunugamwehera',
+        orgName: defaultOrg.replace(/_/g, ' '),
         plan: 'Evaluation Starter License',
         durationDays: 30
       });
@@ -286,8 +298,18 @@ async function activateLicense(licenseContent, targetOrgId = null) {
   `, [check.status]);
 
   // Extract Organization Partition and auto-bind into Multi-Organization Partitioning
-  const licOrgId = String(check.payload?.orgId || '').trim().toUpperCase();
+  const licOrgId = String(check.payload?.orgId || targetOrgId || '').trim().toUpperCase();
   const licOrgName = String(check.payload?.orgName || '').trim();
+
+  // Save into organization_partitions table for this partition
+  if (licOrgId && licOrgId !== '*' && licOrgId !== 'ALL') {
+    try {
+      const { savePartitionLicense } = require('./db');
+      await savePartitionLicense(licOrgId, licenseContent.trim());
+    } catch (e) {
+      console.warn('[LICENSE] Warning: Partition license save notice:', e.message);
+    }
+  }
 
   if (licOrgId && licOrgId !== '*' && licOrgId !== 'ALL') {
     await dbRun(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firestore_org_id', ?)`, [licOrgId]);
