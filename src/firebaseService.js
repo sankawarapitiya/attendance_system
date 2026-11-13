@@ -2143,13 +2143,94 @@ class FirebaseService {
    * Firestore path: organizations/{orgId}/leave_balances/{cleanUserId}
    * Also mirrors to root leave_balances/{cleanUserId} for mobile app direct query.
    */
+  async _getPendingDaysMap(year, orgId, userId = null) {
+    const yrStr = String(parseInt(year, 10) || new Date().getFullYear());
+    const params = [yrStr];
+    let sql = `
+      SELECT user_id, leave_type_id, SUM(COALESCE(days_requested, 0)) as pending_days
+      FROM leave_requests
+      WHERE UPPER(status) = 'PENDING'
+        AND (start_date IS NULL OR start_date = '' OR substr(start_date, 1, 4) = ?)
+    `;
+    if (orgId) {
+      sql += ` AND (UPPER(org_id) = ? OR org_id IS NULL OR org_id = '')`;
+      params.push(String(orgId).trim().toUpperCase());
+    }
+    if (userId) {
+      sql += ` AND user_id = ?`;
+      params.push(String(userId).replace(/^emp_/, '').trim());
+    }
+    sql += ` GROUP BY user_id, leave_type_id`;
+
+    const pendingRows = await dbAll(sql, params).catch((err) => {
+      console.warn('[FIREBASE] Failed querying pending leave days:', err.message);
+      return [];
+    });
+    const pendingMap = new Map();
+    (pendingRows || []).forEach(r => {
+      const uid = String(r.user_id || '').trim();
+      pendingMap.set(`${uid}_${r.leave_type_id}`, parseFloat(r.pending_days) || 0);
+    });
+    return pendingMap;
+  }
+
+  _buildLeaveBalancePayload(eb, orgId, year, pendingMap, nowIso) {
+    const rawUserId = String(eb.user_id || '').trim();
+    const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F\/]/g, '_').trim() || 'USER';
+    const resolvedYear = parseInt(eb.year ?? year, 10) || new Date().getFullYear();
+
+    return {
+      cleanUserId,
+      payload: {
+        userId: cleanUserId,
+        rawUserId,
+        name: eb.name || '',
+        department: eb.department || '',
+        organizationId: orgId,
+        year: resolvedYear,
+        leaveCategoryId: eb.leave_category_id,
+        leaveCategoryName: eb.leave_category_name,
+        leaveCategoryColor: eb.leave_category_color,
+        balances: (eb.balances || []).map(b => {
+          const pendingDays = pendingMap.get(`${rawUserId}_${b.leave_type_id}`) || 0;
+          return {
+            leaveTypeId: b.leave_type_id,
+            leaveTypeName: b.leave_type_name,
+            code: b.leave_type_code,
+            allocatedDays: b.allocated_days,
+            carriedForwardDays: b.carried_forward_days || 0.0,
+            usedDays: b.used_days,
+            remainingDays: b.remaining_days,
+            pendingDays,
+            notes: b.notes || '',
+            color: b.leave_type_color,
+            isPaid: Boolean(b.type_is_paid)
+          };
+        }),
+        updatedAt: nowIso
+      }
+    };
+  }
+
+  async _syncAffectedBalances(affectedBalances = []) {
+    if (!Array.isArray(affectedBalances) || affectedBalances.length === 0) return;
+    for (const item of affectedBalances) {
+      if (!item || !item.userId) continue;
+      try {
+        await this.syncSingleEmployeeBalance(item.userId, item.year, item.orgId);
+      } catch (err) {
+        console.warn(`[FIREBASE] Affected balance sync notice (${item.userId}):`, err.message);
+      }
+    }
+  }
+
   async syncEmployeeLeaves(options = {}) {
     await this.init();
-    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    if (!this.keyData && !this.firestore) return { success: false, error: 'Firebase is not configured' };
     const orgConfig = await this.getOrganizationConfig();
     const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
     const year = parseInt(options.year, 10) || new Date().getFullYear();
-    const projectId = this.keyData.project_id;
+    const projectId = this.keyData ? this.keyData.project_id : null;
     const nowIso = new Date().toISOString();
 
     let uploadedCount = 0;
@@ -2160,74 +2241,15 @@ class FirebaseService {
         return { success: true, count: 0, message: 'No employee leave balances to sync' };
       }
 
-      // Query pending leave requests across the batch
-      const pendingRows = await dbAll(`
-        SELECT user_id, leave_type_id, SUM(days_count) as pending_days
-        FROM leave_requests
-        WHERE status = 'pending'
-        GROUP BY user_id, leave_type_id
-      `).catch(() => []);
-      const pendingMap = new Map();
-      (pendingRows || []).forEach(r => {
-        pendingMap.set(`${r.user_id}_${r.leave_type_id}`, parseFloat(r.pending_days) || 0);
-      });
+      const pendingMap = await this._getPendingDaysMap(year, orgId);
 
       const batchSize = 50;
       for (let i = 0; i < empBalances.length; i += batchSize) {
         if (this.stopRequested) break;
         const slice = empBalances.slice(i, i + batchSize);
-        const writes = [];
+        const builtItems = slice.map(eb => this._buildLeaveBalancePayload(eb, orgId, year, pendingMap, nowIso));
         const balanceIds = [];
-
         for (const eb of slice) {
-          const rawUserId = String(eb.user_id || '').trim();
-          const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F\/]/g, '_').trim() || 'USER';
-
-          const payload = {
-            userId: cleanUserId,
-            rawUserId: rawUserId,
-            name: eb.name || '',
-            department: eb.department || '',
-            organizationId: orgId,
-            year: eb.year,
-            leaveCategoryId: eb.leave_category_id,
-            leaveCategoryName: eb.leave_category_name,
-            leaveCategoryColor: eb.leave_category_color,
-            balances: (eb.balances || []).map(b => {
-              const pendingDays = pendingMap.get(`${rawUserId}_${b.leave_type_id}`) || 0;
-              return {
-                leaveTypeId: b.leave_type_id,
-                leaveTypeName: b.leave_type_name,
-                code: b.leave_type_code,
-                allocatedDays: b.allocated_days,
-                carriedForwardDays: b.carried_forward_days || 0.0,
-                usedDays: b.used_days,
-                remainingDays: b.remaining_days,
-                pendingDays: pendingDays,
-                notes: b.notes || '',
-                color: b.leave_type_color,
-                isPaid: Boolean(b.type_is_paid)
-              };
-            }),
-            updatedAt: nowIso
-          };
-
-          // 1. Organization Partition document
-          writes.push({
-            update: {
-              name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/leave_balances/${cleanUserId}`,
-              fields: toFirestoreFields(payload)
-            }
-          });
-
-          // 2. Root leave_balances document for mobile app compatibility
-          writes.push({
-            update: {
-              name: `projects/${projectId}/databases/(default)/documents/leave_balances/${cleanUserId}`,
-              fields: toFirestoreFields(payload)
-            }
-          });
-
           (eb.balances || []).forEach(b => {
             if (b.id) balanceIds.push(b.id);
           });
@@ -2236,35 +2258,9 @@ class FirebaseService {
         if (this.firestore) {
           try {
             const batch = this.firestore.batch();
-            for (const eb of slice) {
-              const rawUserId = String(eb.user_id || '').trim();
-              const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F\/]/g, '_').trim() || 'USER';
-              const p = {
-                userId: cleanUserId,
-                rawUserId: rawUserId,
-                name: eb.name || '',
-                department: eb.department || '',
-                organizationId: orgId,
-                year: eb.year,
-                leaveCategoryId: eb.leave_category_id,
-                leaveCategoryName: eb.leave_category_name,
-                leaveCategoryColor: eb.leave_category_color,
-                balances: (eb.balances || []).map(b => ({
-                  leaveTypeId: b.leave_type_id,
-                  leaveTypeName: b.leave_type_name,
-                  code: b.leave_type_code,
-                  allocatedDays: b.allocated_days,
-                  carriedForwardDays: b.carried_forward_days || 0.0,
-                  usedDays: b.used_days,
-                  remainingDays: b.remaining_days,
-                  notes: b.notes || '',
-                  color: b.leave_type_color,
-                  isPaid: Boolean(b.type_is_paid)
-                })),
-                updatedAt: nowIso
-              };
-              batch.set(this.firestore.doc(`organizations/${orgId}/leave_balances/${cleanUserId}`), p, { merge: true });
-              batch.set(this.firestore.doc(`leave_balances/${cleanUserId}`), p, { merge: true });
+            for (const { cleanUserId, payload } of builtItems) {
+              batch.set(this.firestore.doc(`organizations/${orgId}/leave_balances/${cleanUserId}`), payload, { merge: true });
+              batch.set(this.firestore.doc(`leave_balances/${cleanUserId}`), payload, { merge: true });
             }
             await batch.commit();
             if (balanceIds.length > 0) {
@@ -2277,12 +2273,30 @@ class FirebaseService {
           }
         }
 
-        if (writes.length > 0) {
-          await this._commitRestWrites(writes);
-          if (balanceIds.length > 0) {
-            await markEmployeeBalancesCloudSynced(balanceIds);
+        if (projectId) {
+          const writes = [];
+          for (const { cleanUserId, payload } of builtItems) {
+            writes.push({
+              update: {
+                name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/leave_balances/${cleanUserId}`,
+                fields: toFirestoreFields(payload)
+              }
+            });
+            writes.push({
+              update: {
+                name: `projects/${projectId}/databases/(default)/documents/leave_balances/${cleanUserId}`,
+                fields: toFirestoreFields(payload)
+              }
+            });
           }
-          uploadedCount += slice.length;
+
+          if (writes.length > 0) {
+            await this._commitRestWrites(writes);
+            if (balanceIds.length > 0) {
+              await markEmployeeBalancesCloudSynced(balanceIds);
+            }
+            uploadedCount += slice.length;
+          }
         }
       }
 
@@ -2312,49 +2326,10 @@ class FirebaseService {
 
     const orgConfig = await this.getOrganizationConfig();
     const targetOrg = (orgId || empBal.org_id || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
-    const cleanUserId = rawUserId.replace(/[\x00-\x1F\x7F\/]/g, '_').trim() || 'USER';
     const nowIso = new Date().toISOString();
 
-    // Query pending leave requests for this user
-    const pendingRows = await dbAll(`
-      SELECT leave_type_id, SUM(days_count) as pending_days
-      FROM leave_requests
-      WHERE user_id = ? AND status = 'pending'
-      GROUP BY leave_type_id
-    `, [rawUserId]).catch(() => []);
-    const pendingMap = new Map();
-    (pendingRows || []).forEach(r => {
-      pendingMap.set(r.leave_type_id, parseFloat(r.pending_days) || 0);
-    });
-
-    const payload = {
-      userId: cleanUserId,
-      rawUserId: rawUserId,
-      name: empBal.name || '',
-      department: empBal.department || '',
-      organizationId: targetOrg,
-      year: yr,
-      leaveCategoryId: empBal.leave_category_id,
-      leaveCategoryName: empBal.leave_category_name,
-      leaveCategoryColor: empBal.leave_category_color,
-      balances: (empBal.balances || []).map(b => {
-        const pendingDays = pendingMap.get(b.leave_type_id) || 0;
-        return {
-          leaveTypeId: b.leave_type_id,
-          leaveTypeName: b.leave_type_name,
-          code: b.leave_type_code,
-          allocatedDays: b.allocated_days,
-          carriedForwardDays: b.carried_forward_days || 0.0,
-          usedDays: b.used_days,
-          remainingDays: b.remaining_days,
-          pendingDays: pendingDays,
-          notes: b.notes || '',
-          color: b.leave_type_color,
-          isPaid: Boolean(b.type_is_paid)
-        };
-      }),
-      updatedAt: nowIso
-    };
+    const pendingMap = await this._getPendingDaysMap(yr, targetOrg, rawUserId);
+    const { cleanUserId, payload } = this._buildLeaveBalancePayload(empBal, targetOrg, yr, pendingMap, nowIso);
 
     if (this.firestore) {
       try {
@@ -2563,6 +2538,10 @@ class FirebaseService {
               const res = await upsertLeaveRequestsFromCloud(toUpsert, targetOrg);
               console.log(`[FIREBASE] Real-time leave_requests ingested ${res.inserted || toUpsert.length} change(s) for ${targetOrg}`);
 
+              if (res.affectedBalances && res.affectedBalances.length > 0) {
+                await this._syncAffectedBalances(res.affectedBalances);
+              }
+
               // Broadcast live WebSocket event to all connected desktop web clients
               this.notify('LEAVE_REQUEST_UPDATED', {
                 count: toUpsert.length,
@@ -2587,6 +2566,76 @@ class FirebaseService {
    * Save / Sync Single Leave Request to Firestore across both organization partition and root mirror.
    * Path: organizations/{orgId}/leave_requests/req_{id} & leave_requests/req_{id}
    */
+  _buildLeaveRequestPayload(request, targetOrg, nowIso) {
+    const cleanUserId = String(request.user_id || request.rawUserId || request.userId || '').replace(/^emp_/, '').trim();
+    const startDate = request.start_date || request.startDate;
+    const endDate = request.end_date || request.endDate || startDate;
+    const days = parseFloat(request.days_requested ?? request.daysRequested ?? request.totalDays ?? request.days) || 1.0;
+    const leaveTypeId = request.leave_type_id || request.leaveTypeId;
+    const leaveTypeName = request.leave_type_name || request.leaveTypeName || '';
+    const leaveTypeCode = request.leave_type_code || request.leaveTypeCode || '';
+    const leaveColor = request.leave_type_color || request.leaveTypeColor || request.leaveColor || '#2563eb';
+    const dayType = request.day_type || request.dayType || 'FULL_DAY';
+    const emergencyContact = request.emergency_contact || request.emergencyContact || '';
+    const qualifyingDate = request.qualifying_date || request.qualifyingDate || null;
+    const compSource = request.compensatory_source_type || request.compensatorySourceType || null;
+    const actionBy = request.action_by || request.actionBy || '';
+    const actionAt = request.action_at || request.actionAt || null;
+    const actionRemarks = request.action_remarks || request.actionRemarks || '';
+    const statusRaw = String(request.status || 'PENDING').trim();
+
+    return {
+      cleanUserId,
+      payload: {
+        id: request.id,
+        requestId: request.id,
+        numericId: request.id,
+        userId: cleanUserId,
+        user_id: cleanUserId,
+        rawUserId: cleanUserId,
+        employeeName: request.employee_name || request.employeeName || request.userName || '',
+        userName: request.employee_name || request.employeeName || request.userName || '',
+        employeeServiceId: request.employee_service_id || request.employeeServiceId || '',
+        department: request.employee_department || request.department || 'General',
+        leaveTypeId,
+        leave_type_id: leaveTypeId,
+        leaveTypeName,
+        leave_type_name: leaveTypeName,
+        leaveTypeCode,
+        leave_type_code: leaveTypeCode,
+        leaveTypeColor: leaveColor,
+        leaveColor,
+        startDate,
+        start_date: startDate,
+        endDate,
+        end_date: endDate,
+        daysRequested: days,
+        days_requested: days,
+        totalDays: days,
+        dayType,
+        day_type: dayType,
+        reason: request.reason || '',
+        emergencyContact,
+        emergency_contact: emergencyContact,
+        qualifyingDate,
+        qualifying_date: qualifyingDate,
+        compensatorySourceType: compSource,
+        compensatory_source_type: compSource,
+        status: statusRaw.toLowerCase(),
+        status_upper: statusRaw.toUpperCase(),
+        actionBy,
+        action_by: actionBy,
+        actionAt,
+        action_at: actionAt,
+        actionRemarks,
+        action_remarks: actionRemarks,
+        organizationId: targetOrg,
+        org_id: targetOrg,
+        updatedAt: nowIso
+      }
+    };
+  }
+
   async saveLeaveRequestToCloud(request) {
     if (!request || !request.id) return { success: false, error: 'Invalid leave request object' };
     await this.init();
@@ -2597,49 +2646,13 @@ class FirebaseService {
     const projectId = this.keyData ? this.keyData.project_id : 'officeattendancesystem-ddae3';
     const docId = `req_${request.id}`;
     const nowIso = new Date().toISOString();
-    const cleanUserId = String(request.user_id || request.userId || '').replace(/^emp_/, '').trim();
+    const { cleanUserId, payload } = this._buildLeaveRequestPayload(request, targetOrg, nowIso);
+    const reqYear = parseInt((request.start_date || request.startDate || '').substring(0, 4), 10) || new Date().getFullYear();
 
-    const payload = {
-      id: request.id,
-      requestId: request.id,
-      numericId: request.id,
-      userId: cleanUserId,
-      user_id: cleanUserId,
-      employeeName: request.employee_name || request.userName || '',
-      userName: request.employee_name || request.userName || '',
-      employeeServiceId: request.employee_service_id || '',
-      department: request.employee_department || request.department || 'General',
-      leaveTypeId: request.leave_type_id || request.leaveTypeId,
-      leave_type_id: request.leave_type_id || request.leaveTypeId,
-      leaveTypeName: request.leave_type_name || request.leaveTypeName || '',
-      leave_type_name: request.leave_type_name || request.leaveTypeName || '',
-      leaveTypeCode: request.leave_type_code || request.leaveTypeCode || '',
-      leave_type_code: request.leave_type_code || request.leaveTypeCode || '',
-      leaveTypeColor: request.leave_type_color || request.leaveColor || '#2563eb',
-      leaveColor: request.leave_type_color || request.leaveColor || '#2563eb',
-      startDate: request.start_date || request.startDate,
-      start_date: request.start_date || request.startDate,
-      endDate: request.end_date || request.endDate || request.start_date || request.startDate,
-      end_date: request.end_date || request.endDate || request.start_date || request.startDate,
-      daysRequested: parseFloat(request.days_requested || request.daysRequested || request.totalDays) || 1.0,
-      days_requested: parseFloat(request.days_requested || request.daysRequested || request.totalDays) || 1.0,
-      totalDays: parseFloat(request.days_requested || request.daysRequested || request.totalDays) || 1.0,
-      dayType: request.day_type || request.dayType || 'FULL_DAY',
-      day_type: request.day_type || request.dayType || 'FULL_DAY',
-      reason: request.reason || '',
-      emergencyContact: request.emergency_contact || request.emergencyContact || '',
-      emergency_contact: request.emergency_contact || request.emergencyContact || '',
-      status: String(request.status || 'PENDING').toLowerCase(),
-      status_upper: String(request.status || 'PENDING').toUpperCase(),
-      actionBy: request.action_by || request.actionBy || '',
-      action_by: request.action_by || request.actionBy || '',
-      actionAt: request.action_at || request.actionAt || null,
-      action_at: request.action_at || request.actionAt || null,
-      actionRemarks: request.action_remarks || request.actionRemarks || '',
-      action_remarks: request.action_remarks || request.actionRemarks || '',
-      organizationId: targetOrg,
-      org_id: targetOrg,
-      updatedAt: nowIso
+    const syncBalanceAsync = () => {
+      this.syncSingleEmployeeBalance(cleanUserId, reqYear, targetOrg).catch(e => {
+        console.warn('[FIREBASE] Background balance sync on saveLeaveRequest error:', e.message);
+      });
     };
 
     if (this.firestore) {
@@ -2649,12 +2662,7 @@ class FirebaseService {
         batch.set(this.firestore.doc(`leave_requests/${docId}`), payload, { merge: true });
         await batch.commit();
         await dbRun(`UPDATE leave_requests SET sync_status = 'SYNCED', cloud_synced_at = CURRENT_TIMESTAMP WHERE id = ?`, [request.id]);
-
-        const reqYear = parseInt((request.start_date || request.startDate || '').substring(0, 4), 10) || new Date().getFullYear();
-        this.syncSingleEmployeeBalance(cleanUserId, reqYear, targetOrg).catch(e => {
-          console.warn('[FIREBASE] Background balance sync on saveLeaveRequest error:', e.message);
-        });
-
+        syncBalanceAsync();
         return { success: true, docId, orgId: targetOrg };
       } catch (adminErr) {
         console.warn('[FIREBASE] Admin batch save notice, fallback to REST:', adminErr.message);
@@ -2679,6 +2687,7 @@ class FirebaseService {
     try {
       await this._commitRestWrites(writes);
       await dbRun(`UPDATE leave_requests SET sync_status = 'SYNCED', cloud_synced_at = CURRENT_TIMESTAMP WHERE id = ?`, [request.id]);
+      syncBalanceAsync();
       return { success: true, docId, orgId: targetOrg };
     } catch (err) {
       return { success: false, error: err.message };
@@ -3165,11 +3174,11 @@ class FirebaseService {
    */
   async syncLeaveRequests(options = {}) {
     await this.init();
-    if (!this.keyData) return { success: false, error: 'Firebase is not configured' };
+    if (!this.keyData && !this.firestore) return { success: false, error: 'Firebase is not configured' };
     const orgConfig = await this.getOrganizationConfig();
     const orgId = (options.orgId || orgConfig.orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
     const direction = options.direction || 'two_way';
-    const projectId = this.keyData.project_id;
+    const projectId = this.keyData ? this.keyData.project_id : null;
     const nowIso = new Date().toISOString();
 
     let downloaded = 0;
@@ -3177,50 +3186,79 @@ class FirebaseService {
 
     try {
       // 1. Download from Cloud Firestore if 'two_way' or 'download'
-      if (direction === 'two_way' || direction === 'download') {
+      if ((direction === 'two_way' || direction === 'download') && this.firestore) {
         const snap = await this.firestore.collection(`organizations/${orgId}/leave_requests`).get();
         if (!snap.empty) {
-          const reqList = snap.docs.map(d => d.data());
+          const reqList = snap.docs.map(d => ({ docId: d.id, ...d.data() }));
           const res = await upsertLeaveRequestsFromCloud(reqList, orgId);
           downloaded = res.inserted || 0;
+          if (res.affectedBalances && res.affectedBalances.length > 0) {
+            await this._syncAffectedBalances(res.affectedBalances);
+          }
         }
       }
 
       // 2. Upload local leave requests to Cloud Firestore if 'two_way' or 'upload'
       if (direction === 'two_way' || direction === 'upload') {
-        const requests = await getLeaveRequests({ orgId, limit: 100 });
+        const requests = await getLeaveRequests({ orgId, limit: 500 });
         if (requests && requests.length > 0) {
-          const writes = [];
-          for (const r of requests) {
-            const docId = `req_${r.id}`;
-            const payload = {
+          const batchSize = 50;
+          for (let i = 0; i < requests.length; i += batchSize) {
+            if (this.stopRequested) break;
+            const slice = requests.slice(i, i + batchSize);
+            const built = slice.map(r => ({
               id: r.id,
-              userId: r.user_id,
-              employeeName: r.employee_name || '',
-              leaveTypeId: r.leave_type_id,
-              leaveTypeName: r.leave_type_name || '',
-              startDate: r.start_date,
-              endDate: r.end_date,
-              daysRequested: r.days_requested,
-              dayType: r.day_type || 'FULL_DAY',
-              reason: r.reason || '',
-              emergencyContact: r.emergency_contact || '',
-              status: r.status || 'PENDING',
-              qualifyingDate: r.qualifying_date || null,
-              compensatorySourceType: r.compensatory_source_type || null,
-              organizationId: orgId,
-              updatedAt: nowIso
-            };
-            writes.push({
-              update: {
-                name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/leave_requests/${docId}`,
-                fields: toFirestoreFields(payload)
+              docId: `req_${r.id}`,
+              payload: this._buildLeaveRequestPayload(r, orgId, nowIso).payload
+            }));
+
+            let committed = false;
+            if (this.firestore) {
+              try {
+                const batch = this.firestore.batch();
+                for (const item of built) {
+                  batch.set(this.firestore.doc(`organizations/${orgId}/leave_requests/${item.docId}`), item.payload, { merge: true });
+                  batch.set(this.firestore.doc(`leave_requests/${item.docId}`), item.payload, { merge: true });
+                }
+                await batch.commit();
+                committed = true;
+              } catch (adminErr) {
+                console.warn('[FIREBASE] Admin batch leave_requests upload notice, fallback to REST:', adminErr.message);
               }
-            });
-          }
-          if (writes.length > 0) {
-            await this._commitRestWrites(writes);
-            uploaded = writes.length;
+            }
+
+            if (!committed && projectId) {
+              const writes = [];
+              for (const item of built) {
+                writes.push({
+                  update: {
+                    name: `projects/${projectId}/databases/(default)/documents/organizations/${orgId}/leave_requests/${item.docId}`,
+                    fields: toFirestoreFields(item.payload)
+                  }
+                });
+                writes.push({
+                  update: {
+                    name: `projects/${projectId}/databases/(default)/documents/leave_requests/${item.docId}`,
+                    fields: toFirestoreFields(item.payload)
+                  }
+                });
+              }
+              if (writes.length > 0) {
+                await this._commitRestWrites(writes);
+                committed = true;
+              }
+            }
+
+            if (committed) {
+              const ids = built.map(item => item.id).filter(Boolean);
+              if (ids.length > 0) {
+                await dbRun(
+                  `UPDATE leave_requests SET sync_status = 'SYNCED', cloud_synced_at = CURRENT_TIMESTAMP WHERE id IN (${ids.map(() => '?').join(',')})`,
+                  ids
+                );
+              }
+              uploaded += slice.length;
+            }
           }
         }
       }
@@ -3298,7 +3336,7 @@ class FirebaseService {
 
     // 2. Upload local records that are not yet in cloud
     const localRecords = await getAttendanceByDateRange(startDate, endDate, false);
-    const unsyncedFallback = await getUnsyncedAttendance(500);
+    const unsyncedFallback = await getUnsyncedAttendance(500, orgId);
     const combinedMap = new Map();
     localRecords.forEach(r => combinedMap.set(r.id, r));
     unsyncedFallback.forEach(r => combinedMap.set(r.id, r));

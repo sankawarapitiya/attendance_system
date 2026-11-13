@@ -4729,14 +4729,21 @@ router.post('/leave/balances/calculate-from-attendance', async (req, res) => {
     const yr = parseInt(year, 10) || new Date().getFullYear();
     const targetCutoff = cutoffDate || cutoff_date || null;
     const orgId = req.body.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const persistFlag = Boolean(persist);
 
     const result = await calculateAttendanceLeavesForEmployee({
       userId: targetUserId,
       year: yr,
       cutoffDate: targetCutoff,
       orgId,
-      persist: Boolean(persist)
+      persist: persistFlag
     });
+
+    if (persistFlag && result && result.success !== false) {
+      firebaseService.syncSingleEmployeeBalance(targetUserId, yr, orgId).catch(e => {
+        console.warn('[FIREBASE] Background single balance sync error (calculate-from-attendance):', e.message);
+      });
+    }
 
     res.json(result);
   } catch (err) {
@@ -4751,13 +4758,20 @@ router.post('/leave/balances/calculate-all-attendance', async (req, res) => {
     const yr = parseInt(year, 10) || new Date().getFullYear();
     const cutoff = defaultCutoffDate || default_cutoff_date || null;
     const orgId = req.body.orgId || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const persistFlag = Boolean(persist);
 
     const result = await calculateAllEmployeesAttendanceLeaves({
       year: yr,
       defaultCutoffDate: cutoff,
       orgId,
-      persist: Boolean(persist)
+      persist: persistFlag
     });
+
+    if (persistFlag && result && result.success !== false) {
+      firebaseService.syncEmployeeLeaves({ orgId, year: yr }).catch(e => {
+        console.warn('[FIREBASE] Background batch balance sync error (calculate-all-attendance):', e.message);
+      });
+    }
 
     res.json(result);
   } catch (err) {
@@ -5039,12 +5053,19 @@ router.post('/leave/requests/:id/action', async (req, res) => {
 router.delete('/leave/requests/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
+    const existing = await getLeaveRequestById(id);
     const deleted = await deleteLeaveRequest(id);
     if (!deleted) return res.status(404).json({ success: false, error: `Leave request #${id} not found` });
-    const orgId = req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
+    const orgId = existing?.org_id || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
     firebaseService.deleteLeaveRequestFromCloud(orgId, id).catch(e => {
       console.warn('[FIREBASE] Background delete leave request notice:', e.message);
     });
+    if (existing?.user_id) {
+      const reqYear = parseInt((existing.start_date || '').substring(0, 4), 10) || new Date().getFullYear();
+      firebaseService.syncSingleEmployeeBalance(existing.user_id, reqYear, orgId).catch(e => {
+        console.warn('[FIREBASE] Background balance sync on deleteLeaveRequest error:', e.message);
+      });
+    }
     res.json({ success: true, message: `Leave request #${id} deleted successfully.` });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

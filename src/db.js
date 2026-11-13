@@ -1020,9 +1020,9 @@ function closeDatabase() {
   });
 }
 
-// Fetch attendance records pending cloud sync
-async function getUnsyncedAttendance(limit = 500) {
-  return dbAll(`
+// Fetch attendance records pending cloud sync (ordered newest first so live activity pushes immediately)
+async function getUnsyncedAttendance(limit = 500, orgId = null) {
+  let sql = `
     SELECT a.*, 
            e.name as employee_name, 
            e.department, 
@@ -1031,10 +1031,16 @@ async function getUnsyncedAttendance(limit = 500) {
            e.card_no
     FROM attendance_records a
     LEFT JOIN employees e ON a.user_id = e.user_id
-    WHERE a.synced_to_cloud = 0 OR a.synced_to_cloud IS NULL
-    ORDER BY a.punch_time ASC
-    LIMIT ?
-  `, [limit]);
+    WHERE (a.synced_to_cloud = 0 OR a.synced_to_cloud IS NULL)
+  `;
+  const params = [];
+  if (orgId && orgId !== 'ALL') {
+    sql += ` AND (a.org_id = ? OR a.org_id IS NULL OR a.org_id = '')`;
+    params.push(orgId);
+  }
+  sql += ` ORDER BY a.punch_time DESC LIMIT ?`;
+  params.push(limit);
+  return dbAll(sql, params);
 }
 
 // Mark attendance records as successfully synced to cloud
@@ -2437,6 +2443,128 @@ async function getLeaveRequestStats(orgId, year) {
   };
 }
 
+const LEAVE_CODE_ALIASES = [
+  ['CAS', 'CL', 'CASUAL'],
+  ['SIC', 'SL', 'MED', 'SICK', 'MEDICAL'],
+  ['VAC', 'VL', 'VACATION', 'ANNUAL'],
+  ['DL', 'DUTY', 'DUTY_LEAVE'],
+  ['CO', 'COMP', 'COMPENSATORY'],
+  ['ML', 'MAT', 'MATERNITY'],
+  ['PL', 'PAT', 'PATERNITY'],
+  ['UL', 'UNPAID', 'NOPAY', 'NO_PAY'],
+];
+
+function _normalizeLeaveCodeGroup(code) {
+  const upper = String(code || '').trim().toUpperCase();
+  if (!upper) return '';
+  for (const group of LEAVE_CODE_ALIASES) {
+    if (group.includes(upper)) return group[0];
+  }
+  return upper;
+}
+
+// Check whether a leave type is exempt from numeric quota tracking
+async function _isQuotaExemptLeaveType(leaveTypeId) {
+  const reqLeaveType = await dbGet(
+    `SELECT id, is_duty_leave, is_compensatory_leave, code FROM leave_types WHERE id = ?`,
+    [leaveTypeId]
+  );
+  if (!reqLeaveType) return false;
+  const code = String(reqLeaveType.code || '').trim().toUpperCase();
+  return (
+    reqLeaveType.is_duty_leave === 1 ||
+    reqLeaveType.is_compensatory_leave === 1 ||
+    ['DL', 'DUTY', 'CO', 'COMP', 'UNPAID'].includes(code)
+  );
+}
+
+// Resolve a cloud or legacy leaveTypeId to the employee's assigned leave_category_id leave_type
+async function _resolveLeaveTypeIdForUser(userId, rawLeaveTypeId, leaveTypeCode = null, leaveTypeName = null) {
+  const parsedId = parseInt(rawLeaveTypeId, 10);
+  const emp = userId
+    ? await dbGet(`SELECT leave_category_id FROM employees WHERE user_id = ?`, [String(userId).trim()])
+    : null;
+  const rawType = Number.isFinite(parsedId) && parsedId > 0
+    ? await dbGet(`SELECT id, category_id, code, name FROM leave_types WHERE id = ?`, [parsedId])
+    : null;
+
+  if (!emp?.leave_category_id) {
+    return rawType?.id || (Number.isFinite(parsedId) && parsedId > 0 ? parsedId : 1);
+  }
+  if (rawType && Number(rawType.category_id) === Number(emp.leave_category_id)) {
+    return rawType.id;
+  }
+
+  const catTypes = await dbAll(
+    `SELECT id, code, name FROM leave_types WHERE category_id = ? ORDER BY sort_order ASC, id ASC`,
+    [emp.leave_category_id]
+  );
+  if (!catTypes.length) {
+    return rawType?.id || (Number.isFinite(parsedId) && parsedId > 0 ? parsedId : 1);
+  }
+
+  const candidateCodes = [leaveTypeCode, rawType?.code]
+    .map((c) => String(c || '').trim().toUpperCase())
+    .filter(Boolean);
+  for (const cand of candidateCodes) {
+    const exact = catTypes.find((t) => String(t.code || '').trim().toUpperCase() === cand);
+    if (exact) return exact.id;
+    const candGroup = _normalizeLeaveCodeGroup(cand);
+    const aliasMatch = catTypes.find((t) => _normalizeLeaveCodeGroup(t.code) === candGroup);
+    if (aliasMatch) return aliasMatch.id;
+  }
+
+  const candidateNames = [leaveTypeName, rawType?.name]
+    .map((n) => String(n || '').trim().toLowerCase())
+    .filter(Boolean);
+  for (const cand of candidateNames) {
+    const exact = catTypes.find((t) => String(t.name || '').trim().toLowerCase() === cand);
+    if (exact) return exact.id;
+    const partial = catTypes.find((t) => {
+      const nm = String(t.name || '').trim().toLowerCase();
+      return nm && (nm.includes(cand) || cand.includes(nm));
+    });
+    if (partial) return partial.id;
+  }
+
+  return rawType?.id || (Number.isFinite(parsedId) && parsedId > 0 ? parsedId : catTypes[0].id);
+}
+
+// Apply positive (deduct) or negative (restore) delta to employee_leave_balances
+async function _applyLeaveBalanceDelta({ userId, leaveTypeId, year, deltaDays, orgId, initializeIfMissing = false }) {
+  if (!deltaDays || await _isQuotaExemptLeaveType(leaveTypeId)) return false;
+
+  const targetOrg = (orgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
+  let bal = await dbGet(
+    `SELECT * FROM employee_leave_balances WHERE user_id = ? AND leave_type_id = ? AND year = ?`,
+    [userId, leaveTypeId, year]
+  );
+
+  if (!bal && initializeIfMissing) {
+    const emp = await dbGet(`SELECT leave_category_id FROM employees WHERE user_id = ?`, [userId]);
+    const catId = emp?.leave_category_id || 1;
+    await initializeEmployeeLeaveBalances(userId, catId, year, targetOrg);
+    bal = await dbGet(
+      `SELECT * FROM employee_leave_balances WHERE user_id = ? AND leave_type_id = ? AND year = ?`,
+      [userId, leaveTypeId, year]
+    );
+  }
+
+  if (!bal) return false;
+
+  const curUsed = parseFloat(bal.used_days) || 0;
+  const alloc = parseFloat(bal.allocated_days) || 0;
+  const cf = parseFloat(bal.carried_forward_days) || 0;
+  const updatedUsed = Math.max(0, curUsed + deltaDays);
+  const updatedRemaining = Math.max(0, (alloc + cf) - updatedUsed);
+
+  await dbRun(
+    `UPDATE employee_leave_balances SET used_days = ?, remaining_days = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    [updatedUsed, updatedRemaining, bal.id]
+  );
+  return true;
+}
+
 // Update Leave Request Status (Admin / Manager Approve, Reject, Cancel)
 // Deducts from / restores employee_leave_balances automatically!
 async function updateLeaveRequestStatus({ id, status, actionBy, actionRemarks = '', orgId }) {
@@ -2454,64 +2582,23 @@ async function updateLeaveRequestStatus({ id, status, actionBy, actionRemarks = 
   const reqYear = parseInt((existing.start_date || '').substring(0, 4), 10) || new Date().getFullYear();
   const days = parseFloat(existing.days_requested) || 0;
 
-  // Check if this is a Duty Leave or Compensatory Leave (which has no quota and does not count as leave)
-  const reqLeaveType = await dbGet(`SELECT id, is_duty_leave, is_compensatory_leave, code FROM leave_types WHERE id = ?`, [existing.leave_type_id]);
-  const isDutyLeave = reqLeaveType?.is_duty_leave === 1 || (reqLeaveType?.code && reqLeaveType.code.toUpperCase() === 'DUTY');
-  const isCompLeave = reqLeaveType?.is_compensatory_leave === 1 || (reqLeaveType?.code && reqLeaveType.code.toUpperCase() === 'COMP');
-  const isQuotaExempt = isDutyLeave || isCompLeave;
-
-  // If transitioning to APPROVED: deduct from employee leave balances (unless Duty / Compensatory Leave)
-  if (newStatus === 'APPROVED' && prevStatus !== 'APPROVED' && !isQuotaExempt) {
-    let bal = await dbGet(`
-      SELECT * FROM employee_leave_balances 
-      WHERE user_id = ? AND leave_type_id = ? AND year = ?
-    `, [existing.user_id, existing.leave_type_id, reqYear]);
-
-    if (!bal) {
-      const emp = await dbGet(`SELECT leave_category_id FROM employees WHERE user_id = ?`, [existing.user_id]);
-      const catId = emp?.leave_category_id || 1;
-      await initializeEmployeeLeaveBalances(existing.user_id, catId, reqYear, targetOrg);
-      bal = await dbGet(`
-        SELECT * FROM employee_leave_balances 
-        WHERE user_id = ? AND leave_type_id = ? AND year = ?
-      `, [existing.user_id, existing.leave_type_id, reqYear]);
-    }
-
-    if (bal) {
-      const curUsed = parseFloat(bal.used_days) || 0;
-      const alloc = parseFloat(bal.allocated_days) || 0;
-      const cf = parseFloat(bal.carried_forward_days) || 0;
-      const updatedUsed = curUsed + days;
-      const updatedRemaining = Math.max(0, (alloc + cf) - updatedUsed);
-
-      await dbRun(`
-        UPDATE employee_leave_balances SET
-          used_days = ?, remaining_days = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `, [updatedUsed, updatedRemaining, bal.id]);
-    }
-  }
-
-  // If transitioning FROM APPROVED to REJECTED or CANCELLED or PENDING: restore days (unless Duty / Compensatory Leave)
-  if (prevStatus === 'APPROVED' && newStatus !== 'APPROVED' && !isQuotaExempt) {
-    const bal = await dbGet(`
-      SELECT * FROM employee_leave_balances 
-      WHERE user_id = ? AND leave_type_id = ? AND year = ?
-    `, [existing.user_id, existing.leave_type_id, reqYear]);
-
-    if (bal) {
-      const curUsed = parseFloat(bal.used_days) || 0;
-      const alloc = parseFloat(bal.allocated_days) || 0;
-      const cf = parseFloat(bal.carried_forward_days) || 0;
-      const updatedUsed = Math.max(0, curUsed - days);
-      const updatedRemaining = Math.max(0, (alloc + cf) - updatedUsed);
-
-      await dbRun(`
-        UPDATE employee_leave_balances SET
-          used_days = ?, remaining_days = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `, [updatedUsed, updatedRemaining, bal.id]);
-    }
+  if (newStatus === 'APPROVED' && prevStatus !== 'APPROVED') {
+    await _applyLeaveBalanceDelta({
+      userId: existing.user_id,
+      leaveTypeId: existing.leave_type_id,
+      year: reqYear,
+      deltaDays: days,
+      orgId: targetOrg,
+      initializeIfMissing: true,
+    });
+  } else if (prevStatus === 'APPROVED' && newStatus !== 'APPROVED') {
+    await _applyLeaveBalanceDelta({
+      userId: existing.user_id,
+      leaveTypeId: existing.leave_type_id,
+      year: reqYear,
+      deltaDays: -days,
+      orgId: targetOrg,
+    });
   }
 
   await dbRun(`
@@ -2533,28 +2620,16 @@ async function deleteLeaveRequest(id) {
   const existing = await getLeaveRequestById(reqId);
   if (!existing) return false;
 
-  // If was approved, restore days before deletion
   if (existing.status === 'APPROVED') {
     const reqYear = parseInt((existing.start_date || '').substring(0, 4), 10) || new Date().getFullYear();
     const days = parseFloat(existing.days_requested) || 0;
-    const bal = await dbGet(`
-      SELECT * FROM employee_leave_balances 
-      WHERE user_id = ? AND leave_type_id = ? AND year = ?
-    `, [existing.user_id, existing.leave_type_id, reqYear]);
-
-    if (bal) {
-      const curUsed = parseFloat(bal.used_days) || 0;
-      const alloc = parseFloat(bal.allocated_days) || 0;
-      const cf = parseFloat(bal.carried_forward_days) || 0;
-      const updatedUsed = Math.max(0, curUsed - days);
-      const updatedRemaining = Math.max(0, (alloc + cf) - updatedUsed);
-
-      await dbRun(`
-        UPDATE employee_leave_balances SET
-          used_days = ?, remaining_days = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `, [updatedUsed, updatedRemaining, bal.id]);
-    }
+    await _applyLeaveBalanceDelta({
+      userId: existing.user_id,
+      leaveTypeId: existing.leave_type_id,
+      year: reqYear,
+      deltaDays: -days,
+      orgId: existing.org_id,
+    });
   }
 
   await dbRun(`DELETE FROM leave_requests WHERE id = ?`, [reqId]);
@@ -3337,10 +3412,20 @@ async function upsertSystemUsersFromCloud(usersList = [], targetOrgId = 'DSOFFIC
  * Upsert leave requests downloaded from Cloud Firestore into local SQLite
  */
 async function upsertLeaveRequestsFromCloud(requestsList = [], targetOrgId = 'DSOFFICE_LUNUGAMWEHERA') {
-  if (!requestsList || requestsList.length === 0) return { inserted: 0, total: 0 };
+  if (!requestsList || requestsList.length === 0) {
+    return { inserted: 0, total: 0, affectedBalances: [] };
+  }
   const org = (targetOrgId || 'DSOFFICE_LUNUGAMWEHERA').trim().toUpperCase();
 
   let count = 0;
+  const affectedMap = new Map();
+  const trackAffected = (userId, year, reqOrg) => {
+    const key = `${userId}::${year}::${reqOrg}`;
+    if (!affectedMap.has(key)) {
+      affectedMap.set(key, { userId, year, orgId: reqOrg });
+    }
+  };
+
   for (const r of requestsList) {
     let id = null;
     if (r.numericId && !isNaN(parseInt(r.numericId, 10))) {
@@ -3350,26 +3435,45 @@ async function upsertLeaveRequestsFromCloud(requestsList = [], targetOrgId = 'DS
       if (match) id = parseInt(match[0], 10);
     }
     const userId = String(r.rawUserId || r.fingerprintId || r.fingerprint_id || r.user_id || r.userId || '').replace(/^emp_/, '').trim();
-    const leaveTypeId = parseInt(r.leaveTypeId || r.leave_type_id, 10) || 1;
     const startDate = r.startDate || r.start_date;
     const endDate = r.endDate || r.end_date || startDate;
-    const daysReq = parseFloat(r.daysRequested || r.days_requested || r.days || r.totalDays) || 1.0;
+    const daysReq = parseFloat(r.daysRequested ?? r.days_requested ?? r.totalDays ?? r.days) || 1.0;
     const dayType = r.dayType || r.day_type || 'FULL_DAY';
     const reason = r.reason || '';
     const contact = r.emergencyContact || r.emergency_contact || '';
     const qDate = r.qualifyingDate || r.qualifying_date || null;
     const cSource = r.compensatorySourceType || r.compensatory_source_type || null;
-    const status = (r.status || 'PENDING').toUpperCase();
+    const status = String(r.status || 'PENDING').trim().toUpperCase();
     const reqOrg = (r.organizationId || r.org_id || org).trim().toUpperCase();
+    const actionBy = r.actionBy || r.action_by || r.reviewedBy || null;
+    const actionRemarks = r.actionRemarks || r.action_remarks || r.reviewRemarks || null;
+    const actionAt = r.actionAt || r.action_at || r.reviewedAt || null;
 
     if (!userId || !startDate) continue;
+
+    const leaveTypeId = await _resolveLeaveTypeIdForUser(
+      userId,
+      r.leaveTypeId || r.leave_type_id,
+      r.leaveTypeCode || r.leave_type_code,
+      r.leaveTypeName || r.leave_type_name
+    );
+
+    const existing = id
+      ? await dbGet(`SELECT * FROM leave_requests WHERE id = ?`, [id])
+      : await dbGet(
+          `SELECT * FROM leave_requests WHERE user_id = ? AND start_date = ? AND end_date = ? AND leave_type_id = ? ORDER BY id DESC LIMIT 1`,
+          [userId, startDate, endDate, leaveTypeId]
+        );
+    const prevStatus = existing ? String(existing.status || 'PENDING').trim().toUpperCase() : null;
+    const reqYear = parseInt(String(startDate).substring(0, 4), 10) || new Date().getFullYear();
 
     if (id) {
       await dbRun(`
         INSERT INTO leave_requests (
           id, user_id, leave_type_id, start_date, end_date, days_requested, day_type, reason,
-          emergency_contact, qualifying_date, compensatory_source_type, status, org_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          emergency_contact, qualifying_date, compensatory_source_type, status, org_id,
+          action_by, action_remarks, action_at, sync_status, cloud_synced_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SYNCED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
           user_id = excluded.user_id,
           leave_type_id = excluded.leave_type_id,
@@ -3383,19 +3487,68 @@ async function upsertLeaveRequestsFromCloud(requestsList = [], targetOrgId = 'DS
           compensatory_source_type = excluded.compensatory_source_type,
           status = excluded.status,
           org_id = excluded.org_id,
+          action_by = COALESCE(excluded.action_by, leave_requests.action_by),
+          action_remarks = COALESCE(excluded.action_remarks, leave_requests.action_remarks),
+          action_at = COALESCE(excluded.action_at, leave_requests.action_at),
+          sync_status = 'SYNCED',
+          cloud_synced_at = CURRENT_TIMESTAMP,
           updated_at = CURRENT_TIMESTAMP
-      `, [id, userId, leaveTypeId, startDate, endDate, daysReq, dayType, reason, contact, qDate, cSource, status, reqOrg]);
+      `, [id, userId, leaveTypeId, startDate, endDate, daysReq, dayType, reason, contact, qDate, cSource, status, reqOrg, actionBy, actionRemarks, actionAt]);
+    } else if (existing) {
+      await dbRun(`
+        UPDATE leave_requests SET
+          user_id = ?, leave_type_id = ?, start_date = ?, end_date = ?, days_requested = ?,
+          day_type = ?, reason = ?, emergency_contact = ?, qualifying_date = ?,
+          compensatory_source_type = ?, status = ?, org_id = ?,
+          action_by = COALESCE(?, action_by),
+          action_remarks = COALESCE(?, action_remarks),
+          action_at = COALESCE(?, action_at),
+          sync_status = 'SYNCED',
+          cloud_synced_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `, [userId, leaveTypeId, startDate, endDate, daysReq, dayType, reason, contact, qDate, cSource, status, reqOrg, actionBy, actionRemarks, actionAt, existing.id]);
     } else {
       await dbRun(`
         INSERT INTO leave_requests (
           user_id, leave_type_id, start_date, end_date, days_requested, day_type, reason,
-          emergency_contact, qualifying_date, compensatory_source_type, status, org_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      `, [userId, leaveTypeId, startDate, endDate, daysReq, dayType, reason, contact, qDate, cSource, status, reqOrg]);
+          emergency_contact, qualifying_date, compensatory_source_type, status, org_id,
+          action_by, action_remarks, action_at, sync_status, cloud_synced_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SYNCED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `, [userId, leaveTypeId, startDate, endDate, daysReq, dayType, reason, contact, qDate, cSource, status, reqOrg, actionBy, actionRemarks, actionAt]);
+    }
+
+    // Reconcile employee_leave_balances only when transitioning into/out of APPROVED or inserting a new APPROVED request
+    if (status === 'APPROVED' && prevStatus !== 'APPROVED') {
+      await _applyLeaveBalanceDelta({
+        userId,
+        leaveTypeId,
+        year: reqYear,
+        deltaDays: daysReq,
+        orgId: reqOrg,
+        initializeIfMissing: true,
+      });
+    } else if (prevStatus === 'APPROVED' && status !== 'APPROVED') {
+      const prevYear = parseInt(String(existing.start_date || startDate).substring(0, 4), 10) || reqYear;
+      const prevDays = parseFloat(existing.days_requested) || daysReq;
+      await _applyLeaveBalanceDelta({
+        userId: existing.user_id || userId,
+        leaveTypeId: existing.leave_type_id || leaveTypeId,
+        year: prevYear,
+        deltaDays: -prevDays,
+        orgId: existing.org_id || reqOrg,
+      });
+      trackAffected(existing.user_id || userId, prevYear, existing.org_id || reqOrg);
+    }
+
+    const daysChanged = existing && Math.abs((parseFloat(existing.days_requested) || 0) - daysReq) > 1e-6;
+    const typeChanged = existing && Number(existing.leave_type_id) !== Number(leaveTypeId);
+    if (!existing || prevStatus !== status || daysChanged || typeChanged) {
+      trackAffected(userId, reqYear, reqOrg);
     }
     count++;
   }
-  return { inserted: count, total: requestsList.length };
+  return { inserted: count, total: requestsList.length, affectedBalances: Array.from(affectedMap.values()) };
 }
 
 /**
