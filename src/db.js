@@ -535,6 +535,13 @@ async function initDatabase() {
     )
   `);
 
+  try {
+    await dbRun(`UPDATE system_users SET uid = 'usr_admin_tissa' WHERE id = 26 AND org_id = 'DSOFFICE_TISSAMAHARAMA' AND uid = 'usr_admin_1'`);
+    await dbRun(`UPDATE system_users SET uid = 'usr_manager_tissa' WHERE id = 27 AND org_id = 'DSOFFICE_TISSAMAHARAMA' AND uid = 'usr_manager_1'`);
+    await dbRun(`UPDATE system_users SET uid = 'usr_staff_tissa' WHERE id = 28 AND org_id = 'DSOFFICE_TISSAMAHARAMA' AND uid = 'usr_staff_1'`);
+  } catch (e) {}
+
+  await dbRun(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sys_user_uid ON system_users(uid)`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_sys_user_email ON system_users(email)`);
   await dbRun(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sys_user_uname_org ON system_users(username, org_id)`);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_sys_user_org ON system_users(org_id)`);
