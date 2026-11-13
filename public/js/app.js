@@ -812,17 +812,41 @@ async function loadDashboardStats() {
   }
 }
 
+function renderCloudSyncBadge(syncedToCloud, syncedAt) {
+  const isSynced = Boolean(syncedToCloud === 1 || window.IS_CLOUD_MODE);
+  if (isSynced) {
+    const timeTooltip = syncedAt ? `Synced at ${syncedAt}` : 'Real-time Cloud Synced';
+    return `<span class="badge-tag badge-cloud-synced" title="Synced to Cloud Firestore (${escapeHtml(timeTooltip)})">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:11px;height:11px;flex-shrink:0;"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/><polyline points="9 13 12 16 17 11"/></svg>
+      <span>Synced</span>
+    </span>`;
+  }
+  return `<span class="badge-tag badge-cloud-pending" title="Pending Cloud Sync (Stored safely in local database)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:11px;height:11px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    <span>Not Synced</span>
+  </span>`;
+}
+window.renderCloudSyncBadge = renderCloudSyncBadge;
+
 async function loadTodayPreview() {
   try {
     const today = new Date().toISOString().split('T')[0];
-    const res = await fetch(`/api/records?startDate=${today}&endDate=${today}&limit=10`);
+    const org = typeof getActiveOrgFilter === 'function' ? getActiveOrgFilter() : null;
+    const orgQuery = org && org !== 'ALL' ? `&orgId=${encodeURIComponent(org)}` : '';
+    const res = await fetch(`/api/records?startDate=${today}&endDate=${today}&limit=10${orgQuery}`, {
+      headers: { 'x-organization-id': org || '' }
+    });
     const data = await res.json();
 
     const tbody = document.getElementById('todayLogsTableBody');
-    document.getElementById('todayActivityBadge').textContent = `${data.pagination.total} records today`;
+    if (!tbody) return;
+    const badge = document.getElementById('todayActivityBadge');
+    if (badge && data.pagination) {
+      badge.textContent = `${data.pagination.total} records today`;
+    }
 
     if (!data.records || data.records.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-muted">No attendance punches recorded today yet</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-muted">No attendance punches recorded today yet</td></tr>`;
       return;
     }
 
@@ -843,6 +867,7 @@ async function loadTodayPreview() {
           </td>
           <td>${renderVerifyBadge(r.verify_mode, r.verify_name)}</td>
           <td>${renderPunchBadge(r.punch_state, r.punch_state_name)}</td>
+          <td>${renderCloudSyncBadge(r.synced_to_cloud, r.cloud_synced_at)}</td>
         </tr>
       `;
     }).join('');
@@ -9168,10 +9193,12 @@ function handleWebSocketMessage(msg) {
     if (msg.data?.state === 'COMPLETED' && msg.data?.uploadedCount > 0) {
       showToast(msg.data.message || `Uploaded ${msg.data.uploadedCount} punch record(s) to Firestore!`, 'success');
       loadFirebaseStatus();
+      if (typeof loadTodayPreview === 'function') loadTodayPreview();
     }
   } else if (msg.type === 'FIREBASE_SYNC_PROGRESS') {
     if (msg.data && msg.data.uploadedCount > 0) {
       showToast(`Uploaded ${msg.data.uploadedCount} punch record(s) to Firebase Firestore!`, 'success');
+      if (typeof loadTodayPreview === 'function') loadTodayPreview();
     }
     loadFirebaseStatus();
   } else if (msg.type === 'FIREBASE_STATUS' || msg.type === 'FIREBASE_STATUS_UPDATE') {

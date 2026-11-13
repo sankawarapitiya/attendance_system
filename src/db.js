@@ -387,6 +387,9 @@ async function initDatabase() {
     )
   `);
   await dbRun(`CREATE INDEX IF NOT EXISTS idx_leave_type_cat ON leave_types(category_id)`);
+  try {
+    await dbRun(`ALTER TABLE leave_types ADD COLUMN sort_order INTEGER DEFAULT 1`);
+  } catch (e) {}
 
   // Employee Leave Balances Table
   await dbRun(`
@@ -2496,7 +2499,7 @@ async function _resolveLeaveTypeIdForUser(userId, rawLeaveTypeId, leaveTypeCode 
   }
 
   const catTypes = await dbAll(
-    `SELECT id, code, name FROM leave_types WHERE category_id = ? ORDER BY sort_order ASC, id ASC`,
+    `SELECT id, code, name FROM leave_types WHERE category_id = ? ORDER BY COALESCE(deduction_priority, 99) ASC, id ASC`,
     [emp.leave_category_id]
   );
   if (!catTypes.length) {
