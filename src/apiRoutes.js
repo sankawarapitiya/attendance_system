@@ -88,7 +88,7 @@ const {
   generateEmployeeTimesheetExcelBuffer,
   generateEmployeeTimesheetCsvString
 } = require('./exportService');
-const { getConnectedAdmsDevices, queueDeviceCommand, queuePhotoUpload } = require('./admsServer');
+const { getConnectedAdmsDevices, queueDeviceCommand, queuePhotoUpload, queueUserUpdate } = require('./admsServer');
 const { 
   getDayClassification, 
   evaluatePunchPunctuality, 
@@ -2260,20 +2260,46 @@ router.post('/employees/:id/toggle-active', async (req, res) => {
   }
 });
 
-router.post('/employees', async (req, res) => {
+const handleEmployeeSave = async (req, res) => {
   try {
+    const rawUserId = req.params.id || req.params.userId || req.body.user_id;
+    if (!rawUserId) {
+      return res.status(400).json({ success: false, error: 'User ID is required' });
+    }
+    const user_id = String(rawUserId).trim();
+
+    // Fetch existing employee to preserve omitted fields on partial updates
+    const existing = await dbGet(`SELECT * FROM employees WHERE user_id = ?`, [user_id]);
+
     const {
-      user_id, name, department, role, email, phone, photo, shift_id = 1, syncToDevice = true,
+      name, department, role, email, phone, photo, shift_id, syncToDevice = true,
       employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active,
       org_id, user_group
     } = req.body;
-    if (!user_id) {
-      return res.status(400).json({ success: false, error: 'User ID is required' });
-    }
 
-    const employeeOrgId = org_id || req.headers['x-organization-id'] || 'DSOFFICE_LUNUGAMWEHERA';
-    const activeVal = is_active !== undefined ? (is_active ? 1 : 0) : 1;
-    const leaveCatId = parseInt(req.body.leave_category_id ?? req.body.leaveCategoryId ?? 1, 10) || 1;
+    const employeeOrgId = org_id || req.headers['x-organization-id'] || (existing ? existing.org_id : 'DSOFFICE_LUNUGAMWEHERA');
+    const activeVal = is_active !== undefined ? (is_active ? 1 : 0) : (existing ? existing.is_active : 1);
+    const leaveCatId = (req.body.leave_category_id ?? req.body.leaveCategoryId) !== undefined
+      ? (parseInt(req.body.leave_category_id ?? req.body.leaveCategoryId, 10) || 1)
+      : (existing ? existing.leave_category_id : 1);
+
+    const finalName = name !== undefined ? name : (existing ? existing.name : '');
+    const finalDept = department !== undefined ? department : (existing ? existing.department : 'General');
+    const finalRole = role !== undefined ? role : (existing ? existing.role : 'Staff');
+    const finalEmail = email !== undefined ? email : (existing ? existing.email : '');
+    const finalPhone = phone !== undefined ? phone : (existing ? existing.phone : '');
+    const finalShiftId = shift_id !== undefined ? (parseInt(shift_id, 10) || 1) : (existing ? existing.shift_id : 1);
+    const finalServiceId = employee_service_id !== undefined ? (employee_service_id || null) : (existing ? existing.employee_service_id : null);
+    const finalNic = nic !== undefined ? (nic || null) : (existing ? existing.nic : null);
+    const finalTitle = title !== undefined ? (title || null) : (existing ? existing.title : null);
+    const finalFirstName = first_name !== undefined ? (first_name || null) : (existing ? existing.first_name : null);
+    const finalLastName = last_name !== undefined ? (last_name || null) : (existing ? existing.last_name : null);
+    const finalGender = gender !== undefined ? (gender || null) : (existing ? existing.gender : null);
+    const finalBirthday = birthday !== undefined ? (birthday || null) : (existing ? existing.birthday : null);
+    const finalAppointmentDate = appointment_date !== undefined ? (appointment_date || null) : (existing ? existing.appointment_date : null);
+    const finalEmploymentStatus = employment_status !== undefined ? (employment_status || null) : (existing ? existing.employment_status : 'Active');
+    const finalOrderById = order_by_id !== undefined ? (order_by_id || null) : (existing ? existing.order_by_id : null);
+    const finalUserGroup = user_group !== undefined ? (user_group || null) : (existing ? existing.user_group : null);
 
     let photoPath = null;
     let photoBuffer = null;
@@ -2298,14 +2324,12 @@ router.post('/employees', async (req, res) => {
       }
     }
 
-    const sId = parseInt(shift_id, 10) || 1;
-
     if (photoPath !== null) {
       await dbRun(`
         INSERT INTO employees (
           user_id, name, department, role, email, phone, photo, shift_id,
-          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, leave_category_id, user_group, org_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, leave_category_id, user_group, org_id, synced_to_cloud, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
           name = excluded.name,
           department = excluded.department,
@@ -2314,29 +2338,30 @@ router.post('/employees', async (req, res) => {
           phone = excluded.phone,
           photo = excluded.photo,
           shift_id = excluded.shift_id,
-          employee_service_id = COALESCE(excluded.employee_service_id, employees.employee_service_id),
-          nic = COALESCE(excluded.nic, employees.nic),
-          title = COALESCE(excluded.title, employees.title),
-          first_name = COALESCE(excluded.first_name, employees.first_name),
-          last_name = COALESCE(excluded.last_name, employees.last_name),
-          gender = COALESCE(excluded.gender, employees.gender),
-          birthday = COALESCE(excluded.birthday, employees.birthday),
-          appointment_date = COALESCE(excluded.appointment_date, employees.appointment_date),
-          employment_status = COALESCE(excluded.employment_status, employees.employment_status),
-          order_by_id = COALESCE(excluded.order_by_id, employees.order_by_id),
+          employee_service_id = excluded.employee_service_id,
+          nic = excluded.nic,
+          title = excluded.title,
+          first_name = excluded.first_name,
+          last_name = excluded.last_name,
+          gender = excluded.gender,
+          birthday = excluded.birthday,
+          appointment_date = excluded.appointment_date,
+          employment_status = excluded.employment_status,
+          order_by_id = excluded.order_by_id,
           is_active = excluded.is_active,
           leave_category_id = excluded.leave_category_id,
-          user_group = COALESCE(excluded.user_group, employees.user_group),
-          org_id = COALESCE(excluded.org_id, employees.org_id),
+          user_group = excluded.user_group,
+          org_id = excluded.org_id,
+          synced_to_cloud = 0,
           updated_at = CURRENT_TIMESTAMP
-      `, [user_id, name || '', department || 'General', role || 'Staff', email || '', phone || '', photoPath, sId,
-          employee_service_id || null, nic || null, title || null, first_name || null, last_name || null, gender || null, birthday || null, appointment_date || null, employment_status || null, order_by_id || null, activeVal, leaveCatId, (user_group !== undefined ? user_group : null), employeeOrgId]);
+      `, [user_id, finalName, finalDept, finalRole, finalEmail, finalPhone, photoPath, finalShiftId,
+          finalServiceId, finalNic, finalTitle, finalFirstName, finalLastName, finalGender, finalBirthday, finalAppointmentDate, finalEmploymentStatus, finalOrderById, activeVal, leaveCatId, finalUserGroup, employeeOrgId]);
     } else {
       await dbRun(`
         INSERT INTO employees (
           user_id, name, department, role, email, phone, shift_id,
-          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, leave_category_id, user_group, org_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          employee_service_id, nic, title, first_name, last_name, gender, birthday, appointment_date, employment_status, order_by_id, is_active, leave_category_id, user_group, org_id, synced_to_cloud, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id) DO UPDATE SET
           name = excluded.name,
           department = excluded.department,
@@ -2344,23 +2369,24 @@ router.post('/employees', async (req, res) => {
           email = excluded.email,
           phone = excluded.phone,
           shift_id = excluded.shift_id,
-          employee_service_id = COALESCE(excluded.employee_service_id, employees.employee_service_id),
-          nic = COALESCE(excluded.nic, employees.nic),
-          title = COALESCE(excluded.title, employees.title),
-          first_name = COALESCE(excluded.first_name, employees.first_name),
-          last_name = COALESCE(excluded.last_name, employees.last_name),
-          gender = COALESCE(excluded.gender, employees.gender),
-          birthday = COALESCE(excluded.birthday, employees.birthday),
-          appointment_date = COALESCE(excluded.appointment_date, employees.appointment_date),
-          employment_status = COALESCE(excluded.employment_status, employees.employment_status),
-          order_by_id = COALESCE(excluded.order_by_id, employees.order_by_id),
+          employee_service_id = excluded.employee_service_id,
+          nic = excluded.nic,
+          title = excluded.title,
+          first_name = excluded.first_name,
+          last_name = excluded.last_name,
+          gender = excluded.gender,
+          birthday = excluded.birthday,
+          appointment_date = excluded.appointment_date,
+          employment_status = excluded.employment_status,
+          order_by_id = excluded.order_by_id,
           is_active = excluded.is_active,
           leave_category_id = excluded.leave_category_id,
-          user_group = COALESCE(excluded.user_group, employees.user_group),
-          org_id = COALESCE(excluded.org_id, employees.org_id),
+          user_group = excluded.user_group,
+          org_id = excluded.org_id,
+          synced_to_cloud = 0,
           updated_at = CURRENT_TIMESTAMP
-      `, [user_id, name || '', department || 'General', role || 'Staff', email || '', phone || '', sId,
-          employee_service_id || null, nic || null, title || null, first_name || null, last_name || null, gender || null, birthday || null, appointment_date || null, employment_status || null, order_by_id || null, activeVal, leaveCatId, (user_group !== undefined ? user_group : null), employeeOrgId]);
+      `, [user_id, finalName, finalDept, finalRole, finalEmail, finalPhone, finalShiftId,
+          finalServiceId, finalNic, finalTitle, finalFirstName, finalLastName, finalGender, finalBirthday, finalAppointmentDate, finalEmploymentStatus, finalOrderById, activeVal, leaveCatId, finalUserGroup, employeeOrgId]);
     }
 
     // Initialize/update employee leave balances for the assigned leave category
@@ -2370,7 +2396,7 @@ router.post('/employees', async (req, res) => {
       console.warn('[LEAVE] Failed to initialize leave balance for employee', user_id, lbErr.message);
     }
 
-    // Push employee update and leave balances to Firebase Cloud in background
+    // Push employee update and leave balances to Firebase Cloud in background (UPLOAD only!)
     if (firebaseService) {
       if (typeof firebaseService.syncEmployeeLeaves === 'function') {
         firebaseService.syncEmployeeLeaves({ orgId: employeeOrgId }).catch(e => {
@@ -2378,8 +2404,8 @@ router.post('/employees', async (req, res) => {
         });
       }
       if (typeof firebaseService.syncEmployees === 'function') {
-        firebaseService.syncEmployees({ orgId: employeeOrgId }).catch(e => {
-          console.warn('[FIREBASE] Background employee push notice:', e.message);
+        firebaseService.syncEmployees({ orgId: employeeOrgId, direction: 'upload', userId: user_id }).catch(e => {
+          console.warn('[FIREBASE] Background employee upload notice:', e.message);
         });
       }
     }
@@ -2392,12 +2418,22 @@ router.post('/employees', async (req, res) => {
       try {
         const ipSetting = await dbGet(`SELECT value FROM settings WHERE key = 'device_ip'`);
         const ip = ipSetting ? ipSetting.value : '192.168.10.15';
+
+        // Query user_sn from attendance_records to pass direct UID
+        let userUid = null;
+        const punchRow = await dbGet(`SELECT user_sn FROM attendance_records WHERE user_id = ? AND user_sn IS NOT NULL AND user_sn > 0 LIMIT 1`, [user_id]);
+        if (punchRow && punchRow.user_sn) {
+          userUid = punchRow.user_sn;
+        } else if (!isNaN(parseInt(user_id, 10)) && parseInt(user_id, 10) > 0) {
+          userUid = parseInt(user_id, 10);
+        }
+
         const client = new SpeedFaceClient(ip, 4370, 6000);
-        
         await client.setUser({
           userId: user_id,
-          name: name || '',
-          role: (role === 'Admin' || role === '14' || role === 14) ? 14 : 0
+          name: finalName || '',
+          role: (finalRole === 'Admin' || finalRole === '14' || finalRole === 14) ? 14 : 0,
+          uid: userUid
         });
         deviceSynced = true;
 
@@ -2409,9 +2445,15 @@ router.post('/employees', async (req, res) => {
           }
         }
       } catch (dErr) {
-        console.warn('[EMPLOYEE] Could not sync user to device:', dErr.message);
+        console.warn('[EMPLOYEE] Could not sync user to device via TCP:', dErr.message);
         deviceError = dErr.message;
       }
+
+      // Also queue to ADMS
+      try {
+        const roleCode = (finalRole === 'Admin' || finalRole === '14' || finalRole === 14) ? 14 : 0;
+        queueUserUpdate(user_id, finalName, roleCode);
+      } catch (admsErr) {}
     }
 
     let msg = 'Employee updated successfully!';
@@ -2420,7 +2462,7 @@ router.post('/employees', async (req, res) => {
         ? 'Employee details & photo synced to SpeedFace terminal!' 
         : 'Employee updated and synced to SpeedFace device!';
     } else if (deviceError) {
-      msg = `Employee updated locally (Device sync notice: ${deviceError})`;
+      msg = `Employee updated locally (Device notice: ${deviceError})`;
     }
 
     res.json({ 
@@ -2434,7 +2476,10 @@ router.post('/employees', async (req, res) => {
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
-});
+};
+
+router.post(['/employees', '/v1/users', '/users'], handleEmployeeSave);
+router.put(['/employees', '/employees/:id', '/v1/users/:id', '/users/:id'], handleEmployeeSave);
 
 // DELETE /api/employees/:id (and REST API aliases /v1/users/:id, /users/:id)
 router.delete(['/employees/:id', '/v1/users/:id', '/users/:id'], async (req, res) => {

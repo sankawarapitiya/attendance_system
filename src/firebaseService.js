@@ -1346,9 +1346,17 @@ class FirebaseService {
           orgId
         };
       }
-      const employees = forceAll
-        ? await dbAll(`SELECT e.*, c.name as leave_category_name FROM employees e LEFT JOIN leave_categories c ON COALESCE(e.leave_category_id, 1) = c.id ORDER BY e.user_id ASC`)
-        : await dbAll(`SELECT e.*, c.name as leave_category_name FROM employees e LEFT JOIN leave_categories c ON COALESCE(e.leave_category_id, 1) = c.id WHERE e.synced_to_cloud = 0 OR e.synced_to_cloud IS NULL LIMIT 400`);
+      let query;
+      let params = [];
+      if (options.userId) {
+        query = `SELECT e.*, c.name as leave_category_name FROM employees e LEFT JOIN leave_categories c ON COALESCE(e.leave_category_id, 1) = c.id WHERE e.user_id = ?`;
+        params.push(String(options.userId).trim());
+      } else if (forceAll) {
+        query = `SELECT e.*, c.name as leave_category_name FROM employees e LEFT JOIN leave_categories c ON COALESCE(e.leave_category_id, 1) = c.id ORDER BY e.user_id ASC`;
+      } else {
+        query = `SELECT e.*, c.name as leave_category_name FROM employees e LEFT JOIN leave_categories c ON COALESCE(e.leave_category_id, 1) = c.id WHERE e.synced_to_cloud = 0 OR e.synced_to_cloud IS NULL LIMIT 400`;
+      }
+      const employees = await dbAll(query, params);
 
       if (!employees || employees.length === 0) {
         return { success: true, count: 0, message: 'No pending employees to sync' };
@@ -1381,6 +1389,9 @@ class FirebaseService {
             name: emp.name || '',
             department: emp.department || 'General',
             role: emp.role || 'Staff',
+            title: emp.title || '',
+            firstName: emp.first_name || '',
+            lastName: emp.last_name || '',
             employeeServiceId: emp.employee_service_id || '',
             cardNo: emp.card_no || '',
             email: emp.email || '',
@@ -1391,6 +1402,9 @@ class FirebaseService {
             appointmentDate: emp.appointment_date || '',
             employmentStatus: emp.employment_status || 'Active',
             isActive: emp.is_active === 1,
+            shiftId: emp.shift_id || 1,
+            userGroup: emp.user_group || '',
+            orderById: emp.order_by_id || null,
             leaveCategoryId: emp.leave_category_id || 1,
             leaveCategoryName: emp.leave_category_name || 'Permanent',
             photoUrl: emp.photo || null,

@@ -473,27 +473,53 @@ class SpeedFaceClient {
   async setUser({ userId, name = '', role = 0, cardNo = 0, password = '', uid = null }) {
     const zk = this.createInstance();
     try {
-      await zk.createSocket();
-
       let userUid = uid;
       let userCard = cardNo;
       let userPwd = password;
 
       if (!userUid) {
         try {
+          const { dbGet } = require('./db');
+          const rec = await dbGet('SELECT user_sn FROM attendance_records WHERE user_id = ? AND user_sn IS NOT NULL AND user_sn > 0 LIMIT 1', [userId]);
+          if (rec && rec.user_sn) {
+            userUid = rec.user_sn;
+          }
+        } catch (e) {}
+      }
+
+      if (!userUid && !isNaN(parseInt(userId, 10)) && parseInt(userId, 10) > 0) {
+        userUid = parseInt(userId, 10);
+      }
+
+      await zk.createSocket();
+
+      if (!userUid) {
+        try {
           const allUsers = await zk.getUsers();
-          const existing = allUsers.data.find(u => String(u.userId) === String(userId));
+          const existing = (allUsers && allUsers.data) ? allUsers.data.find(u => String(u.userId) === String(userId)) : null;
           if (existing) {
             userUid = existing.uid;
             if (!userPwd && existing.password) userPwd = existing.password;
             if (!userCard && existing.cardno) userCard = existing.cardno;
-          } else {
+          } else if (allUsers && allUsers.data) {
             const maxUid = allUsers.data.reduce((max, u) => Math.max(max, u.uid || 0), 0);
             userUid = maxUid + 1;
           }
         } catch (e) {
           userUid = parseInt(userId, 10) || 1;
         }
+      }
+
+      // Ensure TCP socket is alive before writing command
+      if (!zk.zklibTcp || !zk.zklibTcp.socket || zk.zklibTcp.socket.destroyed) {
+        try {
+          await zk.createSocket();
+        } catch (sockErr) {
+          throw new Error('SpeedFace terminal TCP connection is busy or disconnected');
+        }
+      }
+      if (!zk.zklibTcp || !zk.zklibTcp.socket || zk.zklibTcp.socket.destroyed) {
+        throw new Error('SpeedFace terminal TCP connection is unavailable');
       }
 
       // 72-byte SpeedFace user packet
@@ -531,7 +557,7 @@ class SpeedFaceClient {
 
       try {
         const allUsers = await zk.getUsers();
-        const existing = allUsers.data.find(u => String(u.userId) === String(userId) || String(u.uid) === String(userId));
+        const existing = (allUsers && allUsers.data) ? allUsers.data.find(u => String(u.userId) === String(userId) || String(u.uid) === String(userId)) : null;
         if (existing) {
           userUid = existing.uid;
         }
@@ -544,6 +570,18 @@ class SpeedFaceClient {
         userUid = (!isNaN(parsed) && parsed >= 0 && parsed <= 65535) ? parsed : 0;
       }
       const safeUid = (userUid & 0xFFFF);
+
+      // Ensure TCP socket is alive before writing command
+      if (!zk.zklibTcp || !zk.zklibTcp.socket || zk.zklibTcp.socket.destroyed) {
+        try {
+          await zk.createSocket();
+        } catch (sockErr) {
+          throw new Error('SpeedFace terminal TCP connection is busy or disconnected');
+        }
+      }
+      if (!zk.zklibTcp || !zk.zklibTcp.socket || zk.zklibTcp.socket.destroyed) {
+        throw new Error('SpeedFace terminal TCP connection is unavailable');
+      }
 
       // 1. Delete user from terminal (CMD_DELETE_USER: 18)
       try {

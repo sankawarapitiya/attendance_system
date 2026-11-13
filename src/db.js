@@ -3304,6 +3304,7 @@ async function upsertEmployeesFromCloud(employeesList = [], targetOrgId = 'DSOFF
           synced_to_cloud = 1,
           cloud_synced_at = CURRENT_TIMESTAMP,
           updated_at = CURRENT_TIMESTAMP
+        WHERE (employees.synced_to_cloud != 0 OR employees.synced_to_cloud IS NULL)
       `);
 
       let count = 0;

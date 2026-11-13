@@ -316,6 +316,19 @@ function queueDeviceCommand(sn, cmd) {
   return cmdId;
 }
 
+function queueUserUpdate(userId, name = '', roleCode = 0) {
+  const cleanName = String(name || '').trim().replace(/[\t\r\n]/g, ' ');
+  const cmd = `DATA UPDATE USERINFO PIN=${userId}\tName=${cleanName}\tPri=${roleCode}`;
+  const sns = Object.keys(connectedDevices);
+  if (sns.length === 0) {
+    queueDeviceCommand('DEFAULT', cmd);
+  } else {
+    for (const sn of sns) {
+      queueDeviceCommand(sn, cmd);
+    }
+  }
+}
+
 function getConnectedAdmsDevices() {
   const now = Date.now();
   return Object.values(connectedDevices).filter((dev) => {
@@ -331,5 +344,6 @@ module.exports = {
   broadcastLivePunch,
   queueDeviceCommand,
   queuePhotoUpload,
+  queueUserUpdate,
   getConnectedAdmsDevices
 };
