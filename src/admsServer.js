@@ -204,8 +204,12 @@ function setupAdmsRoutes(app) {
           // Broadcast the latest punch live to the UI
           records.forEach((rec) => broadcastLivePunch(rec));
 
-          // Non-blocking auto-upload to Firebase Firestore
-          firebaseService.syncPendingAttendance({ limit: 500 }).catch(() => {});
+          // Non-blocking real-time auto-upload to Firebase Firestore
+          firebaseService.syncPendingAttendance({ limit: 50 }).then(cloudRes => {
+            if (cloudRes && cloudRes.uploadedCount > 0 && typeof broadcastWs === 'function') {
+              broadcastWs({ type: 'ATTENDANCE_CLOUD_SYNCED', data: { uploadedCount: cloudRes.uploadedCount } });
+            }
+          }).catch(() => {});
 
           // Log sync event
           await dbRun(

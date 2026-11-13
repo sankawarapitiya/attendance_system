@@ -282,7 +282,7 @@ class FirebaseService {
           if (res.statusCode === 429 || parsed?.error?.status === 'RESOURCE_EXHAUSTED') {
             this.quotaExceeded = true;
             // Set 15-minute quiet backoff window
-            this.quotaExceededUntil = Date.now() + 15 * 60 * 1000;
+            this.quotaExceededUntil = Date.now() + 60 * 1000;
             const quotaErr = new Error('Google Cloud Firestore daily write quota reached (Spark Free Plan limit: 20,000 writes/day). Local punches remain 100% safe in SQLite.');
             quotaErr.code = 'QUOTA_EXHAUSTED';
             quotaErr.statusCode = 429;
@@ -642,16 +642,8 @@ class FirebaseService {
       return { success: false, message: 'Cloud sync is disabled in settings' };
     }
 
-    // Check if within quota cooldown (unless force is requested)
-    if (this.quotaExceeded && this.quotaExceededUntil && Date.now() < this.quotaExceededUntil && !options.force) {
-      const waitMins = Math.ceil((this.quotaExceededUntil - Date.now()) / 60000);
-      return {
-        success: false,
-        quotaExceeded: true,
-        message: `Cloud sync paused (Daily Firestore quota reached: 20,000 writes/day). Will retry automatically in ${waitMins}m or click "Upload Pending Data Now". Local punches are 100% safe.`,
-        syncProgress: this.syncProgress
-      };
-    }
+    // Check if within quota cooldown
+    const inQuotaCooldown = Boolean(this.quotaExceeded && this.quotaExceededUntil && Date.now() < this.quotaExceededUntil && !options.force);
 
     const orgId = (options.orgId || orgConfig.orgId || 'ORG_DEFAULT').trim().toUpperCase();
     const orgName = options.orgName || orgConfig.orgName || 'General Organization';
@@ -796,15 +788,13 @@ class FirebaseService {
 
         // 4. Commit truly new batch writes to Firestore REST API
         if (writes.length > 0) {
-          if (alreadySyncedIds.length > 0) {
-            await markAttendanceCloudSynced(alreadySyncedIds);
-            totalUploaded += alreadySyncedIds.length;
+          if (inQuotaCooldown) {
+            console.log(`[FIREBASE] Daily write quota in cooldown; ${writes.length} new punch(es) safely queued in local SQLite.`);
+            break;
           }
-          if (writes.length > 0) {
-            await this._commitRestWrites(writes);
-            await markAttendanceCloudSynced(syncedIds);
-            totalUploaded += syncedIds.length;
-          }
+          await this._commitRestWrites(writes);
+          await markAttendanceCloudSynced(syncedIds);
+          totalUploaded += syncedIds.length;
         }
         batchesProcessed++;
 
@@ -927,7 +917,7 @@ class FirebaseService {
       // Intelligently handle Google Cloud Firestore Daily Quota Exceeded (429 RESOURCE_EXHAUSTED)
       if (err.code === 'QUOTA_EXHAUSTED' || err.statusCode === 429) {
         this.quotaExceeded = true;
-        this.quotaExceededUntil = Date.now() + 15 * 60 * 1000;
+        this.quotaExceededUntil = Date.now() + 60 * 1000;
         this.isOnline = true;
         this.lastError = 'Google Cloud Firestore daily write quota reached (Spark Free Plan limit: 20,000 writes/day). Local punches remain 100% safe in SQLite.';
 

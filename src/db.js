@@ -842,7 +842,7 @@ function getPunchStateName(code) {
 }
 
 // Insert batch attendance records with transaction
-async function insertAttendanceBatch(records) {
+async function insertAttendanceBatch(records, defaultOrgId = 'DSOFFICE_LUNUGAMWEHERA') {
   if (!records || records.length === 0) return { inserted: 0 };
 
   return new Promise((resolve, reject) => {
@@ -852,8 +852,8 @@ async function insertAttendanceBatch(records) {
         INSERT OR IGNORE INTO attendance_records (
           user_sn, user_id, punch_time, verify_mode, verify_name,
           punch_state, punch_state_name, work_code, temperature,
-          mask_status, device_ip, device_sn, source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          mask_status, device_ip, device_sn, source, org_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       let insertedCount = 0;
@@ -875,6 +875,7 @@ async function insertAttendanceBatch(records) {
           rec.device_ip || '192.168.10.15',
           rec.device_sn || '',
           rec.source || 'DIRECT_SYNC',
+          rec.org_id || defaultOrgId || 'DSOFFICE_LUNUGAMWEHERA',
           function (err) {
             if (!err && this.changes > 0) {
               insertedCount++;
@@ -1114,7 +1115,7 @@ async function insertAttendanceFromCloud(records) {
         INSERT OR IGNORE INTO attendance_records (
           user_sn, user_id, punch_time, verify_mode, verify_name,
           punch_state, punch_state_name, work_code, temperature,
-          mask_status, device_ip, device_sn, source, synced_to_cloud, cloud_synced_at
+          mask_status, device_ip, device_sn, source, org_id, synced_to_cloud, cloud_synced_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
       `);
 

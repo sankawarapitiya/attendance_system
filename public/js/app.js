@@ -9180,6 +9180,11 @@ function handleWebSocketMessage(msg) {
     addLivePunchItem(punch);
     debouncedLoadDashboardStats();
     showToast(`Punch detected: User ${punch.user_id} (${punch.verify_name || 'Face Recognition'})`, 'success');
+    if (typeof loadTodayPreview === 'function') setTimeout(loadTodayPreview, 800);
+  } else if (msg.type === 'ATTENDANCE_CLOUD_SYNCED') {
+    if (typeof loadTodayPreview === 'function') loadTodayPreview();
+    if (typeof loadLiveFeed === 'function') loadLiveFeed();
+    if (typeof loadFirebaseStatus === 'function') loadFirebaseStatus();
   } else if (msg.type === 'NEW_RECORDS_SYNCED') {
     showToast(`${msg.data.newCount} new attendance record(s) synced from machine!`, 'info');
     debouncedLoadDashboardStats();
@@ -9314,10 +9319,15 @@ function createFeedElement(p, isNew = false) {
     ? `<img src="${p.employee_photo || p.photo}" class="feed-avatar-img" alt="Photo" onerror="this.outerHTML='${String(p.user_id).slice(-2)}'">`
     : String(p.user_id).slice(-2);
 
+  const cloudBadge = typeof renderCloudSyncBadge === 'function' ? renderCloudSyncBadge(p.synced_to_cloud, p.cloud_synced_at) : '';
+
   item.innerHTML = `
     <div class="feed-avatar">${avatarContent}</div>
-    <div class="feed-details">
-      <div class="feed-name">${escapeHtml(empName)}</div>
+    <div class="feed-details" style="flex:1;">
+      <div class="feed-name-row" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <div class="feed-name">${escapeHtml(empName)}</div>
+        ${cloudBadge}
+      </div>
       <div class="feed-meta">
         <span>${subInfo}${formatTimeOnly(p.punch_time)}</span>
         <span>•</span>

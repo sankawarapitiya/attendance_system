@@ -68,6 +68,7 @@ let stopSyncRequested = false;
 let syncTimer = null;
 let healthCheckTimer = null;
 let cloudSyncTimer = null;
+let cloudAttendanceSyncTimer = null;
 let lastKnownLogCount = 0;
 
 let lastSyncStatus = {
@@ -701,6 +702,7 @@ async function syncFromDevice(deviceIp = '192.168.10.15', devicePort = 4370, loc
       firebaseService.syncPendingAttendance({ orgId: targetOrgId, limit: 500 }).then(cloudRes => {
         if (cloudRes && cloudRes.success && cloudRes.uploadedCount > 0) {
           console.log(`[LIVE SYNC] Uploaded ${cloudRes.uploadedCount} latest punch(es) to Firestore partition: ${targetOrgId}`);
+          notifyWs('ATTENDANCE_CLOUD_SYNCED', { uploadedCount: cloudRes.uploadedCount });
           notifyWs('FIREBASE_SYNC_PROGRESS', cloudRes);
         }
       }).catch(err => {
@@ -829,17 +831,36 @@ function startAutoSync(intervalSeconds = 60, getSettingsFn) {
     }
   }, ms);
 
-  // 4. Periodic background cloud-first master sync to Firebase Firestore
+  // 4. Fast real-time Attendance Cloud Sync every 10 seconds
+  if (cloudAttendanceSyncTimer) clearInterval(cloudAttendanceSyncTimer);
+  cloudAttendanceSyncTimer = setInterval(async () => {
+    try {
+      if (firebaseService.isSyncing) return;
+      const status = await firebaseService.getStatus();
+      if (!status.configured || !status.enabled || !status.autoSync) return;
+      if (status.quotaExceeded && status.quotaExceededUntil && Date.now() < status.quotaExceededUntil) {
+        return;
+      }
+      const unsyncedRow = await dbGet(`SELECT count(*) as c FROM attendance_records WHERE synced_to_cloud = 0 OR synced_to_cloud IS NULL`);
+      if (unsyncedRow && unsyncedRow.c > 0) {
+        const cloudRes = await firebaseService.syncPendingAttendance({ limit: 50 });
+        if (cloudRes && cloudRes.uploadedCount > 0) {
+          notifyWs('ATTENDANCE_CLOUD_SYNCED', { uploadedCount: cloudRes.uploadedCount });
+          notifyWs('FIREBASE_SYNC_PROGRESS', cloudRes);
+        }
+      }
+    } catch (err) {}
+  }, 10000);
+
+  // 5. Periodic background cloud-first master sync to Firebase Firestore (every 30 mins)
   if (cloudSyncTimer) clearInterval(cloudSyncTimer);
   cloudSyncTimer = setInterval(async () => {
     try {
       const status = await firebaseService.getStatus();
       if (status.configured && status.enabled && status.autoSync) {
         if (status.quotaExceeded && status.quotaExceededUntil && Date.now() < status.quotaExceededUntil) {
-          // In quota backoff cooldown - skip this interval
           return;
         }
-        // Cloud-first: checks cloud data first, then synchronizes local new records across multiple servers
         const cloudRes = await firebaseService.syncAllCloudFirst({ reason: 'BACKGROUND_TIMER', daysBack: 7 });
         if (cloudRes.success) {
           notifyWs('FIREBASE_SYNC_PROGRESS', cloudRes);
@@ -848,7 +869,7 @@ function startAutoSync(intervalSeconds = 60, getSettingsFn) {
     } catch (cErr) {
       console.warn('[SYNC] Scheduled cloud-first sync cycle error:', cErr.message);
     }
-  }, Math.max(30000, ms));
+  }, Math.max(1800000, ms * 30));
 }
 
 function stopAutoSync() {
@@ -859,6 +880,10 @@ function stopAutoSync() {
   if (healthCheckTimer) {
     clearInterval(healthCheckTimer);
     healthCheckTimer = null;
+  }
+  if (cloudAttendanceSyncTimer) {
+    clearInterval(cloudAttendanceSyncTimer);
+    cloudAttendanceSyncTimer = null;
   }
   if (cloudSyncTimer) {
     clearInterval(cloudSyncTimer);
